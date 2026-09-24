@@ -27,7 +27,7 @@ parser.add_argument('--avatar_id', default='ultralight_avatar1', type=str)
 args = parser.parse_args()
 
 def video2imgs(vid_path, save_path, ext = '.png',cut_frame = 10000000):
-    print(f"即将使用OpenCV将视频: {vid_path} 转换为图片")
+    print(f"Converting video {vid_path} to images with OpenCV")
     cap = cv2.VideoCapture(vid_path)
     count = 0
     while True:
@@ -39,11 +39,11 @@ def video2imgs(vid_path, save_path, ext = '.png',cut_frame = 10000000):
             count += 1
         else:
             break
-    print("视频转换完成")
+    print("Video conversion complete")
 
 def read_imgs(img_list):
     frames = []
-    print('读取图片到内存...')
+    print('Loading images into memory...')
     for img_path in tqdm(img_list):
         frame = cv2.imread(img_path)
         frames.append(frame)
@@ -67,7 +67,7 @@ if __name__ == "__main__":
     #face_det_results = face_detect(frames) 
     coord_list = []
     idx = 0
-    print(f"开始人脸检测")
+    print("Starting face detection")
     landmark = Landmark()
     target_size = args.img_size
     for i in tqdm(range(len(input_img_list))):
@@ -87,9 +87,9 @@ if __name__ == "__main__":
         coord_list.append((xmin, ymin, xmin+w, ymin+h))
         idx = idx + 1
 
-    print(f"共检测到{idx}张人脸")
+    print(f"Detected {idx} faces")
 	
-    print(f"写入数据到坐标文件:{coords_path}")
+    print(f"Writing coordinates to {coords_path}")
     with open(coords_path, 'wb') as f:
         pickle.dump(coord_list, f)
     os.system(f"cp {args.checkpoint} {pth_path}")

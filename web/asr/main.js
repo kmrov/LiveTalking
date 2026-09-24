@@ -8,6 +8,10 @@
 // 连接; 定义socket连接类对象与语音对象
 var wsconnecter = new WebSocketConnectMethod({msgHandle:getJsonMessage,stateHandle:getConnState});
 var audioBlob;
+// Keep status messages in the language of the current ASR page.
+function asrText(zh, en) {
+    return document.documentElement.lang === 'en' ? en : zh;
+}
 
 // 录音; 定义录音对象,wav格式
 var rec = Recorder({
@@ -68,7 +72,7 @@ function addresschange()
 {   
 	
     var Uri = document.getElementById('wssip').value; 
-	document.getElementById('info_wslink').innerHTML="点此处手工授权（IOS手机）";
+	document.getElementById('info_wslink').innerHTML=asrText("点此处手工授权（IOS手机）", "Click here to authorize manually (iOS)");
 	Uri=Uri.replace(/wss/g,"https");
 	console.log("addresschange uri=",Uri);
 	
@@ -159,7 +163,7 @@ upfile.onchange = function () {
 				 file_data_array=audioblob;
  
                   
-                 info_div.innerHTML='请点击连接进行识别';
+                 info_div.innerHTML=asrText('请点击连接进行识别', 'Click Connect to start recognition');
  
                 }
 
@@ -256,7 +260,7 @@ function on_recoder_mode_change()
 		        btnStop.disabled = true;
 		        btnConnect.disabled=true;
 			    isfilemode=true;
-				info_div.innerHTML='请点击选择文件';
+				info_div.innerHTML=asrText('请点击选择文件', 'Select a file');
 			    
 	 
 			}
@@ -426,7 +430,7 @@ function getJsonMessage( jsonMsg ) {
 		play_file();
 		wsconnecter.wsStop();
         
-		info_div.innerHTML="请点击连接";
+		info_div.innerHTML=asrText("请点击连接", "Click Connect");
  
 		btnStart.disabled = true;
 		btnStop.disabled = true;
@@ -442,9 +446,9 @@ function getConnState( connState ) {
 	if ( connState === 0 ) { //on open
  
  
-		info_div.innerHTML='连接成功!请点击开始';
+		info_div.innerHTML=asrText('连接成功!请点击开始', 'Connected! Click Start');
 		if (isfilemode==true){
-			info_div.innerHTML='请耐心等待,大文件等待时间更长';
+			info_div.innerHTML=asrText('请耐心等待,大文件等待时间更长', 'Please wait. Large files take longer.');
 			start_file_send();
 		}
 		else
@@ -459,13 +463,13 @@ function getConnState( connState ) {
 		stop();
 		console.log( 'connecttion error' );
 		 
-		alert("连接地址"+document.getElementById('wssip').value+"失败,请检查asr地址和端口。或试试界面上手动授权，再连接。");
+		alert(asrText("连接地址", "Connection to ")+document.getElementById('wssip').value+asrText("失败,请检查asr地址和端口。或试试界面上手动授权，再连接。", " failed. Check the ASR address and port, or authorize it manually on this page and reconnect."));
 		btnStart.disabled = true;
 		btnStop.disabled = true;
 		btnConnect.disabled=false;
  
  
-		info_div.innerHTML='请点击连接';
+		info_div.innerHTML=asrText('请点击连接', 'Click Connect');
 	}
 }
 
@@ -474,7 +478,7 @@ function record()
  
 		 rec.open( function(){
 		 rec.start();
-		 console.log("开始");
+		 console.log(asrText("开始", "Start"));
 			btnStart.disabled = true;
 			btnStop.disabled = false;
 			btnConnect.disabled=true;
@@ -496,7 +500,7 @@ function start() {
 	var ret=wsconnecter.wsStart();
 	// 1 is ok, 0 is error
 	if(ret==1){
-		info_div.innerHTML="正在连接asr服务器，请等待...";
+		info_div.innerHTML=asrText("正在连接asr服务器，请等待...", "Connecting to the ASR server. Please wait...");
 		isRec = true;
 		btnStart.disabled = true;
 		btnStop.disabled = true;
@@ -506,7 +510,7 @@ function start() {
 	}
 	else
 	{
-		info_div.innerHTML="请点击开始";
+		info_div.innerHTML=asrText("请点击开始", "Click Start");
 		btnStart.disabled = true;
 		btnStop.disabled = true;
 		btnConnect.disabled=false;
@@ -541,7 +545,7 @@ function stop() {
 	// 控件状态更新
 	
 	isRec = false;
-    info_div.innerHTML="发送完数据,请等候,正在识别...";
+    info_div.innerHTML=asrText("发送完数据,请等候,正在识别...", "Audio sent. Waiting for recognition...");
 
    if(isfilemode==false){
 	    btnStop.disabled = true;
@@ -552,7 +556,7 @@ function stop() {
 		console.log("call stop ws!");
 		wsconnecter.wsStop();
 		btnConnect.disabled=false;
-		info_div.innerHTML="请点击连接";}, 3000 );
+		info_div.innerHTML=asrText("请点击连接", "Click Connect");}, 3000 );
  
  
 	   

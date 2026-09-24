@@ -156,7 +156,7 @@ def generate_avatar(video_path, avatar_id, save_path='./data/avatars', bbox_shif
     torch.save(input_latent_list, os.path.join(latents_out_path))
 
     if progress_callback: progress_callback(100)
-    print("Avatar 生成完成！")
+    print("Avatar generation complete!")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

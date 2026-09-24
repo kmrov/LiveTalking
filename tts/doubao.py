@@ -46,7 +46,7 @@ class DoubaoTTS(BaseTTS):
         self.session = requests.Session()
 
         if not self.api_key:
-            logger.warning("DoubaoTTS: DOUBAO_API_KEY 未设置，请设置环境变量")
+            logger.warning("DoubaoTTS: DOUBAO_API_KEY is not set; set the environment variable")
 
         logger.info(
             f"DoubaoTTS init: resource_id={self.resource_id}, voice={self.voice}, "
@@ -108,7 +108,7 @@ class DoubaoTTS(BaseTTS):
                     try:
                         data = json.loads(line)
                     except json.JSONDecodeError:
-                        logger.error("DoubaoTTS 无法解析响应行: %s", line)
+                        logger.error("DoubaoTTS could not parse response line: %s", line)
                         continue
 
                     code = data.get("code", 0)

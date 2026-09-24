@@ -21,7 +21,7 @@ function WebSocketConnectMethod( config ) { //定义socket连接方法类
 		}
 		else
 		{
-			alert("请检查wss地址正确性");
+			alert(asrText("请检查wss地址正确性", "Check the WebSocket address."));
 			return 0;
 		}
  
@@ -38,7 +38,7 @@ function WebSocketConnectMethod( config ) { //定义socket连接方法类
 			return 1;
 		}
 		else {
-			alert('当前浏览器不支持 WebSocket');
+			alert(asrText('当前浏览器不支持 WebSocket', 'This browser does not support WebSocket.'));
 			return 0;
 		}
 	};
@@ -109,7 +109,7 @@ function WebSocketConnectMethod( config ) { //定义socket连接方法类
 	
 	function onError( e ) {
  
-		info_div.innerHTML="连接"+e;
+		info_div.innerHTML=asrText("连接", "Connection error: ")+e;
 		console.log(e);
 		stateHandle(2);
 		

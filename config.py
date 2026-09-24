@@ -45,7 +45,7 @@ def parse_args():
 
     # ─── 配置文件 ──────────────────────────────────────────────────────
     parser.add_argument('--config', '-c', type=str, default='config.yaml',
-                        help='YAML 配置文件路径（设为空字符串可跳过）')
+                        help='Path to YAML configuration file (set to an empty string to skip)')
 
     # ─── 音频 ──────────────────────────────────────────────────────────
     parser.add_argument('--fps', type=int, default=25, help="video fps, must be 25")
@@ -72,9 +72,9 @@ def parse_args():
 
     # ─── TTS ───────────────────────────────────────────────────────────
     parser.add_argument('--tts', type=str, default='edgetts',
-                        help="tts plugin: edgetts/gpt-sovits/cosyvoice/fishtts/tencent/doubao/indextts2/azuretts/qwentts")
+                        help="tts plugin: piper/edgetts/gpt-sovits/xtts/tencent/doubao/azuretts/qwentts/omnitts")
     parser.add_argument('--REF_FILE', type=str, default="zh-CN-YunxiaNeural",
-                        help="参考文件名或语音模型ID")
+                        help="reference file name or voice model ID")
     parser.add_argument('--REF_TEXT', type=str, default=None)
     parser.add_argument('--TTS_SERVER', type=str, default='http://127.0.0.1:9880')
 
@@ -97,7 +97,7 @@ def parse_args():
 
     # ─── 虚拟摄像头 ───────────────────────────────────────────────────
     parser.add_argument('--audio_output_device', type=int, default=None,
-                        help="音频输出设备索引（None=系统默认，仅用于 --transport=virtualcam）。使用 python list_audio_devices.py 查看所有设备")
+                        help="audio output device index (None = system default; virtualcam only). Run python list_audio_devices.py to list devices")
 
     # ─── 加载 YAML 配置文件 ────────────────────────────────────────────
     if _has_yaml:
@@ -111,8 +111,8 @@ def parse_args():
                 yaml_defaults = _yaml_to_args(yaml_cfg)
                 parser.set_defaults(**yaml_defaults)
     else:
-        print("[config] PyYAML 未安装，跳过 YAML 配置文件加载。"
-              "安装: pip install pyyaml")
+        print("[config] PyYAML is not installed; skipping the YAML configuration file. "
+              "Install it with: pip install pyyaml")
 
     # ─── 正式解析 CLI 参数 ─────────────────────────────────────────────
     opt = parser.parse_args()

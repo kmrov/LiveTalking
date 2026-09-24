@@ -17,7 +17,7 @@ try:
         AudioFormat,
     )
 except ImportError:
-    logger.error("QwenTTS 需要安装 dashscope SDK: pip install dashscope>=1.25.11")
+    logger.error("QwenTTS requires the dashscope SDK: pip install dashscope>=1.25.11")
     raise
 
 
@@ -54,7 +54,7 @@ class QwenTTS(BaseTTS):
         if api_key:
             dashscope.api_key = api_key
         else:
-            logger.warning("QwenTTS: DASHSCOPE_API_KEY 未设置，请设置环境变量或通过参数传入")
+            logger.warning("QwenTTS: DASHSCOPE_API_KEY is not set; set the environment variable or pass it as an argument")
 
         # ---------- 内部状态 ----------
         self._remainder = np.array([], dtype=np.float32)  # 上次重采样后不足一 chunk 的 16kHz 样本
@@ -68,10 +68,10 @@ class QwenTTS(BaseTTS):
 
         class _Callback(QwenTtsRealtimeCallback):
             def on_open(self) -> None:
-                logger.info("QwenTTS WebSocket 连接已建立")
+                logger.info("QwenTTS WebSocket connected")
 
             def on_close(self, close_status_code, close_msg) -> None:
-                logger.info(f"QwenTTS WebSocket 关闭: code={close_status_code}, msg={close_msg}")
+                logger.info(f"QwenTTS WebSocket closed: code={close_status_code}, msg={close_msg}")
                 tts_ref._response_event.set()
 
             def on_event(self, response: dict) -> None:
@@ -93,11 +93,11 @@ class QwenTTS(BaseTTS):
                         tts_ref._response_event.set()
 
                     elif event_type == 'error':
-                        logger.error(f"QwenTTS 错误: {response}")
+                        logger.error(f"QwenTTS error: {response}")
                         tts_ref._response_event.set()
 
                 except Exception as e:
-                    logger.exception(f"QwenTTS 回调处理异常: {e}")
+                    logger.exception(f"QwenTTS callback error: {e}")
 
         # ---------- 建立唯一连接 ----------
         self._callback = _Callback()
@@ -113,7 +113,7 @@ class QwenTTS(BaseTTS):
             sample_rate=16000,
             mode='commit',
         )
-        logger.info(f"QwenTTS 初始化完成: model={self.model}, voice={self.voice}")
+        logger.info(f"QwenTTS initialized: model={self.model}, voice={self.voice}")
 
     # ========================== 核心方法 ==========================
 
@@ -150,10 +150,10 @@ class QwenTTS(BaseTTS):
             self._response_event.wait(timeout=60)
 
             t_end = time.perf_counter()
-            logger.info(f"QwenTTS 合成完成，耗时: {t_end - t_start:.2f}s")
+            logger.info(f"QwenTTS synthesis completed in {t_end - t_start:.2f}s")
 
         except Exception as e:
-            logger.exception(f"QwenTTS txt_to_audio 异常: {e}")
+            logger.exception(f"QwenTTS txt_to_audio error: {e}")
 
     # ========================== 流式音频处理（回调中调用）==========================
 
@@ -216,4 +216,4 @@ class QwenTTS(BaseTTS):
 
     def stop_tts(self):
         self._tts_client.close()
-        logger.info("QwenTTS 已关闭")
+        logger.info("QwenTTS closed")

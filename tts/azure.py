@@ -27,7 +27,7 @@ class AzureTTS(BaseTTS):
         speech_endpoint = os.getenv("AZURE_TTS_ENDPOINT")
 
         if not speech_key or not speech_endpoint:
-            logger.warning("AzureTTS: AZURE_SPEECH_KEY / AZURE_TTS_ENDPOINT 未设置，请检查环境变量")
+            logger.warning("AzureTTS: AZURE_SPEECH_KEY / AZURE_TTS_ENDPOINT are not set; check the environment variables")
 
         #speech_endpoint = f"wss://{tts_region}.tts.speech.microsoft.com/cognitiveservices/websocket/v2"
         self.speech_config = speechsdk.SpeechConfig(subscription=speech_key, endpoint=speech_endpoint)
@@ -112,7 +112,7 @@ class AzureTTS(BaseTTS):
             if self._first:
                 eventpoint = {"status": "start", "text": self._cur_text}
                 self._first = False
-                logger.info(f"azure 首块延迟: {time.perf_counter() - self._t_start:.2f}s")
+                logger.info(f"AzureTTS time to first chunk: {time.perf_counter() - self._t_start:.2f}s")
             eventpoint.update(**self._cur_textevent)
             self.parent.put_audio_frame(frame, eventpoint)
 
@@ -135,7 +135,7 @@ class AzureTTS(BaseTTS):
         self._ended = True
 
         if error:
-            logger.error(f"AzureTTS 合成结束异常: {error}")
+            logger.error(f"AzureTTS synthesis completion error: {error}")
 
         # 发送结束标记 (与 doubao/omnitts 模式一致)
         if self.state == State.RUNNING:
