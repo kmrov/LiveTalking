@@ -2,7 +2,7 @@
     <img src="./assets/LiveTalking-logo.png" align="middle" width="600"/>
 </p>
 
-English | [中文版](./README.md)
+English | [Chinese version](./README.md)
 
 <p align="center">
     <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache%202-dfd.svg"></a>
@@ -44,7 +44,7 @@ LiveTalking leverages real-time streaming digital human technology to drive virt
 |----------|-------------|
 | **Virtual Streamer / Live Commerce [LiveStream](https://github.com/lipku/livestream)** | 24/7 unmanned live streaming with LLM-generated sales scripts and action choreography for natural performance |
 | **AI Digital Human Customer Service** | Integrate enterprise knowledge bases for real-time voice Q&A with interruption support |
-| **Online Education / Training** | Digital teacher分身 for course recording, or API-driven digital instructor for real-time lectures |
+| **Online Education / Training** | Digital teacher avatar for course recording, or API-driven digital instructor for real-time lectures |
 | **Intelligent Voice Assistant** | Pair with smart speakers or apps, calling the `/human` API to drive digital human voice interactions |
 | **Large Screen Presentation** | Digital human presenter for exhibition halls, event venues, and other content narration scenarios |
 | **Batch Short Video Creation** | Submit scripts in batch via API to generate digital human videos without real-person filming, using `/human` + `/record` APIs |
@@ -99,17 +99,18 @@ python app.py --transport webrtc --model wav2lip --avatar_id wav2lip256_avatar1
 
 | Method | Description |
 |--------|-------------|
-| Browser | Open `http://serverip:8010/index.html`, click "Start Connection" to play the digital human video, then enter text and submit |
-| API | See [API Docs](docs/api.md) for HTTP-based integration |
+| Browser | Open `http://serverip:8010/index-en.html`, click "Connect" to play the digital human video, then enter text and submit |
+| API | See [API Docs](docs/api-en.md) for HTTP-based integration |
 | Desktop App | Download: <https://pan.quark.cn/s/d7192d8ac19b> |
 
 ### 2.4 Web Pages
 
 | Page | URL | Description |
 |------|-----|-------------|
-| Home | `/index.html` | WebRTC connection + text/audio driver + recording control |
-| Avatar Creator | `/avatar.html` | Upload video to auto-generate digital human avatars |
-| Admin Console | `/admin.html` | Real-time session monitoring & global configuration |
+| Home | `/index-en.html` | WebRTC connection + text/audio driver + recording control |
+| Avatar Creator | `/avatar-en.html` | Upload video to auto-generate digital human avatars |
+| Admin Console | `/admin-en.html` | Real-time session monitoring & global configuration |
+| Virtual Camera | `/virtualcam-en.html` | Control the virtual camera output |
 
 <img src="./assets/index.jpg" align="middle"/>
 
@@ -160,9 +161,10 @@ python app.py --transport webrtc --model wav2lip --avatar_id wav2lip256_avatar1
 
 | Document | Description |
 |----------|-------------|
-| [docs/api.md](docs/api.md) | General API — WebRTC, text/audio driver, recording, action choreography |
-| [docs/avatar_api.md](docs/avatar_api.md) | Avatar Generation API — create tasks, query progress, delete tasks |
-| [docs/admin_api.md](docs/admin_api.md) | Admin API — global config, session monitoring, force stop |
+| [docs/api-en.md](docs/api-en.md) | General API — WebRTC, text/audio driver, recording, action choreography |
+| [docs/avatar_api-en.md](docs/avatar_api-en.md) | Avatar Generation API — create tasks, query progress, delete tasks |
+| [docs/admin_api-en.md](docs/admin_api-en.md) | Admin API — global config and session monitoring |
+| [docs/virtualcam_guide-en.md](docs/virtualcam_guide-en.md) | Virtual camera setup and troubleshooting |
 
 ---
 
@@ -236,6 +238,6 @@ If this repository helps your research or project, please cite our work.
 | Telegram | <https://t.me/livetalking> |
 | Discord | <https://discord.gg/n5jSPCT3Uf> |
 | Email | lipku@foxmail.com |
-| WeChat Official | 数字人技术 |
+| WeChat Official | Digital Human Technology (`数字人技术`) |
 
 <img src="./assets/qrcode-wechat.jpg" align="middle" />

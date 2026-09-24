@@ -171,8 +171,9 @@ curl -X POST http://localhost:8010/is_speaking \
   -H "Content-Type: application/json" \
   -d '{"sessionid":"0"}'
 
-# 获取完整配置
-curl http://localhost:8010/api/virtualcam/status
+# 获取全局配置和活跃会话
+curl http://localhost:8010/api/admin/config
+curl http://localhost:8010/api/admin/sessions
 ```
 
 ---
