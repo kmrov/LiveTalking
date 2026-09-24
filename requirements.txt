@@ -30,6 +30,7 @@ einops
 
 transformers #==4.46.2
 edge_tts
+piper-tts==1.8.0
 flask
 #flask_sockets
 opencv-python-headless

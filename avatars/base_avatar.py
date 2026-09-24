@@ -88,6 +88,7 @@ class BaseAvatar:
 
         _tts_modules = {
             'edgetts': 'tts.edge',
+            'piper': 'tts.piper_tts',
             'gpt-sovits': 'tts.sovits',
             'xtts': 'tts.xtts',
             # 'cosyvoice': 'tts.cosyvoice',
@@ -376,7 +377,7 @@ class BaseAvatar:
                     index = index + 1
                     
             if current_speaking != last_speaking:
-                logger.info(f"inference 状态切换：{'说话' if last_speaking else '静音'} → {'说话' if current_speaking else '静音'}")
+                logger.info(f"Inference state: {'speaking' if last_speaking else 'silent'} → {'speaking' if current_speaking else 'silent'}")
                 last_speaking = current_speaking         
         logger.info('baseavatar inference thread stop')
 
@@ -402,7 +403,7 @@ class BaseAvatar:
             # 检测状态变化
             current_speaking = not (audio_frames[0].type!=0 and audio_frames[1].type!=0)
             if current_speaking != _last_speaking:
-                logger.info(f"状态切换：{'说话' if _last_speaking else '静音'} → {'说话' if current_speaking else '静音'}")
+                logger.info(f"Output state: {'speaking' if _last_speaking else 'silent'} → {'speaking' if current_speaking else 'silent'}")
                 _transition_start = time.time()
             _last_speaking = current_speaking
 
@@ -499,4 +500,3 @@ class BaseAvatar:
 
         process_quit_event.set()
         process_thread.join()
-

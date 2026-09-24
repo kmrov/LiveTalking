@@ -17,8 +17,8 @@ batch_size: 16
 customvideo_config: ''
 
 # -------- TTS ----------------------------------------------------------
-tts: edgetts                   # edgetts / gpt-sovits / cosyvoice / fishtts / tencent / doubao / indextts2 / azuretts / qwentts
-REF_FILE: ''                   # voice name or reference audio file path (wav, 16kHz, mono)
+tts: piper                     # offline Russian speech synthesis
+REF_FILE: models/ru_RU-irina-medium.onnx
 REF_TEXT: ''                   # reference text for voice cloning (English or Chinese)
 TTS_SERVER: ''                 # TTS server URL, no trailing slash
 

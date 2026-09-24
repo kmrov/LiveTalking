@@ -52,7 +52,7 @@ def llm_response(message,avatar_session:'BaseAvatar',datainfo:dict={}):
         logger.info(f"llm Time init: {end-start}s,{message}")
         completion = client.chat.completions.create(
             model=model,
-            messages=[{'role': 'system', 'content': '你是一个知识助手，尽量以简短、口语化的方式输出'},
+            messages=[{'role': 'system', 'content': "You are a helpful assistant. Reply briefly and conversationally in the same language as the user's message."},
                     {'role': 'user', 'content': message}],
             stream=True,
             # Display token usage in the last line of the streamed response.
