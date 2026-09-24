@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,33 +7,33 @@
   <link rel="stylesheet" href="/whip-control.css">
 </head>
 <body>
-  <header class="topbar"><div class="topbar-inner"><a class="brand" href="/index.html">◼ LiveTalking</a><nav><a href="/index.html">Главная</a><a href="/rtcpushapi-en.html">English</a></nav></div></header>
+  <header class="topbar"><div class="topbar-inner"><a class="brand" href="/index-en.html">◼ LiveTalking</a><nav><a href="/index-en.html">Home</a><a href="/rtcpushapi.html">Русский</a></nav></div></header>
   <main class="page">
   <h1>WHIP → Mapping</h1>
-  <p class="lead">Отправка видео и звука в Mapping или другой WHIP-приёмник. Изображение смотрите в приложении-приёмнике.</p>
+  <p class="lead">Send video and audio to Mapping or another WHIP receiver. Watch the output in the receiving app.</p>
   <div class="panels">
   <section class="card" aria-labelledby="connection-title">
-    <h2 id="connection-title">Подключение</h2>
-    <div class="status" role="status"><span id="status-dot" class="dot"></span><span id="connection-status">Проверка состояния…</span></div>
+    <h2 id="connection-title">Connection</h2>
+    <div class="status" role="status"><span id="status-dot" class="dot"></span><span id="connection-status">Checking status…</span></div>
     <form id="connect-form">
       <label for="whip-url">WHIP URL</label>
       <input id="whip-url" type="url" required value="http://127.0.0.1:19840/whip" spellcheck="false" autocomplete="off">
       <label for="whip-token">Bearer token</label>
-      <input id="whip-token" type="password" spellcheck="false" autocomplete="off" placeholder="Вставьте токен из Mapping">
-      <p class="hint">В Mapping выберите <strong>WebRTC receiver</strong>, нажмите <strong>Start connection server</strong>, затем <strong>Copy WHIP URL</strong> и <strong>Copy Bearer token</strong>. При перезапуске Mapping токен меняется. Он не сохраняется этой страницей.</p>
+      <input id="whip-token" type="password" spellcheck="false" autocomplete="off" placeholder="Paste the token from Mapping">
+      <p class="hint">In Mapping, select <strong>WebRTC receiver</strong>, click <strong>Start connection server</strong>, then use <strong>Copy WHIP URL</strong> and <strong>Copy Bearer token</strong>. Mapping creates a new token when its server restarts. This page does not save it.</p>
       <div class="actions">
-        <button id="connect-button" type="submit">Подключить</button>
-        <button id="disconnect-button" class="secondary" type="button" disabled>Отключить</button>
+        <button id="connect-button" type="submit">Connect</button>
+        <button id="disconnect-button" class="secondary" type="button" disabled>Disconnect</button>
       </div>
     </form>
     <p id="connection-message" class="message" aria-live="polite"></p>
   </section>
   <section class="card" aria-labelledby="speech-title">
-    <h2 id="speech-title">Сказать фразу</h2>
+    <h2 id="speech-title">Speak a phrase</h2>
     <form id="speech-form">
-      <label for="message">Текст</label>
-      <textarea id="message" required placeholder="Введите фразу для цифрового человека"></textarea>
-      <div class="actions"><button id="speech-button" type="submit" disabled>Отправить</button></div>
+      <label for="message">Text</label>
+      <textarea id="message" required placeholder="Enter a phrase for the avatar"></textarea>
+      <div class="actions"><button id="speech-button" type="submit" disabled>Send</button></div>
     </form>
     <p id="speech-message" class="message" aria-live="polite"></p>
   </section>
@@ -49,7 +49,7 @@
     const statusDot = document.getElementById('status-dot');
     const connectionMessage = document.getElementById('connection-message');
     const speechMessage = document.getElementById('speech-message');
-    const stateLabels = { new: 'Подключение…', connected: 'Подключено', connecting: 'Подключение…', disconnected: 'Отключено', failed: 'Ошибка соединения', closed: 'Отключено' };
+    const stateLabels = { new: 'Connecting…', connected: 'Connected', connecting: 'Connecting…', disconnected: 'Disconnected', failed: 'Connection failed', closed: 'Disconnected' };
     let busy = false;
     let currentState = 'disconnected';
 
@@ -74,20 +74,20 @@
     }
     async function refresh() {
       try { render(await api('/api/whip/status')); }
-      catch (error) { showMessage(connectionMessage, `Не удалось получить состояние: ${error.message}`, true); }
+      catch (error) { showMessage(connectionMessage, `Could not load status: ${error.message}`, true); }
     }
     document.getElementById('connect-form').addEventListener('submit', async event => {
       event.preventDefault();
       busy = true;
       render({ state: currentState, url: '' });
-      showMessage(connectionMessage, 'Устанавливаю соединение…');
+      showMessage(connectionMessage, 'Connecting…');
       try {
         const status = await api('/api/whip/connect', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: urlInput.value.trim(), token: tokenInput.value.trim() }),
         });
         tokenInput.value = '';
-        showMessage(connectionMessage, 'Поток отправляется в приёмник.');
+        showMessage(connectionMessage, 'Stream is being sent to the receiver.');
         render(status);
       } catch (error) {
         showMessage(connectionMessage, error.message, true);
@@ -101,7 +101,7 @@
       render({ state: currentState, url: '' });
       try {
         render(await api('/api/whip/disconnect', { method: 'POST' }));
-        showMessage(connectionMessage, 'Поток остановлен.');
+        showMessage(connectionMessage, 'Stream stopped.');
       } catch (error) {
         showMessage(connectionMessage, error.message, true);
       } finally {
@@ -117,7 +117,7 @@
         await api('/human', { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sessionid: '0', type: 'echo', text: message.value }) });
         message.value = '';
-        showMessage(speechMessage, 'Фраза отправлена.');
+        showMessage(speechMessage, 'Phrase sent.');
       } catch (error) {
         showMessage(speechMessage, error.message, true);
       } finally {

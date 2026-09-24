@@ -4,6 +4,8 @@
 
 import json
 import asyncio
+import ipaddress
+from urllib.parse import urlsplit
 from aiohttp import web
 
 from utils.logger import logger
@@ -32,6 +34,7 @@ def json_error(msg: str, code: int = -1):
 
 from server.session_manager import session_manager
 from server.avatar_routes import setup_avatar_routes
+from server.rtc_manager import WhipAlreadyActiveError
 
 def get_session(request, sessionid: str):
     """从 app 中获取 session 实例"""
@@ -228,6 +231,77 @@ async def admin_sessions(request):
         return json_error(str(e))
 
 
+def _whip_control_allowed(request):
+    """Управление секретом и исходящим соединением доступно только локальной странице."""
+    try:
+        remote = ipaddress.ip_address(request.remote or "")
+        hostname = urlsplit(f"http://{request.host}").hostname or ""
+    except ValueError:
+        return False
+    if hostname == "localhost":
+        local_host = True
+    else:
+        try:
+            local_host = ipaddress.ip_address(hostname).is_loopback
+        except ValueError:
+            return False
+    origin = request.headers.get("Origin")
+    return remote.is_loopback and local_host and (not origin or origin == f"{request.scheme}://{request.host}")
+
+
+def _whip_json(status, data=None, message=None):
+    body = {"code": 0 if status < 400 else -1, "msg": message or ("ok" if status < 400 else "error")}
+    if data is not None:
+        body["data"] = data
+    return web.json_response(body, status=status)
+
+
+async def whip_status(request):
+    if not _whip_control_allowed(request):
+        return _whip_json(403, message="Local access only")
+    return _whip_json(200, request.app["rtc_manager"].whip_status())
+
+
+async def whip_connect(request):
+    if not _whip_control_allowed(request):
+        return _whip_json(403, message="Local access only")
+    if request.app["opt"].transport not in ("webrtc", "rtcpush"):
+        return _whip_json(409, message="WHIP is available with WebRTC or RTCPush transport")
+    try:
+        params = await request.json()
+    except (ValueError, web.HTTPBadRequest):
+        return _whip_json(400, message="Invalid JSON")
+    if not isinstance(params, dict):
+        return _whip_json(400, message="Invalid request")
+    url = params.get("url")
+    token = params.get("token", "")
+    if not isinstance(url, str) or not isinstance(token, str):
+        return _whip_json(400, message="Invalid URL or token")
+    url = url.strip()
+    try:
+        parsed = urlsplit(url)
+        valid_url = parsed.scheme in ("http", "https") and parsed.hostname and not parsed.username and not parsed.password and not parsed.fragment
+    except ValueError:
+        valid_url = False
+    if not valid_url:
+        return _whip_json(400, message="Enter a valid HTTP(S) WHIP URL without credentials or fragment")
+    try:
+        status = await request.app["rtc_manager"].connect_whip(url, token)
+    except WhipAlreadyActiveError as exc:
+        return _whip_json(409, message=str(exc))
+    except Exception as exc:
+        logger.warning("WHIP connection failed: %s", exc)
+        return _whip_json(502, message=str(exc))
+    return _whip_json(200, status)
+
+
+async def whip_disconnect(request):
+    if not _whip_control_allowed(request):
+        return _whip_json(403, message="Local access only")
+    status = await request.app["rtc_manager"].disconnect_whip()
+    return _whip_json(200, status)
+
+
 # ─── 路由注册 ──────────────────────────────────────────────────────────────
 
 async def index(request):
@@ -252,6 +326,9 @@ def setup_routes(app):
     app.router.add_post("/is_speaking", is_speaking)
     app.router.add_get("/api/admin/config", admin_config)
     app.router.add_get("/api/admin/sessions", admin_sessions)
+    app.router.add_get("/api/whip/status", whip_status)
+    app.router.add_post("/api/whip/connect", whip_connect)
+    app.router.add_post("/api/whip/disconnect", whip_disconnect)
     app.router.add_get('/sse', sse_handler)
 
     # ── Local ASR endpoint (SenseVoice/FunASR) ── Issue #604 ──
