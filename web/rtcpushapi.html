@@ -9,18 +9,18 @@
 <body>
   <header class="topbar"><div class="topbar-inner"><a class="brand" href="/index.html">◼ LiveTalking</a><nav><a href="/index.html">Главная</a><a href="/rtcpushapi-en.html">English</a></nav></div></header>
   <main class="page">
-  <h1>WHIP → Mapping</h1>
-  <p class="lead">Отправка видео и звука в Mapping или другой WHIP-приёмник. Изображение смотрите в приложении-приёмнике.</p>
+  <h1>WebRTC (WHIP)</h1>
+  <p class="lead">Отправка видео и звука по WebRTC через протокол WHIP. Изображение смотрите в приложении-приёмнике.</p>
   <div class="panels">
   <section class="card" aria-labelledby="connection-title">
     <h2 id="connection-title">Подключение</h2>
     <div class="status" role="status"><span id="status-dot" class="dot"></span><span id="connection-status">Проверка состояния…</span></div>
     <form id="connect-form">
       <label for="whip-url">WHIP URL</label>
-      <input id="whip-url" type="url" required value="http://127.0.0.1:19840/whip" spellcheck="false" autocomplete="off">
+      <input id="whip-url" type="url" required placeholder="https://example.com/whip" spellcheck="false" autocomplete="off">
       <label for="whip-token">Bearer token</label>
-      <input id="whip-token" type="password" spellcheck="false" autocomplete="off" placeholder="Вставьте токен из Mapping">
-      <p class="hint">В Mapping выберите <strong>WebRTC receiver</strong>, нажмите <strong>Start connection server</strong>, затем <strong>Copy WHIP URL</strong> и <strong>Copy Bearer token</strong>. При перезапуске Mapping токен меняется. Он не сохраняется этой страницей.</p>
+      <input id="whip-token" type="password" spellcheck="false" autocomplete="off" placeholder="Введите токен, если требуется">
+      <p class="hint">Укажите WHIP URL WebRTC-приёмника и Bearer token, если приёмник требует авторизацию. Токен не сохраняется этой страницей.</p>
       <div class="actions">
         <button id="connect-button" type="submit">Подключить</button>
         <button id="disconnect-button" class="secondary" type="button" disabled>Отключить</button>

@@ -9,18 +9,18 @@
 <body>
   <header class="topbar"><div class="topbar-inner"><a class="brand" href="/index-en.html">◼ LiveTalking</a><nav><a href="/index-en.html">Home</a><a href="/rtcpushapi.html">Русский</a></nav></div></header>
   <main class="page">
-  <h1>WHIP → Mapping</h1>
-  <p class="lead">Send video and audio to Mapping or another WHIP receiver. Watch the output in the receiving app.</p>
+  <h1>WebRTC (WHIP)</h1>
+  <p class="lead">Send video and audio over WebRTC using WHIP. Watch the output in the receiving app.</p>
   <div class="panels">
   <section class="card" aria-labelledby="connection-title">
     <h2 id="connection-title">Connection</h2>
     <div class="status" role="status"><span id="status-dot" class="dot"></span><span id="connection-status">Checking status…</span></div>
     <form id="connect-form">
       <label for="whip-url">WHIP URL</label>
-      <input id="whip-url" type="url" required value="http://127.0.0.1:19840/whip" spellcheck="false" autocomplete="off">
+      <input id="whip-url" type="url" required placeholder="https://example.com/whip" spellcheck="false" autocomplete="off">
       <label for="whip-token">Bearer token</label>
-      <input id="whip-token" type="password" spellcheck="false" autocomplete="off" placeholder="Paste the token from Mapping">
-      <p class="hint">In Mapping, select <strong>WebRTC receiver</strong>, click <strong>Start connection server</strong>, then use <strong>Copy WHIP URL</strong> and <strong>Copy Bearer token</strong>. Mapping creates a new token when its server restarts. This page does not save it.</p>
+      <input id="whip-token" type="password" spellcheck="false" autocomplete="off" placeholder="Enter a token if required">
+      <p class="hint">Enter the WebRTC receiver's WHIP URL and a Bearer token if the receiver requires authentication. This page does not save the token.</p>
       <div class="actions">
         <button id="connect-button" type="submit">Connect</button>
         <button id="disconnect-button" class="secondary" type="button" disabled>Disconnect</button>
