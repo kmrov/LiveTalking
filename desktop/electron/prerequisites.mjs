@@ -106,11 +106,9 @@ export async function inspectPrerequisites(input, probes = defaultProbes) {
     }
   }
 
-  if (speech.mode === 'local') {
-    results.push(await probes.gpu()
-      ? item('gpu', 'ready', 'NVIDIA GPU доступна')
-      : item('gpu', 'missing', 'NVIDIA GPU не обнаружена', 'Проверьте драйвер CUDA через nvidia-smi или используйте внешние ASR/TTS серверы.'));
-  }
+  results.push(await probes.gpu()
+    ? item('gpu', 'ready', 'NVIDIA GPU для аватара доступна')
+    : item('gpu', 'missing', 'NVIDIA GPU для аватара не обнаружена', 'Проверьте драйвер CUDA через nvidia-smi; локальному аватару GPU нужна и при внешних ASR/TTS серверах.'));
   const port = await probes.port(lt.port);
   results.push(port === 'occupied'
     ? item('port', 'blocked', `Порт ${lt.port} занят другим процессом`, 'Остановите конфликтующий процесс или выберите другой порт.')

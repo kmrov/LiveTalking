@@ -49,6 +49,8 @@ export function normalizeProfile(input) {
   if (!['local', 'external'].includes(mode)) throw new ProfileError('speech.mode', 'expected local or external');
   const autoStart = source.autoStart ?? true;
   if (typeof autoStart !== 'boolean') throw new ProfileError('autoStart', 'expected a boolean');
+  const avatarId = string(lt.avatarId, 'liveTalking.avatarId', 'wav2lip256_avatar1');
+  if (!/^[\p{L}\p{N}_-]{1,128}$/u.test(avatarId)) throw new ProfileError('liveTalking.avatarId', 'use letters, numbers, _ or -');
   return {
     schemaVersion: 1,
     id,
@@ -57,7 +59,7 @@ export function normalizeProfile(input) {
       root,
       python: absolutePath(lt.python, 'liveTalking.python', root ? path.join(root, '.venv/bin/python') : ''),
       model: string(lt.model, 'liveTalking.model', 'wav2lip'),
-      avatarId: string(lt.avatarId, 'liveTalking.avatarId', 'wav2lip256_avatar1'),
+      avatarId,
       port,
     },
     speech: {

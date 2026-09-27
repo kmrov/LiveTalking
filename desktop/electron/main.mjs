@@ -14,6 +14,9 @@ import { initialServiceState, transitionServiceState } from '../src/service-stat
 const studioFile = fileURLToPath(new URL('../dist/studio.html', import.meta.url));
 const studioUrl = pathToFileURL(studioFile).href;
 const preloadFile = fileURLToPath(new URL('./preload.cjs', import.meta.url));
+const fixtureMode = process.env.LIVETALKING_DESKTOP_TEST_FIXTURE === '1';
+const fixturePort = Number(process.env.LIVETALKING_DESKTOP_TEST_PORT);
+if (fixtureMode && process.env.LIVETALKING_DESKTOP_TEST_USER_DATA) app.setPath('userData', process.env.LIVETALKING_DESKTOP_TEST_USER_DATA);
 
 let studioWindow;
 let profileStore;
@@ -28,6 +31,9 @@ function runtimeSnapshot() { return { service: serviceState, supervisor: supervi
 function publishSnapshot() {
   if (studioWindow && !studioWindow.isDestroyed()) studioWindow.webContents.send('desktop:snapshot', runtimeSnapshot());
 }
+const setupChecks = profile => fixtureMode
+  ? Promise.resolve([{ id: 'fixture', state: 'ready', detail: 'Smoke fixture ready', action: '' }])
+  : inspectPrerequisites(profile);
 
 async function startProfile(id) {
   if (startJob) return startJob;
@@ -40,7 +46,7 @@ async function startProfile(id) {
   publishSnapshot();
   startJob = (async () => {
     try {
-      const checks = await inspectPrerequisites(profile);
+      const checks = await setupChecks(profile);
       if (token !== runGeneration) return runtimeSnapshot();
       const blockers = checks.filter(result => result.state !== 'ready');
       if (blockers.length) throw new Error(blockers.map(result => result.detail).join('; '));
@@ -83,6 +89,11 @@ function trusted(handler) {
 function initialProfile() {
   const saved = profileStore.get(profileStore.lastSuccessfulId()) ?? profileStore.list()[0];
   if (saved) return saved;
+  if (fixtureMode) return normalizeProfile({
+    id: 'fixture', liveTalking: { root: path.dirname(app.getAppPath()), python: '/usr/bin/python3', port: fixturePort },
+    speech: { mode: 'external', referenceWav: '/tmp/fixture.wav', referenceText: 'Привет', asrUrl: `http://127.0.0.1:${fixturePort}`, ttsUrl: `http://127.0.0.1:${fixturePort}` },
+    autoStart: false,
+  });
   const root = discoverLiveTalkingRoot({
     appPath: app.getAppPath(),
     executablePath: process.execPath,
@@ -105,9 +116,9 @@ function registerSetupIpc() {
       profile.speech.referenceWav = voiceReferences[0].wav;
       profile.speech.referenceText = voiceReferences[0].text;
     }
-    return { profile, voiceReferences, recoveryError: profileStore.recoveryError() };
+    return { profile, voiceReferences, recoveryError: profileStore.recoveryError(), testFixture: fixtureMode };
   }));
-  ipcMain.handle('desktop:check-setup', trusted(async input => inspectPrerequisites(normalizeProfile(input))));
+  ipcMain.handle('desktop:check-setup', trusted(async input => setupChecks(normalizeProfile(input))));
   ipcMain.handle('desktop:save-profile', trusted(input => profileStore.save(normalizeProfile(input))));
   ipcMain.handle('desktop:choose-root', trusted(async () => {
     const result = await dialog.showOpenDialog(studioWindow, { title: 'Выбрать LiveTalking', properties: ['openDirectory'] });

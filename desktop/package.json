@@ -7,13 +7,15 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "start": "npm run build && electron .",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "smoke": "npm run build && node scripts/smoke-electron.mjs"
   },
   "engines": {
     "node": ">=22"
   },
   "devDependencies": {
     "electron": "44.4.5",
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "playwright": "1.63.0"
   }
 }

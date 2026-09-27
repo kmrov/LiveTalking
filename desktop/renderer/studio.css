@@ -38,6 +38,8 @@ body { overflow: hidden; }
 .detected-root strong { overflow-wrap: anywhere; font-size: 11px; font-weight: 550; }
 .text-button { padding: 0; border: 0; background: transparent; color: #a9cfc4; font: inherit; font-size: 11px; text-align: left; cursor: pointer; }
 #setup-form { display: grid; gap: 13px; }
+.setup-details { margin: 14px 0; color: #a8bcae; font-size: 11px; }
+.setup-details summary { margin-bottom: 12px; cursor: pointer; }
 #setup-form label { display: grid; gap: 5px; color: #a8b7b0; font-size: 11px; }
 #setup-form input, #setup-form select, #setup-form textarea { width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid #36423d; border-radius: 5px; outline: 0; background: #101617; color: #ecf0ed; font: inherit; font-size: 11px; }
 #setup-form input:focus, #setup-form select:focus, #setup-form textarea:focus { border-color: #a9cfc4; }

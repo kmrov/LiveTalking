@@ -20,4 +20,5 @@ test('profile accepts spaced Unicode paths and drops secret fields', () => {
 test('profile reports invalid field names', () => {
   assert.throws(() => normalizeProfile({ id: '../../escape' }), error => error instanceof ProfileError && error.field === 'id');
   assert.throws(() => normalizeProfile({ id: 'main', liveTalking: { port: 70000 } }), error => error instanceof ProfileError && error.field === 'liveTalking.port');
+  assert.throws(() => normalizeProfile({ id: 'main', liveTalking: { avatarId: '../../escape' } }), error => error instanceof ProfileError && error.field === 'liveTalking.avatarId');
 });

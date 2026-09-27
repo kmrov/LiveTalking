@@ -1,13 +1,14 @@
 import { createWebRtcClient } from './webrtc-client.mjs';
 import { createConversationClient } from './conversation-client.mjs';
 import { createAsrClient } from './asr-client.mjs';
+import { FixturePeer } from './fixture-peer.mjs';
 
 const bridge = window.liveTalkingDesktop;
 if (bridge?.version) document.querySelector('#app-version').textContent = `v0.1 · API ${bridge.version}`;
 
 const $ = selector => document.querySelector(selector);
 const fields = {
-  python: $('#python-path'), avatarId: $('#avatar-id'), port: $('#server-port'),
+  python: $('#python-path'), model: $('#avatar-model'), avatarId: $('#avatar-id'), port: $('#server-port'),
   mode: $('#speech-mode'), asrVllm: $('#asr-vllm'), ttsVllm: $('#tts-vllm'),
   asrUrl: $('#asr-url'), ttsUrl: $('#tts-url'), voice: $('#voice-wav'),
   transcript: $('#voice-text'), autoStart: $('#auto-start'),
@@ -16,6 +17,7 @@ let currentProfile;
 let knownVoices = [];
 let webRtcClient;
 let serviceReady = false;
+let testFixture = false;
 let conversationClient;
 let recording = false;
 let recordingBusy = false;
@@ -56,6 +58,7 @@ function appendMessage(text, type) {
 function showWebRtcState(state) {
   const labels = { disconnected: 'Нет подключения', connecting: 'Подключение…', negotiating: 'Согласование потока…', connected: 'Поток подключён', reconnecting: 'Переподключение…', failed: 'Ошибка WebRTC', closed: 'Соединение закрыто' };
   $('#webrtc-state').textContent = labels[state] || state;
+  $('#webrtc-state').dataset.sessionId = webRtcClient?.sessionId() || '';
   $('#connect-avatar').disabled = !serviceReady || ['connecting', 'negotiating'].includes(state);
   const connected = Boolean(webRtcClient?.sessionId());
   $('#connect-avatar').textContent = connected ? 'Отключить' : 'Подключить WebRTC';
@@ -91,6 +94,8 @@ const stageLabels = { stopped: 'Ожидает', starting: 'Запуск', ready
 function showSnapshot(snapshot) {
   const phase = snapshot.service.phase;
   serviceReady = phase === 'ready';
+  $('#setup-title').textContent = serviceReady ? 'Профиль запущен' : 'Локальное окружение';
+  if (serviceReady) { $('#setup-details').open = false; $('#check-details').open = false; }
   $('#connect-avatar').disabled = !serviceReady;
   if (!serviceReady && webRtcClient) disconnectAvatar();
   if (!serviceReady && asrClient) { asrClient.dispose(); asrClient = null; }
@@ -128,8 +133,10 @@ function showMode() {
 
 function showProfile(profile) {
   currentProfile = profile;
+  $('#profile-name').textContent = profile.name;
   $('#root-path').textContent = profile.liveTalking.root || 'Не найден рядом с приложением';
   fields.python.value = profile.liveTalking.python;
+  fields.model.value = profile.liveTalking.model;
   fields.avatarId.value = profile.liveTalking.avatarId;
   fields.port.value = profile.liveTalking.port;
   fields.mode.value = profile.speech.mode;
@@ -149,6 +156,7 @@ function formProfile() {
     liveTalking: {
       ...currentProfile.liveTalking,
       python: fields.python.value,
+      model: fields.model.value,
       avatarId: fields.avatarId.value,
       port: Number(fields.port.value),
     },
@@ -192,6 +200,7 @@ async function checkSetup() {
     const results = await bridge.checkSetup(formProfile());
     showResults(results);
     const missing = results.filter(item => item.state !== 'ready').length;
+    $('#check-details').open = missing > 0;
     message(missing ? `Нужно исправить: ${missing}` : 'Все проверки пройдены. Профиль готов к запуску.');
     return results;
   } catch (error) { message(error.message); return null; }
@@ -253,7 +262,7 @@ $('#connect-avatar').addEventListener('click', async () => {
   if (webRtcClient?.sessionId()) { disconnectAvatar(); return; }
   if (!serviceReady || !currentProfile) return;
   webRtcClient = createWebRtcClient({
-    RTCPeerConnection: window.RTCPeerConnection,
+    RTCPeerConnection: testFixture ? FixturePeer : window.RTCPeerConnection,
     fetch: window.fetch.bind(window),
     baseUrl: `http://127.0.0.1:${currentProfile.liveTalking.port}`,
     onState: showWebRtcState,
@@ -350,10 +359,11 @@ window.addEventListener('beforeunload', disconnectAvatar);
 if (bridge) {
   bridge.onSnapshot(showSnapshot);
   bridge.getSnapshot().then(showSnapshot).catch(error => message(error.message));
-  bridge.getSetup().then(async ({ profile, voiceReferences, recoveryError }) => {
+  bridge.getSetup().then(async ({ profile, voiceReferences, recoveryError, testFixture: fixture }) => {
+    testFixture = fixture;
     showProfile(profile);
     showKnownVoices(voiceReferences);
-    if (recoveryError) message(recoveryError);
+    if (recoveryError) { $('#setup-recovery').textContent = recoveryError; $('#setup-recovery').hidden = false; }
     await checkSetup();
   }).catch(error => message(error.message));
 }

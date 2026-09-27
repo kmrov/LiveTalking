@@ -11,7 +11,7 @@
   <div class="app-shell">
     <header class="topbar">
       <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>LIVE<span class="brand-light">TALKING</span></span></div>
-      <div class="topbar-context"><span class="section-label">СТУДИЯ</span><span class="context-divider"></span><span>Новый профиль</span></div>
+      <div class="topbar-context"><span class="section-label">СТУДИЯ</span><span class="context-divider"></span><span id="profile-name">Новый профиль</span></div>
       <div class="topbar-state"><button id="start-profile" type="button">Запустить</button><button id="stop-profile" type="button" disabled>Остановить</button><span class="status-dot" aria-hidden="true"></span><span id="runtime-state">Не настроено</span></div>
     </header>
 
@@ -20,11 +20,12 @@
         <div class="panel-heading"><span>ПРОФИЛЬ</span><span class="index">01</span></div>
         <div class="setup-card">
           <div class="setup-icon" aria-hidden="true">◇</div>
-          <h1>Проверим окружение</h1>
+          <h1 id="setup-title">Проверим окружение</h1>
           <p>LiveTalking ищется рядом с приложением. Проверьте зависимости и сохраните профиль — дальше сервисы будут запускаться сами.</p>
           <div class="detected-root"><span>КАТАЛОГ LIVETALKING</span><strong id="root-path">Поиск…</strong><button type="button" class="text-button" id="choose-root">Выбрать другой каталог</button></div>
-          <form id="setup-form">
+          <details id="setup-details" class="setup-details" open><summary>Настройки окружения</summary><form id="setup-form">
             <label>Python LiveTalking<input id="python-path" autocomplete="off" spellcheck="false" placeholder="/путь/к/.venv/bin/python"></label>
+            <label>Модель аватара<select id="avatar-model"><option value="wav2lip">Wav2Lip</option><option value="musetalk">MuseTalk</option><option value="ultralight">Ultralight</option></select></label>
             <label>Аватар<input id="avatar-id" autocomplete="off" spellcheck="false"></label>
             <label>Порт LiveTalking<input id="server-port" type="number" min="1" max="65535"></label>
             <label>Режим моделей<select id="speech-mode"><option value="local">Запускать локально</option><option value="external">Внешние серверы</option></select></label>
@@ -36,9 +37,10 @@
             <label>Текст образца<textarea id="voice-text" rows="2" placeholder="Дословная расшифровка записи"></textarea></label>
             <label class="checkbox-label"><input id="auto-start" type="checkbox"> Запускать при открытии</label>
             <div class="setup-actions"><button type="button" id="check-setup">Проверить</button><button type="submit" class="primary-button">Сохранить профиль</button></div>
-          </form>
+          </form></details>
           <p id="setup-message" role="status"></p>
-          <ul id="setup-results" aria-label="Результаты проверки"></ul>
+          <p id="setup-recovery" role="alert" hidden></p>
+          <details id="check-details" class="setup-details"><summary>Результаты проверки</summary><ul id="setup-results" aria-label="Результаты проверки"></ul></details>
         </div>
         <div class="panel-divider"></div>
         <div class="panel-heading"><span>СЕРВИСЫ</span><span class="index">02</span></div>

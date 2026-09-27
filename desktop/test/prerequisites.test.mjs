@@ -35,12 +35,12 @@ test('prerequisite accepts a compatible LiveTalking health reply', async () => {
   assert.equal(results.find(item => item.id === 'port').state, 'ready');
 });
 
-test('prerequisite external speech mode does not require local vLLM executables or GPU', async () => {
+test('prerequisite external speech mode does not require local vLLM executables; avatar still needs GPU', async () => {
   const profile = normalizeProfile({ ...base, speech: { ...base.speech, mode: 'external', asrUrl: 'http://127.0.0.1:8092', ttsUrl: 'http://127.0.0.1:8091', asrVllm: '', ttsVllm: '' } });
   const results = await inspectPrerequisites(profile, probes({ exists: file => !file.includes('/bin/vllm'), gpu: async () => false }));
   assert.equal(results.find(item => item.id === 'asr').state, 'ready');
   assert.equal(results.find(item => item.id === 'tts').state, 'ready');
-  assert.equal(results.some(item => item.id === 'gpu'), false);
+  assert.equal(results.find(item => item.id === 'gpu').state, 'missing');
 });
 
 test('prerequisite reports missing adjacent LiveTalking checkout', async () => {
