@@ -1,3 +1,5 @@
+import { createWebRtcClient } from './webrtc-client.mjs';
+
 const bridge = window.liveTalkingDesktop;
 if (bridge?.version) document.querySelector('#app-version').textContent = `v0.1 · API ${bridge.version}`;
 
@@ -10,6 +12,36 @@ const fields = {
 };
 let currentProfile;
 let knownVoices = [];
+let webRtcClient;
+let serviceReady = false;
+
+function showWebRtcState(state) {
+  const labels = { disconnected: 'Нет подключения', connecting: 'Подключение…', negotiating: 'Согласование потока…', connected: 'Поток подключён', reconnecting: 'Переподключение…', failed: 'Ошибка WebRTC', closed: 'Соединение закрыто' };
+  $('#webrtc-state').textContent = labels[state] || state;
+  $('#connect-avatar').disabled = !serviceReady || ['connecting', 'negotiating'].includes(state);
+  const connected = Boolean(webRtcClient?.sessionId());
+  $('#connect-avatar').textContent = connected ? 'Отключить' : 'Подключить WebRTC';
+  if (['disconnected', 'failed', 'closed'].includes(state)) {
+    $('#avatar-video').srcObject = null;
+    $('#avatar-audio').srcObject = null;
+    $('.stage-empty').hidden = false;
+  }
+}
+
+function receiveTrack(event) {
+  const target = event.track.kind === 'video' ? $('#avatar-video') : $('#avatar-audio');
+  target.srcObject = event.streams[0] || new MediaStream([event.track]);
+  if (event.track.kind === 'video') {
+    target.hidden = false;
+    $('.stage-empty').hidden = true;
+  }
+}
+
+function disconnectAvatar() {
+  webRtcClient?.disconnect();
+  webRtcClient = null;
+  showWebRtcState('disconnected');
+}
 const phaseLabels = {
   'not-configured': 'Не настроено', checking: 'Проверка', starting: 'Запуск',
   ready: 'Работает', reconnecting: 'Переподключение', failed: 'Ошибка',
@@ -18,6 +50,9 @@ const stageLabels = { stopped: 'Ожидает', starting: 'Запуск', ready
 
 function showSnapshot(snapshot) {
   const phase = snapshot.service.phase;
+  serviceReady = phase === 'ready';
+  $('#connect-avatar').disabled = !serviceReady;
+  if (!serviceReady && webRtcClient) disconnectAvatar();
   $('#runtime-state').textContent = phaseLabels[phase] || phase;
   $('#start-profile').disabled = ['checking', 'starting', 'ready'].includes(phase);
   $('#stop-profile').disabled = ['not-configured'].includes(phase);
@@ -172,6 +207,25 @@ $('#start-profile').addEventListener('click', async () => {
 $('#stop-profile').addEventListener('click', async () => {
   try { await bridge.stopProfile(); } catch (error) { message(error.message); }
 });
+$('#connect-avatar').addEventListener('click', async () => {
+  if (webRtcClient?.sessionId()) { disconnectAvatar(); return; }
+  if (!serviceReady || !currentProfile) return;
+  webRtcClient = createWebRtcClient({
+    RTCPeerConnection: window.RTCPeerConnection,
+    fetch: window.fetch.bind(window),
+    baseUrl: `http://127.0.0.1:${currentProfile.liveTalking.port}`,
+    onState: showWebRtcState,
+    onTrack: receiveTrack,
+  });
+  try {
+    await webRtcClient.connect({
+      avatarId: currentProfile.liveTalking.avatarId,
+      referenceWav: currentProfile.speech.referenceWav,
+      referenceText: currentProfile.speech.referenceText,
+    });
+  } catch (error) { $('#webrtc-state').textContent = `WebRTC: ${error.message}`; }
+});
+window.addEventListener('beforeunload', disconnectAvatar);
 
 if (bridge) {
   bridge.onSnapshot(showSnapshot);
