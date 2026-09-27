@@ -1,0 +1,79 @@
+import path from 'node:path';
+
+export class ProfileError extends Error {
+  constructor(field, message) {
+    super(`${field}: ${message}`);
+    this.name = 'ProfileError';
+    this.field = field;
+  }
+}
+
+function object(value, field) {
+  if (value === undefined) return {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ProfileError(field, 'expected an object');
+  return value;
+}
+
+function string(value, field, fallback = '') {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value !== 'string' || value.includes('\0')) throw new ProfileError(field, 'expected text');
+  return value.trim();
+}
+
+function absolutePath(value, field, fallback = '') {
+  const text = string(value, field, fallback);
+  if (text && !path.isAbsolute(text)) throw new ProfileError(field, 'expected an absolute path');
+  return text;
+}
+
+function url(value, field) {
+  const text = string(value, field);
+  if (!text) return '';
+  let parsed;
+  try { parsed = new URL(text); } catch { throw new ProfileError(field, 'expected an HTTP URL'); }
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new ProfileError(field, 'expected an HTTP URL without credentials');
+  return text;
+}
+
+export function normalizeProfile(input) {
+  const source = object(input, 'profile');
+  const id = string(source.id, 'id', 'default');
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(id)) throw new ProfileError('id', 'use 1–64 letters, numbers, _ or -');
+  const lt = object(source.liveTalking, 'liveTalking');
+  const speech = object(source.speech, 'speech');
+  const llm = object(source.llm, 'llm');
+  const root = absolutePath(lt.root, 'liveTalking.root');
+  const port = lt.port ?? 8010;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new ProfileError('liveTalking.port', 'expected port 1–65535');
+  const mode = string(speech.mode, 'speech.mode', 'local');
+  if (!['local', 'external'].includes(mode)) throw new ProfileError('speech.mode', 'expected local or external');
+  const autoStart = source.autoStart ?? true;
+  if (typeof autoStart !== 'boolean') throw new ProfileError('autoStart', 'expected a boolean');
+  return {
+    schemaVersion: 1,
+    id,
+    name: string(source.name, 'name', 'Основной'),
+    liveTalking: {
+      root,
+      python: absolutePath(lt.python, 'liveTalking.python', root ? path.join(root, '.venv/bin/python') : ''),
+      model: string(lt.model, 'liveTalking.model', 'musetalk'),
+      avatarId: string(lt.avatarId, 'liveTalking.avatarId', 'avator_1'),
+      port,
+    },
+    speech: {
+      mode,
+      asrVllm: absolutePath(speech.asrVllm, 'speech.asrVllm'),
+      ttsVllm: absolutePath(speech.ttsVllm, 'speech.ttsVllm'),
+      asrUrl: url(speech.asrUrl, 'speech.asrUrl'),
+      ttsUrl: url(speech.ttsUrl, 'speech.ttsUrl'),
+      referenceWav: absolutePath(speech.referenceWav, 'speech.referenceWav'),
+      referenceText: string(speech.referenceText, 'speech.referenceText'),
+    },
+    llm: {
+      provider: string(llm.provider, 'llm.provider', 'yandex'),
+      model: string(llm.model, 'llm.model'),
+      promptFile: absolutePath(llm.promptFile, 'llm.promptFile'),
+    },
+    autoStart,
+  };
+}
