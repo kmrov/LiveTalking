@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isAllowedStudioNavigation, mayUseMicrophone } from './ipc-policy.mjs';
 import { discoverLiveTalkingRoot } from './discover-root.mjs';
+import { findVoiceReferences } from './discover-voice.mjs';
 import { createProfileStore } from './profile-store.mjs';
 import { inspectPrerequisites } from './prerequisites.mjs';
 import { normalizeProfile } from '../src/profile.mjs';
@@ -40,15 +41,22 @@ function initialProfile() {
 }
 
 function registerSetupIpc() {
-  ipcMain.handle('desktop:get-setup', trusted(() => ({
-    profile: initialProfile(),
-    recoveryError: profileStore.recoveryError(),
-  })));
+  ipcMain.handle('desktop:get-setup', trusted(() => {
+    const profile = initialProfile();
+    const voiceReferences = findVoiceReferences(profile.liveTalking.root);
+    if (!profile.speech.referenceWav && voiceReferences.length) {
+      profile.speech.referenceWav = voiceReferences[0].wav;
+      profile.speech.referenceText = voiceReferences[0].text;
+    }
+    return { profile, voiceReferences, recoveryError: profileStore.recoveryError() };
+  }));
   ipcMain.handle('desktop:check-setup', trusted(async input => inspectPrerequisites(normalizeProfile(input))));
   ipcMain.handle('desktop:save-profile', trusted(input => profileStore.save(normalizeProfile(input))));
   ipcMain.handle('desktop:choose-root', trusted(async () => {
     const result = await dialog.showOpenDialog(studioWindow, { title: 'Выбрать LiveTalking', properties: ['openDirectory'] });
-    return result.canceled ? null : result.filePaths[0];
+    if (result.canceled) return null;
+    const root = result.filePaths[0];
+    return { root, voiceReferences: findVoiceReferences(root) };
   }));
   ipcMain.handle('desktop:choose-voice-wav', trusted(async () => {
     const result = await dialog.showOpenDialog(studioWindow, { title: 'Выбрать WAV-образец голоса', properties: ['openFile'], filters: [{ name: 'WAV', extensions: ['wav'] }] });

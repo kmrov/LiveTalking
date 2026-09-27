@@ -9,6 +9,21 @@ const fields = {
   transcript: $('#voice-text'), autoStart: $('#auto-start'),
 };
 let currentProfile;
+let knownVoices = [];
+
+function showKnownVoices(voices) {
+  knownVoices = voices;
+  const select = $('#known-voices');
+  select.replaceChildren();
+  for (const voice of voices) {
+    const option = document.createElement('option');
+    option.value = voice.wav;
+    option.textContent = voice.wav.split('/').at(-1);
+    select.append(option);
+  }
+  $('#known-voices-label').hidden = voices.length === 0;
+  if (voices.some(voice => voice.wav === fields.voice.value)) select.value = fields.voice.value;
+}
 
 function showMode() {
   const external = fields.mode.value === 'external';
@@ -88,6 +103,13 @@ async function checkSetup() {
 }
 
 fields.mode.addEventListener('change', showMode);
+$('#known-voices').addEventListener('change', () => {
+  const voice = knownVoices.find(item => item.wav === $('#known-voices').value);
+  if (voice) {
+    fields.voice.value = voice.wav;
+    fields.transcript.value = voice.text;
+  }
+});
 $('#check-setup').addEventListener('click', checkSetup);
 $('#setup-form').addEventListener('submit', async event => {
   event.preventDefault();
@@ -98,12 +120,18 @@ $('#setup-form').addEventListener('submit', async event => {
   } catch (error) { message(error.message); }
 });
 $('#choose-root').addEventListener('click', async () => {
-  const root = await bridge.chooseLiveTalkingRoot();
-  if (!root) return;
+  const selected = await bridge.chooseLiveTalkingRoot();
+  if (!selected) return;
+  const { root, voiceReferences } = selected;
   const previous = currentProfile.liveTalking.root;
   currentProfile.liveTalking.root = root;
   if (!fields.python.value || fields.python.value === `${previous}/.venv/bin/python`) fields.python.value = `${root}/.venv/bin/python`;
   $('#root-path').textContent = root;
+  showKnownVoices(voiceReferences);
+  if (voiceReferences.length) {
+    fields.voice.value = voiceReferences[0].wav;
+    fields.transcript.value = voiceReferences[0].text;
+  }
   await checkSetup();
 });
 $('#choose-voice').addEventListener('click', async () => {
@@ -112,8 +140,9 @@ $('#choose-voice').addEventListener('click', async () => {
 });
 
 if (bridge) {
-  bridge.getSetup().then(async ({ profile, recoveryError }) => {
+  bridge.getSetup().then(async ({ profile, voiceReferences, recoveryError }) => {
     showProfile(profile);
+    showKnownVoices(voiceReferences);
     if (recoveryError) message(recoveryError);
     await checkSetup();
   }).catch(error => message(error.message));

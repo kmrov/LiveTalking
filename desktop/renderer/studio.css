@@ -6,6 +6,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { min-width: 720px; min-height: 100%; margin: 0; }
 body { overflow: hidden; }
 .app-shell { display: flex; flex-direction: column; width: 100vw; height: 100vh; background: #0d1013; }
