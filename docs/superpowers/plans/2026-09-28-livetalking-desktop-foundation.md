@@ -69,13 +69,13 @@
 
 ### Task 3: Validated profiles and secret boundaries
 
-**Files:** Create `desktop/src/profile.mjs`, `desktop/electron/profile-store.mjs`, `desktop/electron/secret-store.mjs`, `desktop/test/profile.test.mjs`, `desktop/test/profile-store.test.mjs`, `desktop/test/secret-store.test.mjs`.
+**Files:** Create `desktop/src/profile.mjs`, `desktop/electron/profile-store.mjs`, `desktop/electron/secret-store.mjs`, `desktop/electron/discover-root.mjs`, `desktop/test/profile.test.mjs`, `desktop/test/profile-store.test.mjs`, `desktop/test/secret-store.test.mjs`, `desktop/test/discover-root.test.mjs`.
 
-**Interfaces:** `normalizeProfile(input)` returns a profile with `id`, `liveTalking:{root,python,model,avatarId,port}`, `speech:{mode,asrVllm,ttsVllm,asrUrl,ttsUrl,referenceWav,referenceText}`, `llm:{provider,model,promptFile}`, `autoStart`; it throws `ProfileError` with a field name for invalid input. `createProfileStore(userDataPath)` exposes `list()`, `get(id)`, `save(profile)`, `remove(id)`, `lastSuccessfulId()`, and `setLastSuccessfulId(id)` and quarantines invalid JSON. `createSecretStore({safeStorage,backend})` exposes `set/get/delete` and stores keys only if the Linux backend is a real desktop secret service, otherwise in memory for the current session.
+**Interfaces:** `normalizeProfile(input)` returns a profile with `id`, `liveTalking:{root,python,model,avatarId,port}`, `speech:{mode,asrVllm,ttsVllm,asrUrl,ttsUrl,referenceWav,referenceText}`, `llm:{provider,model,promptFile}`, `autoStart`; it throws `ProfileError` with a field name for invalid input. `discoverLiveTalkingRoot({appPath, executablePath, appImagePath, exists})` finds the parent checkout in development or a `LiveTalking` sibling of the AppImage/executable in an installation; a saved user override takes precedence. `createProfileStore(userDataPath)` exposes `list()`, `get(id)`, `save(profile)`, `remove(id)`, `lastSuccessfulId()`, and `setLastSuccessfulId(id)` and quarantines invalid JSON. `createSecretStore({safeStorage,backend})` exposes `set/get/delete` and stores keys only if the Linux backend is a real desktop secret service, otherwise in memory for the current session.
 
-- [ ] **Step 1: Write failing tests** for a valid Unicode/spaced path, invalid port and profile ID, JSON containing no key value, an atomically replaced profile file, the last-successful ID round trip, and a corrupt file that yields an empty setup state plus a recoverable error.
-- [ ] **Step 2: Verify red:** run `cd desktop && node --test --test-name-pattern='profile|secret' test/*.test.mjs`; expect missing modules or assertions.
-- [ ] **Step 3: Implement the three modules** with explicit schema version `1` and app-owned per-user storage; persist only nonsecret profile fields.
+- [ ] **Step 1: Write failing tests** for a valid Unicode/spaced path, invalid port and profile ID, JSON containing no key value, an atomically replaced profile file, the last-successful ID round trip, and a corrupt file that yields an empty setup state plus a recoverable error. Test checkout discovery in development and beside an AppImage, missing checkout, and explicit override.
+- [ ] **Step 2: Verify red:** run `cd desktop && node --test --test-name-pattern='profile|secret|discover' test/*.test.mjs`; expect missing modules or assertions.
+- [ ] **Step 3: Implement the four modules** with explicit schema version `1` and app-owned per-user storage; persist only nonsecret profile fields.
 - [ ] **Step 4: Verify green:** rerun the focused tests and `npm test`; expect zero failures.
 - [ ] **Step 5: Commit** only the profile/secret modules and tests with `feat: persist validated desktop profiles`.
 
@@ -87,7 +87,7 @@
 
 - [ ] **Step 1: Write failing tests** using injected filesystem/process/network probes: missing Python shows the exact path and recovery command; an unrelated listener on 8010 is `blocked`; a compatible LiveTalking health reply is `ready`; external ASR/TTS mode does not require local vLLM executables.
 - [ ] **Step 2: Verify red:** run `cd desktop && node --test --test-name-pattern='prerequisite' test/*.test.mjs`; expect failure.
-- [ ] **Step 3: Implement probes and the first-run screen** with each check, its result, and its concrete next action. Validate renderer-provided paths and URLs before probing.
+- [ ] **Step 3: Implement probes and the first-run screen** with each check, its result, and its concrete next action. Start with the discovered LiveTalking root; show “Choose another folder” only as a secondary action, and offer it as recovery if discovery fails. Validate renderer-provided paths and URLs before probing.
 - [ ] **Step 4: Verify green:** rerun focused tests and `npm run build`; manually inspect the setup screen with a missing path and with the current checkout.
 - [ ] **Step 5: Commit** only setup files with `feat: guide Linux LiveTalking setup`.
 
