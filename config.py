@@ -94,6 +94,8 @@ def parse_args():
     parser.add_argument('--max_session', type=int, default=5)
     parser.add_argument('--listenport', type=int, default=8010,
                         help="web listen port")
+    parser.add_argument('--listenhost', type=str, default='0.0.0.0',
+                        help="web listen host; use 127.0.0.1 for desktop mode")
 
     # ─── 虚拟摄像头 ───────────────────────────────────────────────────
     parser.add_argument('--audio_output_device', type=int, default=None,

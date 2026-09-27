@@ -32,6 +32,11 @@ def json_error(msg: str, code: int = -1):
     )
 
 
+async def desktop_health(request):
+    """Versioned readiness response for the local desktop application."""
+    return json_ok({"service": "livetalking", "api_version": 1})
+
+
 from server.session_manager import session_manager
 from server.avatar_routes import setup_avatar_routes
 from server.rtc_manager import WhipAlreadyActiveError
@@ -325,6 +330,7 @@ def setup_routes(app):
     app.router.add_post("/interrupt_talk", interrupt_talk)
     app.router.add_post("/is_speaking", is_speaking)
     app.router.add_get("/api/admin/config", admin_config)
+    app.router.add_get("/api/desktop/health", desktop_health)
     app.router.add_get("/api/admin/sessions", admin_sessions)
     app.router.add_get("/api/whip/status", whip_status)
     app.router.add_post("/api/whip/connect", whip_connect)

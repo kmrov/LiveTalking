@@ -206,7 +206,7 @@ def main():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         loop.run_until_complete(runner.setup())
-        site = web.TCPSite(runner, '0.0.0.0', opt.listenport)
+        site = web.TCPSite(runner, opt.listenhost, opt.listenport)
         loop.run_until_complete(site.start())
         if opt.transport=='rtcpush':
             for k in range(opt.max_session):
