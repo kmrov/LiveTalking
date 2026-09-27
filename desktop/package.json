@@ -1,0 +1,19 @@
+{
+  "name": "livetalking-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.mjs",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "npm run build && electron .",
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "esbuild": "0.28.2"
+  }
+}

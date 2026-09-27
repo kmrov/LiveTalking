@@ -18,6 +18,9 @@ pretrained
 .DS_Store
 workspace/log_ngp.txt
 .idea
+desktop/node_modules/
+desktop/dist/
+desktop/test-results/
 models/
 *.log
 dist
