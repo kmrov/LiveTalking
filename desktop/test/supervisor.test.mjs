@@ -1,0 +1,84 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { EventEmitter } from 'node:events';
+import { createSupervisor } from '../electron/supervisor.mjs';
+import { normalizeProfile } from '../src/profile.mjs';
+
+const profile = normalizeProfile({ id: 'main', liveTalking: { root: '/tmp/Мой LiveTalking', python: '/tmp/Мой LiveTalking/.venv/bin/python' }, speech: { referenceWav: '/tmp/Мой LiveTalking/мой голос.wav', referenceText: 'Привет' } });
+
+function fakeChild() {
+  const child = new EventEmitter();
+  child.pid = 123;
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  return child;
+}
+
+test('supervisor starts once with a loopback host and one Unicode WAV argument', async () => {
+  const calls = [];
+  const child = fakeChild();
+  let healthChecks = 0;
+  const supervisor = createSupervisor({
+    spawn: (...args) => { calls.push(args); return child; },
+    kill: () => {},
+    health: async () => ++healthChecks > 1,
+    sleep: async () => {},
+    emit: () => {},
+  });
+  await Promise.all([supervisor.start(profile), supervisor.start(profile)]);
+  assert.equal(calls.length, 1);
+  const argv = calls[0][1];
+  assert.equal(argv[argv.indexOf('--ref-file') + 1], '/tmp/Мой LiveTalking/мой голос.wav');
+  assert.equal(argv[argv.indexOf('--listenhost') + 1], '127.0.0.1');
+  assert.equal(supervisor.snapshot().state, 'ready');
+});
+
+test('supervisor maps external models to the existing Python launcher', async () => {
+  const calls = [];
+  const child = fakeChild();
+  let healthChecks = 0;
+  const external = normalizeProfile({ ...profile, speech: { ...profile.speech, mode: 'external', asrUrl: 'http://127.0.0.1:8092', ttsUrl: 'http://127.0.0.1:8091' } });
+  const supervisor = createSupervisor({ spawn: (...args) => { calls.push(args); return child; }, kill: () => {}, health: async () => ++healthChecks > 1, sleep: async () => {}, emit: () => {} });
+  await supervisor.start(external);
+  assert.ok(calls[0][1].includes('--external-models'));
+  assert.equal(calls[0][1][calls[0][1].indexOf('--asr-server') + 1], 'http://127.0.0.1:8092');
+});
+
+test('supervisor stops only the process it owns', async () => {
+  const child = fakeChild();
+  const signals = [];
+  let healthChecks = 0;
+  const supervisor = createSupervisor({
+    spawn: () => child,
+    kill: (pid, signal) => { signals.push([pid, signal]); child.emit('exit', 0); },
+    health: async () => ++healthChecks > 1,
+    sleep: async () => {}, emit: () => {},
+  });
+  await supervisor.start(profile);
+  await supervisor.stop();
+  assert.deepEqual(signals, [[-123, 'SIGTERM']]);
+  assert.equal(supervisor.snapshot().state, 'stopped');
+});
+
+test('supervisor adopts a compatible existing service without spawning or killing', async () => {
+  let calls = 0;
+  const supervisor = createSupervisor({ spawn: () => { calls++; }, kill: () => { calls++; }, health: async () => true, sleep: async () => {}, emit: () => {} });
+  await supervisor.start(profile);
+  assert.equal(supervisor.snapshot().adopted, true);
+  await supervisor.stop();
+  assert.equal(calls, 0);
+});
+
+test('supervisor terminates its launcher after readiness timeout', async () => {
+  const child = fakeChild();
+  const signals = [];
+  const supervisor = createSupervisor({
+    spawn: () => child,
+    kill: (pid, signal) => { signals.push([pid, signal]); child.emit('exit', 1); },
+    health: async () => false,
+    sleep: async () => {}, emit: () => {}, startupTimeoutMs: -1,
+  });
+  await assert.rejects(supervisor.start(profile), /Timed out/);
+  assert.deepEqual(signals, [[-123, 'SIGTERM']]);
+  assert.equal(supervisor.snapshot().state, 'failed');
+});
