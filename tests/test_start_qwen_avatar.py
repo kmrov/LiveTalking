@@ -1,4 +1,5 @@
 import io
+import signal
 import sys
 import tempfile
 import unittest
@@ -11,6 +12,32 @@ from scripts import start_qwen_avatar
 
 
 class StartQwenAvatarTest(unittest.TestCase):
+    def test_repeated_termination_is_ignored_during_owned_cleanup(self):
+        class Process:
+            pid = 123
+            def poll(self):
+                return None
+            def wait(inner, timeout=None):
+                self.assertEqual(signal.getsignal(signal.SIGTERM), signal.SIG_IGN)
+                self.assertEqual(signal.getsignal(signal.SIGINT), signal.SIG_IGN)
+        previous = signal.getsignal(signal.SIGTERM)
+        with patch('scripts.start_qwen_avatar.os.killpg'):
+            start_qwen_avatar.stop_processes([Process()])
+        self.assertEqual(signal.getsignal(signal.SIGTERM), previous)
+
+    def test_owned_model_exit_fails_its_stage_and_stops_waiting_for_avatar(self):
+        class Process:
+            returncode = 7
+            def poll(self):
+                return self.returncode
+        app = unittest.mock.Mock()
+        args = start_qwen_avatar.parse_args(['--json-status'])
+        output = io.StringIO()
+        with redirect_stdout(output), self.assertRaisesRegex(RuntimeError, 'tts.*7'):
+            start_qwen_avatar.wait_for_services(args, app, [('tts', Process())])
+        app.wait.assert_not_called()
+        self.assertIn('"stage": "tts", "state": "failed"', output.getvalue())
+
     def test_keeps_virtualenv_python_symlink(self):
         python = start_qwen_avatar.ROOT / ".venv/bin/python"
         self.assertEqual(start_qwen_avatar.executable(str(python)), python)

@@ -39,6 +39,7 @@ async function runCase(corrupt) {
     await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Работает');
     await window.locator('#connect-avatar').click();
     await window.waitForFunction(() => document.querySelector('#webrtc-state').dataset.sessionId === 'fixture-session');
+    assert.equal(await window.locator('#avatar-video').evaluate(video => video.muted), true, 'only the audio element may play incoming audio');
     await window.locator('#conversation-mode').selectOption('echo');
     await window.locator('#message-text').fill('Привет из smoke-теста');
     await window.locator('#send-message').click();

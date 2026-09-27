@@ -15,6 +15,7 @@ from urllib.error import URLError
 from urllib.parse import urlsplit
 from urllib.request import urlopen
 import wave
+from contextlib import contextmanager
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -187,7 +188,22 @@ def wait_for_model(server, expected, process, timeout, log_path):
     raise TimeoutError(f"Timed out waiting for {expected} at {server}; see {log_path}")
 
 
+@contextmanager
+def uninterrupted_cleanup():
+    previous = {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        yield
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+
+
 def stop_processes(processes):
+    with uninterrupted_cleanup():
+        _stop_processes(processes)
+
+
+def _stop_processes(processes):
     for process in reversed(processes):
         if process.poll() is None:
             try:
@@ -203,6 +219,20 @@ def stop_processes(processes):
             except ProcessLookupError:
                 pass
             process.wait()
+
+
+def wait_for_services(args, app, owned_models):
+    while True:
+        for name, process in owned_models:
+            code = process.poll()
+            if code is not None:
+                detail = f"{name} exited with code {code}"
+                emit_status(args, name, "failed", detail)
+                raise RuntimeError(detail)
+        try:
+            return app.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            continue
 
 
 def main(argv=None):
@@ -247,6 +277,7 @@ def main(argv=None):
     print(f"Model logs: {log_dir}", flush=True)
     processes = []
     owned_stages = []
+    owned_models = []
     stage = "asr"
     try:
         for name, server, model, command in commands:
@@ -264,6 +295,7 @@ def main(argv=None):
                     log.close()
                 processes.append(process)
                 owned_stages.append(stage)
+                owned_models.append((stage, process))
             else:
                 print(f"Waiting for external {name}: {server}", flush=True)
             wait_for_model(server, model, process, args.timeout, log_path)
@@ -275,7 +307,7 @@ def main(argv=None):
         app = subprocess.Popen(avatar, cwd=ROOT, start_new_session=True, env=env)
         processes.append(app)
         owned_stages.append(stage)
-        return app.wait()
+        return wait_for_services(args, app, owned_models)
     except KeyboardInterrupt:
         return 130
     except (OSError, ValueError, RuntimeError, TimeoutError) as error:

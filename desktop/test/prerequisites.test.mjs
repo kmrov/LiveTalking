@@ -9,6 +9,8 @@ const base = normalizeProfile({ id: 'main', liveTalking: { root, python: `${root
 function probes(overrides = {}) {
   return {
     exists: () => true,
+    fileReady: () => true,
+    cachedModelReady: () => true,
     python: async () => ({ ok: true, detail: 'Python и модули доступны' }),
     model: async () => 'ready',
     port: async () => 'free',
@@ -48,4 +50,16 @@ test('prerequisite reports missing adjacent LiveTalking checkout', async () => {
   const results = await inspectPrerequisites(profile, probes());
   assert.equal(results.find(item => item.id === 'checkout').state, 'missing');
   assert.match(results.find(item => item.id === 'checkout').action, /рядом|каталог/i);
+});
+
+test('prerequisite rejects a prepared avatar whose inference weights are absent', async () => {
+  const results = await inspectPrerequisites(base, probes({ fileReady: file => !file.endsWith('/models/wav2lip.pth') }));
+  assert.equal(results.find(item => item.id === 'avatar-model').state, 'missing');
+  assert.match(results.find(item => item.id === 'avatar-model').detail, /wav2lip.pth/);
+});
+
+test('prerequisite rejects empty speech cache folders before cold model startup', async () => {
+  const results = await inspectPrerequisites(base, probes({ model: async () => 'unavailable', cachedModelReady: () => false }));
+  assert.equal(results.find(item => item.id === 'asr-model').state, 'missing');
+  assert.equal(results.find(item => item.id === 'tts-model').state, 'missing');
 });

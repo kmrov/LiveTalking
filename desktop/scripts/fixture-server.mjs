@@ -16,6 +16,7 @@ export async function startFixtureServer() {
     if (request.method === 'POST') commands.push({ path: request.url, body });
     let result;
     if (request.url === '/api/desktop/health') result = { code: 0, msg: 'ok', data: { service: 'livetalking', api_version: 1 } };
+    else if (request.url === '/v1/models') result = { data: [{ id: 'Qwen/Qwen3-ASR-0.6B' }, { id: 'Qwen/Qwen3-TTS-12Hz-1.7B-Base' }] };
     else if (request.url === '/offer') result = { type: 'answer', sdp: 'fixture-answer', sessionid: 'fixture-session' };
     else if (request.url === '/is_speaking') result = { code: 0, data: false };
     else if (['/human', '/interrupt_talk', '/record'].includes(request.url)) result = { code: 0, msg: 'ok' };

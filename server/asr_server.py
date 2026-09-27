@@ -1,12 +1,12 @@
 ###############################################################################
-#  ASR WebSocket Server — Local SenseVoice/FunASR Integration
+#  ASR WebSocket Server — Qwen3-ASR or SenseVoice backend
 #
 #  Resolves: https://github.com/lipku/LiveTalking/issues/604
 #
 #  This module provides a WebSocket endpoint (/api/asr) that speaks the same
 #  protocol as the external FunASR server (wss://www.funasr.com:10096/).
-#  The browser client (web/asr/main.js) can connect here instead, keeping
-#  all ASR processing local and cutting ~600ms of network + Whisper latency.
+#  The browser client (web/asr/main.js) connects here and receives a final
+#  transcription for each submitted utterance.
 #
 #  Copyright (C) 2024 LiveTalking@lipku https://github.com/lipku/LiveTalking
 #  Licensed under the Apache License, Version 2.0
@@ -206,24 +206,23 @@ async def asr_websocket_handler(request):
                         audio_buffer = audio_buffer[:-1]
                         buf_bytes -= 1
 
-                    # Convert PCM16 → float32 in [-1, 1]
-                    audio_int16 = np.frombuffer(bytes(audio_buffer), dtype=np.int16)
-                    audio_float32 = audio_int16.astype(np.float32) / 32768.0
-                    use_itn = config.get("itn", False)
-
-                    # Offload blocking inference to a thread
+                    # Offload blocking model/API inference to a thread.
                     loop = asyncio.get_event_loop()
                     try:
-                        text, inference_ms, audio_dur = await loop.run_in_executor(
-                            None,
-                            _run_inference,
-                            audio_float32,
-                            SAMPLE_RATE,
-                            use_itn,
-                        )
+                        opt = request.app.get('opt')
+                        if getattr(opt, 'ASR_BACKEND', 'sensevoice') == 'qwen3asr':
+                            from server.qwen3_asr import transcribe_pcm
+                            text = await loop.run_in_executor(None, transcribe_pcm, bytes(audio_buffer), opt)
+                        else:
+                            audio_int16 = np.frombuffer(bytes(audio_buffer), dtype=np.int16)
+                            audio_float32 = audio_int16.astype(np.float32) / 32768.0
+                            text, _, _ = await loop.run_in_executor(
+                                None, _run_inference, audio_float32, SAMPLE_RATE, config.get("itn", False)
+                            )
                     except Exception as e:
                         logger.exception(f"[ASR] ❌ Inference failed: {e}")
-                        text = ""
+                        await ws.send_str(json.dumps({"error": str(e), "is_final": True}))
+                        continue
 
                     # Map the client mode to the response mode the frontend expects
                     mode = config.get("mode", "offline")

@@ -5,6 +5,7 @@
 import argparse
 import json
 import os
+from pathlib import Path
 
 try:
     import yaml
@@ -72,17 +73,30 @@ def parse_args():
 
     # ─── TTS ───────────────────────────────────────────────────────────
     parser.add_argument('--tts', type=str, default='edgetts',
-                        help="tts plugin: piper/edgetts/gpt-sovits/xtts/tencent/doubao/azuretts/qwentts/omnitts")
+                        help="tts plugin: piper/edgetts/gpt-sovits/xtts/tencent/doubao/azuretts/qwentts/omnitts/qwen3tts")
     parser.add_argument('--REF_FILE', type=str, default="zh-CN-YunxiaNeural",
                         help="reference file name or voice model ID")
     parser.add_argument('--REF_TEXT', type=str, default=None)
     parser.add_argument('--TTS_SERVER', type=str, default='http://127.0.0.1:9880')
+
+    # ─── Browser microphone ASR ───────────────────────────────────────
+    parser.add_argument('--ASR_BACKEND', choices=('qwen3asr', 'sensevoice'), default='qwen3asr')
+    parser.add_argument('--ASR_SERVER', type=str, default='http://127.0.0.1:8092')
+    parser.add_argument('--ASR_MODEL', type=str, default='Qwen/Qwen3-ASR-0.6B')
 
     # ─── LLM ──────────────────────────────────────────────────────────
     parser.add_argument('--llm_provider', type=str, default='dashscope',
                         help="llm provider: dashscope/orcarouter")
     parser.add_argument('--llm_model', type=str, default='',
                         help="llm model override, empty = provider default (qwen-plus / orcarouter/auto)")
+
+    parser.add_argument('--llm_system_prompt', type=str, default='',
+                        help="avatar role and speaking style; defaults to a brief helpful assistant")
+    parser.add_argument('--llm_system_prompt_file', type=str, default='',
+                        help="UTF-8 text file with the avatar system prompt; overrides llm_system_prompt")
+    parser.add_argument('--llm_reasoning_effort', type=str, default='',
+                        choices=('', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh'),
+                        help="Yandex Responses API reasoning effort; empty uses the model default")
 
     # ─── 传输 ─────────────────────────────────────────────────────────
     parser.add_argument('--transport', type=str, default='webrtc',
@@ -118,6 +132,11 @@ def parse_args():
 
     # ─── 正式解析 CLI 参数 ─────────────────────────────────────────────
     opt = parser.parse_args()
+
+    if opt.llm_system_prompt_file:
+        opt.llm_system_prompt = Path(opt.llm_system_prompt_file).expanduser().read_text(encoding='utf-8').strip()
+        if not opt.llm_system_prompt:
+            parser.error('llm_system_prompt_file is empty')
 
     # ─── 后处理 ────────────────────────────────────────────────────────
     opt.customopt = []

@@ -82,3 +82,49 @@ test('supervisor terminates its launcher after readiness timeout', async () => {
   assert.deepEqual(signals, [[-123, 'SIGTERM']]);
   assert.equal(supervisor.snapshot().state, 'failed');
 });
+
+test('concurrent Stop requests wait for one owned shutdown', async () => {
+  const child = fakeChild();
+  const signals = [];
+  let healthChecks = 0;
+  const supervisor = createSupervisor({ spawn: () => child, health: async () => ++healthChecks > 1,
+    kill: (pid, signal) => signals.push([pid, signal]), sleep: async () => {}, shutdownTimeoutMs: 100 });
+  await supervisor.start(profile);
+  const stops = [supervisor.stop(), supervisor.stop()];
+  child.emit('exit', 0);
+  await Promise.all(stops);
+  assert.deepEqual(signals, [[-123, 'SIGTERM']]);
+  assert.equal(supervisor.snapshot().state, 'stopped');
+});
+
+test('adopted service failure is visible and a recovered service can be adopted again', async () => {
+  let tick;
+  let available = true;
+  const supervisor = createSupervisor({ health: async () => available,
+    modelHealth: async () => true, schedule: callback => { tick = callback; return 1; }, cancelSchedule: () => {} });
+  await supervisor.start(profile);
+  assert.equal(typeof tick, 'function');
+  available = false;
+  await tick();
+  assert.equal(supervisor.snapshot().state, 'failed');
+  assert.equal(supervisor.snapshot().stages.livetalking, 'failed');
+  await supervisor.stop();
+  available = true;
+  await supervisor.start(profile);
+  assert.equal(supervisor.snapshot().state, 'ready');
+  await supervisor.stop();
+});
+
+test('adopted speech endpoint failure propagates its stage without killing external processes', async () => {
+  let tick;
+  const supervisor = createSupervisor({ health: async () => true,
+    modelHealth: async (_url, model) => !model.includes('TTS'),
+    schedule: callback => { tick = callback; return 1; }, cancelSchedule: () => {},
+    kill: () => assert.fail('must not kill adopted services') });
+  await supervisor.start(profile);
+  assert.equal(typeof tick, 'function');
+  await tick();
+  assert.equal(supervisor.snapshot().state, 'failed');
+  assert.equal(supervisor.snapshot().stages.tts, 'failed');
+  await supervisor.stop();
+});

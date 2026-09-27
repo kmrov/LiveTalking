@@ -12,6 +12,14 @@ export async function desktopHealth(port) {
   } catch { return false; }
 }
 
+async function modelHealth(url, expected) {
+  try {
+    const response = await fetch(`${url.replace(/\/$/, '')}/v1/models`, { signal: AbortSignal.timeout(3000) });
+    const payload = await response.json();
+    return response.ok && payload.data?.some(model => model.id === expected);
+  } catch { return false; }
+}
+
 export function launcherArguments(input) {
   const profile = normalizeProfile(input);
   const { liveTalking: lt, speech } = profile;
@@ -31,9 +39,11 @@ export function launcherArguments(input) {
   return args;
 }
 
-export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(process), health = desktopHealth, emit = () => {}, sleep = pause, startupTimeoutMs = 900000, shutdownTimeoutMs = 35000 } = {}) {
+export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(process), health = desktopHealth, modelHealth: checkModel = modelHealth, emit = () => {}, sleep = pause, schedule = setTimeout, cancelSchedule = clearTimeout, monitorIntervalMs = 5000, startupTimeoutMs = 900000, shutdownTimeoutMs = 35000 } = {}) {
   let child = null;
   let startPromise = null;
+  let stopPromise = null;
+  let monitorTimer = null;
   let generation = 0;
   let state = 'stopped';
   let adopted = false;
@@ -50,12 +60,42 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
         const event = JSON.parse(line.slice('LT_STATUS '.length));
         if (Object.hasOwn(stages, event.stage) && ['starting', 'ready', 'failed', 'stopped'].includes(event.state)) {
           stages[event.stage] = event.state;
-          if (event.state === 'failed') state = 'failed';
+          if (event.state === 'failed') { state = 'failed'; if (event.detail) logs.push(event.detail); }
           publish();
         }
       } catch { logs.push('Invalid launcher status'); }
     } else logs.push(line);
     logs = logs.slice(-100);
+  }
+
+  function cancelMonitor() {
+    if (monitorTimer !== null) cancelSchedule(monitorTimer);
+    monitorTimer = null;
+  }
+  function monitor(profile, token) {
+    cancelMonitor();
+    monitorTimer = schedule(async () => {
+      monitorTimer = null;
+      const checks = [
+        ['livetalking', () => health(port)],
+        ['asr', () => checkModel(profile.speech.asrUrl || 'http://127.0.0.1:8092', 'Qwen/Qwen3-ASR-0.6B')],
+        ['tts', () => checkModel(profile.speech.ttsUrl || 'http://127.0.0.1:8091', 'Qwen/Qwen3-TTS-12Hz-1.7B-Base')],
+      ];
+      for (const [stage, check] of checks) {
+        if (token !== generation || state !== 'ready') return;
+        const ready = await check().catch(() => false);
+        if (token !== generation || state !== 'ready') return;
+        if (!ready) {
+          state = 'failed';
+          stages[stage] = 'failed';
+          appendLine(`${stage}: service is no longer available; retry startup`);
+          publish();
+          return;
+        }
+      }
+      monitor(profile, token);
+    }, monitorIntervalMs);
+    monitorTimer?.unref?.();
   }
   function readLines(stream) {
     let pending = '';
@@ -93,6 +133,7 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
   }
 
   async function start(input) {
+    if (stopPromise) await stopPromise;
     if (startPromise) return startPromise;
     if (state === 'ready') return snapshot();
     const profile = normalizeProfile(input);
@@ -110,6 +151,7 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
         state = 'ready';
         stages = { asr: 'ready', tts: 'ready', livetalking: 'ready' };
         publish();
+        monitor(profile, token);
         return snapshot();
       }
       if (token !== generation) return snapshot();
@@ -138,6 +180,7 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
           state = 'ready';
           stages.livetalking = 'ready';
           publish();
+          monitor(profile, token);
           return snapshot();
         }
         await sleep(1000);
@@ -153,20 +196,25 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
   }
 
   async function stop() {
+    if (stopPromise) return stopPromise;
     if (state === 'stopped') return snapshot();
+    cancelMonitor();
     ++generation;
     state = 'stopping';
     publish();
-    const owned = child;
-    if (owned && !adopted) {
-      await terminateOwned(owned);
-    }
-    child = null;
-    adopted = false;
-    state = 'stopped';
-    stages = { asr: 'stopped', tts: 'stopped', livetalking: 'stopped' };
-    publish();
-    return snapshot();
+    stopPromise = (async () => {
+      const owned = child;
+      if (owned && !adopted) {
+        await terminateOwned(owned);
+      }
+      child = null;
+      adopted = false;
+      state = 'stopped';
+      stages = { asr: 'stopped', tts: 'stopped', livetalking: 'stopped' };
+      publish();
+      return snapshot();
+    })().finally(() => { stopPromise = null; });
+    return stopPromise;
   }
 
   return { start, stop, snapshot };

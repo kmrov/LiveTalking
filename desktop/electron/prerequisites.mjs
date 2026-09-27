@@ -1,6 +1,6 @@
 import path from 'node:path';
 import os from 'node:os';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync, readdirSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { connect } from 'node:net';
 import { normalizeProfile } from '../src/profile.mjs';
@@ -8,6 +8,43 @@ import { normalizeProfile } from '../src/profile.mjs';
 const item = (id, state, detail, action = '') => ({ id, state, detail, action });
 const asrModel = 'Qwen/Qwen3-ASR-0.6B';
 const ttsModel = 'Qwen/Qwen3-TTS-12Hz-1.7B-Base';
+
+function fileReady(file) {
+  try { const info = statSync(file); return info.isFile() && info.size > 0; }
+  catch { return false; }
+}
+
+function weightsReady(folder) {
+  if (['model.safetensors', 'pytorch_model.bin'].some(file => fileReady(path.join(folder, file)))) return true;
+  for (const name of ['model.safetensors.index.json', 'pytorch_model.bin.index.json']) {
+    try {
+      const index = JSON.parse(readFileSync(path.join(folder, name), 'utf8'));
+      const shards = Object.values(index.weight_map || {});
+      if (shards.length && shards.every(file => typeof file === 'string' && path.basename(file) === file && fileReady(path.join(folder, file)))) return true;
+    } catch { /* Missing or incomplete snapshot. */ }
+  }
+  return false;
+}
+
+export function cachedModelReady(folder, needsSpeechTokenizer = false) {
+  try {
+    return readdirSync(path.join(folder, 'snapshots')).some(revision => {
+      const snapshot = path.join(folder, 'snapshots', revision);
+      return ['config.json', 'tokenizer_config.json', 'preprocessor_config.json'].every(file => fileReady(path.join(snapshot, file)))
+        && weightsReady(snapshot)
+        && (!needsSpeechTokenizer || (fileReady(path.join(snapshot, 'speech_tokenizer/config.json')) && weightsReady(path.join(snapshot, 'speech_tokenizer'))));
+    });
+  } catch { return false; }
+}
+
+function avatarWeightFiles(lt) {
+  const models = {
+    wav2lip: ['models/wav2lip.pth'],
+    musetalk: ['models/musetalkV15/unet.pth', 'models/musetalkV15/musetalk.json', 'models/sd-vae/config.json', 'models/sd-vae/diffusion_pytorch_model.bin', 'models/whisper/config.json', 'models/whisper/pytorch_model.bin'],
+    ultralight: [`data/avatars/${lt.avatarId}/ultralight.pth`, 'models/hubert-large-ls960-ft/config.json', 'models/hubert-large-ls960-ft/pytorch_model.bin'],
+  };
+  return (models[lt.model] || []).map(file => path.join(lt.root, file));
+}
 
 async function modelStatus(url, expected) {
   try {
@@ -39,8 +76,10 @@ async function portStatus(port) {
 
 export const defaultProbes = {
   exists: existsSync,
+  fileReady,
+  cachedModelReady,
   async python(executable) {
-    const result = spawnSync(executable, ['-c', 'import aiohttp, aiortc, torch'], { encoding: 'utf8', timeout: 20000 });
+    const result = spawnSync(executable, ['-c', 'import aiohttp, aiortc, torch, requests, soxr'], { encoding: 'utf8', timeout: 20000 });
     return result.status === 0
       ? { ok: true, detail: 'Python, aiohttp, aiortc и torch доступны' }
       : { ok: false, detail: (result.stderr || result.error?.message || 'Не удалось импортировать модули').trim().split('\n').at(-1) };
@@ -65,6 +104,12 @@ export async function inspectPrerequisites(input, probes = defaultProbes) {
   results.push(rootReady && probes.exists(path.join(lt.root, 'data/avatars', lt.avatarId))
     ? item('avatar', 'ready', `Аватар ${lt.avatarId} найден`)
     : item('avatar', 'missing', `Аватар ${lt.avatarId} не найден`, 'Подготовьте аватар в data/avatars или выберите существующий ID.'));
+
+  const requiredWeights = avatarWeightFiles(lt);
+  const missingWeights = requiredWeights.filter(file => !probes.fileReady(file));
+  results.push(requiredWeights.length && !missingWeights.length
+    ? item('avatar-model', 'ready', `Веса ${lt.model} найдены`)
+    : item('avatar-model', 'missing', `Веса ${lt.model} не готовы: ${missingWeights.join(', ') || 'неподдерживаемая модель'}`, 'Подготовьте указанные файлы модели в каталоге LiveTalking.'));
 
   const pythonReady = Boolean(lt.python && probes.exists(lt.python));
   if (!pythonReady) results.push(item('python', 'missing', `Python не найден: ${lt.python || 'путь не задан'}`, `Создайте окружение: python3 -m venv "${lt.root || 'LiveTalking'}/.venv" и установите зависимости.`));
@@ -100,7 +145,7 @@ export async function inspectPrerequisites(input, probes = defaultProbes) {
         lt.root && path.join(path.dirname(lt.root), '.hf-cache-qwen/hub', folder),
         path.join(os.homedir(), '.cache/huggingface/hub', folder),
       ].filter(Boolean);
-      results.push(locations.some(probes.exists)
+      results.push(locations.some(folder => probes.cachedModelReady(folder, id === 'tts-model'))
         ? item(id, 'ready', `${name}: файлы модели найдены`)
         : item(id, 'missing', `${name}: файлы модели не найдены`, 'Подготовьте веса в Hugging Face cache или настройте внешние серверы моделей.'));
     }
