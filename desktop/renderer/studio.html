@@ -20,9 +20,24 @@
         <div class="panel-heading"><span>ПРОФИЛЬ</span><span class="index">01</span></div>
         <div class="setup-card">
           <div class="setup-icon" aria-hidden="true">◇</div>
-          <h1>Начните с настройки</h1>
-          <p>Приложение найдёт LiveTalking рядом с собой и проверит Python, модели и локальные сервисы. После настройки оно будет запускать их само.</p>
-          <span class="coming-next">Мастер настройки появится здесь</span>
+          <h1>Проверим окружение</h1>
+          <p>LiveTalking ищется рядом с приложением. Проверьте зависимости и сохраните профиль — дальше сервисы будут запускаться сами.</p>
+          <div class="detected-root"><span>КАТАЛОГ LIVETALKING</span><strong id="root-path">Поиск…</strong><button type="button" class="text-button" id="choose-root">Выбрать другой каталог</button></div>
+          <form id="setup-form">
+            <label>Python LiveTalking<input id="python-path" autocomplete="off" spellcheck="false" placeholder="/путь/к/.venv/bin/python"></label>
+            <label>Аватар<input id="avatar-id" autocomplete="off" spellcheck="false"></label>
+            <label>Порт LiveTalking<input id="server-port" type="number" min="1" max="65535"></label>
+            <label>Режим моделей<select id="speech-mode"><option value="local">Запускать локально</option><option value="external">Внешние серверы</option></select></label>
+            <div id="local-model-fields"><label>vLLM для ASR<input id="asr-vllm" autocomplete="off" spellcheck="false"></label><label>vLLM для TTS<input id="tts-vllm" autocomplete="off" spellcheck="false"></label></div>
+            <div id="external-model-fields" hidden><label>URL ASR<input id="asr-url" type="url" placeholder="http://127.0.0.1:8092"></label><label>URL TTS<input id="tts-url" type="url" placeholder="http://127.0.0.1:8091"></label></div>
+            <label>Образец голоса WAV<input id="voice-wav" autocomplete="off" spellcheck="false" placeholder="/путь/к/voice.wav"></label>
+            <button type="button" class="text-button" id="choose-voice">Выбрать WAV</button>
+            <label>Текст образца<textarea id="voice-text" rows="2" placeholder="Дословная расшифровка записи"></textarea></label>
+            <label class="checkbox-label"><input id="auto-start" type="checkbox"> Запускать при открытии</label>
+            <div class="setup-actions"><button type="button" id="check-setup">Проверить</button><button type="submit" class="primary-button">Сохранить профиль</button></div>
+          </form>
+          <p id="setup-message" role="status"></p>
+          <ul id="setup-results" aria-label="Результаты проверки"></ul>
         </div>
         <div class="panel-divider"></div>
         <div class="panel-heading"><span>СЕРВИСЫ</span><span class="index">02</span></div>

@@ -1,12 +1,60 @@
-import { app, BrowserWindow, session } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, session } from 'electron';
+import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isAllowedStudioNavigation, mayUseMicrophone } from './ipc-policy.mjs';
+import { discoverLiveTalkingRoot } from './discover-root.mjs';
+import { createProfileStore } from './profile-store.mjs';
+import { inspectPrerequisites } from './prerequisites.mjs';
+import { normalizeProfile } from '../src/profile.mjs';
+import { isTrustedStudioSender } from './ipc-policy.mjs';
 
 const studioFile = fileURLToPath(new URL('../dist/studio.html', import.meta.url));
 const studioUrl = pathToFileURL(studioFile).href;
 const preloadFile = fileURLToPath(new URL('./preload.cjs', import.meta.url));
 
 let studioWindow;
+let profileStore;
+
+function trusted(handler) {
+  return (event, ...args) => {
+    if (!isTrustedStudioSender(event, studioWindow, studioUrl)) throw new Error('Untrusted Studio request');
+    return handler(...args);
+  };
+}
+
+function initialProfile() {
+  const saved = profileStore.get(profileStore.lastSuccessfulId()) ?? profileStore.list()[0];
+  if (saved) return saved;
+  const root = discoverLiveTalkingRoot({
+    appPath: app.getAppPath(),
+    executablePath: process.execPath,
+    appImagePath: process.env.APPIMAGE,
+  }) ?? '';
+  return normalizeProfile({
+    liveTalking: { root },
+    speech: {
+      asrVllm: root ? path.join(path.dirname(root), '.venv/bin/vllm') : '',
+      ttsVllm: root ? path.join(path.dirname(root), '.venv-omni/bin/vllm') : '',
+    },
+  });
+}
+
+function registerSetupIpc() {
+  ipcMain.handle('desktop:get-setup', trusted(() => ({
+    profile: initialProfile(),
+    recoveryError: profileStore.recoveryError(),
+  })));
+  ipcMain.handle('desktop:check-setup', trusted(async input => inspectPrerequisites(normalizeProfile(input))));
+  ipcMain.handle('desktop:save-profile', trusted(input => profileStore.save(normalizeProfile(input))));
+  ipcMain.handle('desktop:choose-root', trusted(async () => {
+    const result = await dialog.showOpenDialog(studioWindow, { title: 'Выбрать LiveTalking', properties: ['openDirectory'] });
+    return result.canceled ? null : result.filePaths[0];
+  }));
+  ipcMain.handle('desktop:choose-voice-wav', trusted(async () => {
+    const result = await dialog.showOpenDialog(studioWindow, { title: 'Выбрать WAV-образец голоса', properties: ['openFile'], filters: [{ name: 'WAV', extensions: ['wav'] }] });
+    return result.canceled ? null : result.filePaths[0];
+  }));
+}
 
 export function createStudioWindow() {
   if (studioWindow && !studioWindow.isDestroyed()) return studioWindow;
@@ -39,6 +87,8 @@ export function createStudioWindow() {
 }
 
 app.whenReady().then(() => {
+  profileStore = createProfileStore(app.getPath('userData'));
+  registerSetupIpc();
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     callback(mayUseMicrophone({ sender: webContents }, permission, studioWindow, studioUrl, details));
   });

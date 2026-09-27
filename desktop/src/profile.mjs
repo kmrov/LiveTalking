@@ -56,8 +56,8 @@ export function normalizeProfile(input) {
     liveTalking: {
       root,
       python: absolutePath(lt.python, 'liveTalking.python', root ? path.join(root, '.venv/bin/python') : ''),
-      model: string(lt.model, 'liveTalking.model', 'musetalk'),
-      avatarId: string(lt.avatarId, 'liveTalking.avatarId', 'avator_1'),
+      model: string(lt.model, 'liveTalking.model', 'wav2lip'),
+      avatarId: string(lt.avatarId, 'liveTalking.avatarId', 'wav2lip256_avatar1'),
       port,
     },
     speech: {
