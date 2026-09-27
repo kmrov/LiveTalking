@@ -31,7 +31,7 @@ export function launcherArguments(input) {
   return args;
 }
 
-export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(process), health = desktopHealth, emit = () => {}, sleep = pause, startupTimeoutMs = 900000, shutdownTimeoutMs = 10000 } = {}) {
+export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(process), health = desktopHealth, emit = () => {}, sleep = pause, startupTimeoutMs = 900000, shutdownTimeoutMs = 35000 } = {}) {
   let child = null;
   let startPromise = null;
   let generation = 0;
@@ -70,12 +70,25 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
   }
 
   async function terminateOwned(owned) {
-    const exited = new Promise(resolve => owned.once('exit', resolve));
-    try { kill(-owned.pid, 'SIGTERM'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
-    const graceful = await Promise.race([exited.then(() => true), sleep(shutdownTimeoutMs).then(() => false)]);
+    const waitForExit = timeout => {
+      let timer;
+      let onExit;
+      const promise = new Promise(resolve => {
+        onExit = () => { clearTimeout(timer); resolve(true); };
+        owned.once('exit', onExit);
+        timer = setTimeout(() => { owned.off('exit', onExit); resolve(false); }, timeout);
+      });
+      return { promise, cancel: () => { clearTimeout(timer); owned.off('exit', onExit); } };
+    };
+    const waiting = waitForExit(shutdownTimeoutMs);
+    try { kill(-owned.pid, 'SIGTERM'); } catch (error) {
+      if (error.code !== 'ESRCH') { waiting.cancel(); throw error; }
+    }
+    const graceful = await waiting.promise;
     if (!graceful) {
+      const forced = waitForExit(2000);
       try { kill(-owned.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
-      await Promise.race([exited, sleep(2000)]);
+      await forced.promise;
     }
   }
 

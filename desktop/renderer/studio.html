@@ -12,7 +12,7 @@
     <header class="topbar">
       <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>LIVE<span class="brand-light">TALKING</span></span></div>
       <div class="topbar-context"><span class="section-label">СТУДИЯ</span><span class="context-divider"></span><span>Новый профиль</span></div>
-      <div class="topbar-state"><span class="status-dot" aria-hidden="true"></span><span>Не настроено</span></div>
+      <div class="topbar-state"><button id="start-profile" type="button">Запустить</button><button id="stop-profile" type="button" disabled>Остановить</button><span class="status-dot" aria-hidden="true"></span><span id="runtime-state">Не настроено</span></div>
     </header>
 
     <main class="workspace">
@@ -43,10 +43,11 @@
         <div class="panel-divider"></div>
         <div class="panel-heading"><span>СЕРВИСЫ</span><span class="index">02</span></div>
         <div class="service-list" aria-label="Состояние сервисов">
-          <div class="service-row"><span>LiveTalking</span><span>Ожидает</span></div>
-          <div class="service-row"><span>Распознавание</span><span>Ожидает</span></div>
-          <div class="service-row"><span>Синтез речи</span><span>Ожидает</span></div>
+          <div class="service-row"><span>LiveTalking</span><span id="livetalking-state">Ожидает</span></div>
+          <div class="service-row"><span>Распознавание</span><span id="asr-state">Ожидает</span></div>
+          <div class="service-row"><span>Синтез речи</span><span id="tts-state">Ожидает</span></div>
         </div>
+        <details class="runtime-logs"><summary>Журнал запуска</summary><pre id="runtime-log"></pre></details>
       </aside>
 
       <section class="stage" aria-label="Превью аватара">

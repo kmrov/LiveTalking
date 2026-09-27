@@ -10,6 +10,24 @@ const fields = {
 };
 let currentProfile;
 let knownVoices = [];
+const phaseLabels = {
+  'not-configured': 'Не настроено', checking: 'Проверка', starting: 'Запуск',
+  ready: 'Работает', reconnecting: 'Переподключение', failed: 'Ошибка',
+};
+const stageLabels = { stopped: 'Ожидает', starting: 'Запуск', ready: 'Работает', failed: 'Ошибка' };
+
+function showSnapshot(snapshot) {
+  const phase = snapshot.service.phase;
+  $('#runtime-state').textContent = phaseLabels[phase] || phase;
+  $('#start-profile').disabled = ['checking', 'starting', 'ready'].includes(phase);
+  $('#stop-profile').disabled = ['not-configured'].includes(phase);
+  for (const stage of ['livetalking', 'asr', 'tts']) {
+    const state = snapshot.supervisor?.stages?.[stage] || 'stopped';
+    $(`#${stage}-state`).textContent = stageLabels[state] || state;
+  }
+  $('#runtime-log').textContent = snapshot.supervisor?.logExcerpt || snapshot.service.detail || 'Нет сообщений';
+  if (phase === 'failed') message(snapshot.service.detail || 'Сервис завершился с ошибкой');
+}
 
 function showKnownVoices(voices) {
   knownVoices = voices;
@@ -136,10 +154,28 @@ $('#choose-root').addEventListener('click', async () => {
 });
 $('#choose-voice').addEventListener('click', async () => {
   const file = await bridge.chooseVoiceWav();
-  if (file) fields.voice.value = file;
+  if (file) {
+    fields.voice.value = file;
+    $('#known-voices').value = file;
+  }
+});
+
+$('#start-profile').addEventListener('click', async () => {
+  try {
+    const results = await checkSetup();
+    if (!results || results.some(result => result.state !== 'ready')) return;
+    currentProfile = await bridge.saveProfile(formProfile());
+    message('Запускаем сервисы…');
+    await bridge.startProfile(currentProfile.id);
+  } catch (error) { message(error.message); }
+});
+$('#stop-profile').addEventListener('click', async () => {
+  try { await bridge.stopProfile(); } catch (error) { message(error.message); }
 });
 
 if (bridge) {
+  bridge.onSnapshot(showSnapshot);
+  bridge.getSnapshot().then(showSnapshot).catch(error => message(error.message));
   bridge.getSetup().then(async ({ profile, voiceReferences, recoveryError }) => {
     showProfile(profile);
     showKnownVoices(voiceReferences);
