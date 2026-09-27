@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('liveTalkingDesktop', Object.freeze({
   startProfile: id => ipcRenderer.invoke('desktop:start-profile', id),
   stopProfile: () => ipcRenderer.invoke('desktop:stop-profile'),
   getSnapshot: () => ipcRenderer.invoke('desktop:get-snapshot'),
+  saveRecording: sessionId => ipcRenderer.invoke('desktop:save-recording', sessionId),
   onSnapshot: listener => {
     const wrapped = (_event, snapshot) => listener(snapshot);
     ipcRenderer.on('desktop:snapshot', wrapped);

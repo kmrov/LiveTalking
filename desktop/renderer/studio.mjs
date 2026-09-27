@@ -1,4 +1,5 @@
 import { createWebRtcClient } from './webrtc-client.mjs';
+import { createConversationClient } from './conversation-client.mjs';
 
 const bridge = window.liveTalkingDesktop;
 if (bridge?.version) document.querySelector('#app-version').textContent = `v0.1 · API ${bridge.version}`;
@@ -14,6 +15,32 @@ let currentProfile;
 let knownVoices = [];
 let webRtcClient;
 let serviceReady = false;
+let conversationClient;
+let recording = false;
+let recordingBusy = false;
+let sending = false;
+
+function updateConversationControls() {
+  const active = Boolean(webRtcClient?.sessionId());
+  $('#send-message').disabled = !active || sending || !$('#message-text').value.trim();
+  $('#interrupt-avatar').disabled = !active;
+  $('#record-avatar').disabled = !active || recordingBusy;
+  if (!active) recording = false;
+  $('#record-avatar').textContent = recording ? 'Завершить запись' : 'Записать';
+}
+
+function appendMessage(text, type) {
+  $('.conversation-empty').hidden = true;
+  $('#conversation-list').hidden = false;
+  const row = document.createElement('li');
+  const label = document.createElement('small');
+  label.textContent = type === 'echo' ? 'ВЫ · ОЗВУЧИТЬ' : 'ВЫ · ЧАТ';
+  const content = document.createElement('div');
+  content.textContent = text;
+  row.append(label, content);
+  $('#conversation-list').append(row);
+  row.scrollIntoView({ block: 'nearest' });
+}
 
 function showWebRtcState(state) {
   const labels = { disconnected: 'Нет подключения', connecting: 'Подключение…', negotiating: 'Согласование потока…', connected: 'Поток подключён', reconnecting: 'Переподключение…', failed: 'Ошибка WebRTC', closed: 'Соединение закрыто' };
@@ -26,6 +53,7 @@ function showWebRtcState(state) {
     $('#avatar-audio').srcObject = null;
     $('.stage-empty').hidden = false;
   }
+  updateConversationControls();
 }
 
 function receiveTrack(event) {
@@ -40,6 +68,7 @@ function receiveTrack(event) {
 function disconnectAvatar() {
   webRtcClient?.disconnect();
   webRtcClient = null;
+  conversationClient = null;
   showWebRtcState('disconnected');
 }
 const phaseLabels = {
@@ -217,6 +246,11 @@ $('#connect-avatar').addEventListener('click', async () => {
     onState: showWebRtcState,
     onTrack: receiveTrack,
   });
+  conversationClient = createConversationClient({
+    fetch: window.fetch.bind(window),
+    baseUrl: `http://127.0.0.1:${currentProfile.liveTalking.port}`,
+    getSessionId: () => webRtcClient?.sessionId(),
+  });
   try {
     await webRtcClient.connect({
       avatarId: currentProfile.liveTalking.avatarId,
@@ -225,6 +259,57 @@ $('#connect-avatar').addEventListener('click', async () => {
     });
   } catch (error) { $('#webrtc-state').textContent = `WebRTC: ${error.message}`; }
 });
+$('#message-text').addEventListener('input', updateConversationControls);
+$('#conversation-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!conversationClient || sending) return;
+  const text = $('#message-text').value.trim();
+  const type = $('#conversation-mode').value;
+  sending = true;
+  updateConversationControls();
+  try {
+    await conversationClient.sendText(text, { type, interrupt: true });
+    appendMessage(text, type);
+    $('#message-text').value = '';
+    $('#conversation-message').textContent = 'Сообщение принято.';
+  } catch (error) { $('#conversation-message').textContent = error.message; }
+  finally { sending = false; updateConversationControls(); }
+});
+$('#interrupt-avatar').addEventListener('click', async () => {
+  try {
+    await conversationClient.interrupt();
+    $('#conversation-message').textContent = 'Озвучивание прервано.';
+  } catch (error) { $('#conversation-message').textContent = error.message; }
+});
+$('#record-avatar').addEventListener('click', async () => {
+  if (recordingBusy) return;
+  recordingBusy = true;
+  updateConversationControls();
+  try {
+    if (!recording) {
+      await conversationClient.startRecording();
+      recording = true;
+      $('#conversation-message').textContent = 'Запись идёт…';
+    } else {
+      const sessionId = webRtcClient.sessionId();
+      await conversationClient.stopRecording();
+      recording = false;
+      updateConversationControls();
+      const saved = await bridge.saveRecording(sessionId);
+      $('#conversation-message').textContent = saved ? `Сохранено: ${saved}` : 'Запись завершена. Сохранение отменено.';
+    }
+  } catch (error) { $('#conversation-message').textContent = error.message; }
+  finally { recordingBusy = false; updateConversationControls(); }
+});
+let speakingPollBusy = false;
+const speakingTimer = setInterval(async () => {
+  if (!conversationClient || !webRtcClient?.sessionId() || speakingPollBusy) return;
+  speakingPollBusy = true;
+  try { $('#speaking-state').textContent = await conversationClient.speaking() ? 'Говорит' : 'Слушает'; }
+  catch { $('#speaking-state').textContent = 'Нет статуса'; }
+  finally { speakingPollBusy = false; }
+}, 1000);
+window.addEventListener('beforeunload', () => clearInterval(speakingTimer));
 window.addEventListener('beforeunload', disconnectAvatar);
 
 if (bridge) {

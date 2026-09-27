@@ -70,8 +70,15 @@
 
       <aside class="right-panel" aria-label="Диалог">
         <div class="panel-heading"><span>ДИАЛОГ</span><span class="index">03</span></div>
-        <div class="conversation-empty"><div class="conversation-glyph" aria-hidden="true">↗</div><p>Здесь появится история разговора, когда вы подключите аватара.</p></div>
-        <div class="composer-placeholder"><span>Сообщение аватару</span><span aria-hidden="true">↵</span></div>
+        <div class="conversation-empty"><div class="conversation-glyph" aria-hidden="true">↗</div><p>Подключите аватара и начните разговор.</p></div>
+        <ol id="conversation-list" aria-label="Отправленные сообщения" hidden></ol>
+        <div class="conversation-tools"><span id="speaking-state">Ожидает</span><button type="button" id="interrupt-avatar" disabled>Прервать</button><button type="button" id="record-avatar" disabled>Записать</button></div>
+        <form id="conversation-form">
+          <label class="sr-only" for="message-text">Сообщение аватару</label>
+          <textarea id="message-text" rows="3" placeholder="Сообщение аватару"></textarea>
+          <div class="composer-actions"><label><span class="sr-only">Режим разговора</span><select id="conversation-mode"><option value="chat">Чат с LLM</option><option value="echo">Озвучить текст</option></select></label><button id="send-message" type="submit" disabled>Отправить</button></div>
+        </form>
+        <p id="conversation-message" role="status"></p>
       </aside>
     </main>
 

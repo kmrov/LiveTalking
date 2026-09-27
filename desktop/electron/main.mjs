@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, session } from 'electron';
 import path from 'node:path';
+import { writeFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isAllowedStudioNavigation, isTrustedStudioSender, mayUseMicrophone } from './ipc-policy.mjs';
 import { discoverLiveTalkingRoot } from './discover-root.mjs';
@@ -121,6 +122,17 @@ function registerSetupIpc() {
   ipcMain.handle('desktop:start-profile', trusted(startProfile));
   ipcMain.handle('desktop:stop-profile', trusted(stopProfile));
   ipcMain.handle('desktop:get-snapshot', trusted(runtimeSnapshot));
+  ipcMain.handle('desktop:save-recording', trusted(async sessionId => {
+    if (typeof sessionId !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(sessionId)) throw new Error('Invalid recording session');
+    const port = supervisor.snapshot().port;
+    if (!port || serviceState.phase !== 'ready') throw new Error('LiveTalking не запущен');
+    const chosen = await dialog.showSaveDialog(studioWindow, { title: 'Сохранить запись', defaultPath: `livetalking-${sessionId}.mp4`, filters: [{ name: 'MP4', extensions: ['mp4'] }] });
+    if (chosen.canceled || !chosen.filePath) return null;
+    const response = await fetch(`http://127.0.0.1:${port}/record/${encodeURIComponent(sessionId)}`, { signal: AbortSignal.timeout(30000) });
+    if (!response.ok) throw new Error(`Не удалось получить запись: HTTP ${response.status}`);
+    await writeFile(chosen.filePath, Buffer.from(await response.arrayBuffer()));
+    return chosen.filePath;
+  }));
 }
 
 export function createStudioWindow() {

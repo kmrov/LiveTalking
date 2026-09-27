@@ -85,6 +85,19 @@ body { overflow: hidden; }
 .conversation-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; padding: 0 18px; text-align: center; }
 .conversation-glyph { margin-bottom: 15px; color: #708c7e; font-size: 30px; }
 .composer-placeholder { display: flex; justify-content: space-between; padding: 15px; border: 1px solid #35413c; border-radius: 5px; color: #718078; font-size: 12px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+#conversation-list { flex: 1; overflow-y: auto; margin: 18px 0; padding: 0; list-style: none; }
+#conversation-list li { margin-bottom: 12px; padding: 12px; border: 1px solid #34423b; border-radius: 7px; background: #1b2721; color: #dce7df; font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+#conversation-list small { display: block; margin-bottom: 5px; color: #8bab98; font-size: 9px; letter-spacing: .08em; }
+.conversation-tools, .composer-actions { display: flex; align-items: center; gap: 7px; }
+.conversation-tools { margin-bottom: 12px; font-size: 10px; }
+.conversation-tools span { margin-right: auto; color: #8dab9a; }
+.conversation-tools button, .composer-actions button { padding: 7px 9px; border: 1px solid #405b4c; border-radius: 5px; background: #203127; color: #cde1d6; font: inherit; font-size: 10px; cursor: pointer; }
+.conversation-tools button:disabled, .composer-actions button:disabled { opacity: .4; cursor: default; }
+#conversation-form textarea { width: 100%; min-height: 90px; padding: 12px; border: 1px solid #40574c; border-radius: 6px; background: #101817; color: #ecf0ed; font: inherit; font-size: 12px; resize: vertical; }
+.composer-actions { justify-content: space-between; margin-top: 8px; }
+.composer-actions select { max-width: 150px; padding: 7px; border: 1px solid #34483e; border-radius: 5px; background: #17211d; color: #c8dacd; font: inherit; font-size: 10px; }
+#conversation-message { min-height: 18px; margin: 8px 0 0; color: #acbdb2; font-size: 11px; line-height: 1.4; }
 .statusbar { display: flex; align-items: center; justify-content: space-between; min-height: 51px; padding: 0 28px; border-top: 1px solid #272d30; background: #15191c; color: #a2b2a9; font-size: 11px; }
 .statusbar > div, .statusbar-right { display: flex; align-items: center; gap: 11px; }
 .statusbar-separator { width: 1px; height: 15px; background: #37413c; }
