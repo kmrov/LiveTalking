@@ -1,5 +1,6 @@
 import { createWebRtcClient } from './webrtc-client.mjs';
 import { createConversationClient } from './conversation-client.mjs';
+import { createAsrClient } from './asr-client.mjs';
 
 const bridge = window.liveTalkingDesktop;
 if (bridge?.version) document.querySelector('#app-version').textContent = `v0.1 · API ${bridge.version}`;
@@ -19,6 +20,16 @@ let conversationClient;
 let recording = false;
 let recordingBusy = false;
 let sending = false;
+let asrClient;
+let microphoneState = 'idle';
+
+function showMicrophoneState(state, detail = '') {
+  microphoneState = state;
+  const labels = { idle: 'Нажмите, чтобы говорить', starting: 'Открываем микрофон…', capturing: 'Говорите; затем нажмите Стоп', transcribing: 'Распознавание…', ready: 'Текст готов к отправке', empty: 'Речь не распознана', failed: 'Ошибка микрофона / ASR' };
+  $('#microphone-state').textContent = detail || labels[state] || state;
+  $('#microphone-button').textContent = state === 'capturing' ? 'Стоп' : 'Микрофон';
+  $('#microphone-button').disabled = !serviceReady || ['starting', 'transcribing'].includes(state);
+}
 
 function updateConversationControls() {
   const active = Boolean(webRtcClient?.sessionId());
@@ -82,6 +93,8 @@ function showSnapshot(snapshot) {
   serviceReady = phase === 'ready';
   $('#connect-avatar').disabled = !serviceReady;
   if (!serviceReady && webRtcClient) disconnectAvatar();
+  if (!serviceReady && asrClient) { asrClient.dispose(); asrClient = null; }
+  showMicrophoneState(microphoneState);
   $('#runtime-state').textContent = phaseLabels[phase] || phase;
   $('#start-profile').disabled = ['checking', 'starting', 'ready'].includes(phase);
   $('#stop-profile').disabled = ['not-configured'].includes(phase);
@@ -260,6 +273,28 @@ $('#connect-avatar').addEventListener('click', async () => {
   } catch (error) { $('#webrtc-state').textContent = `WebRTC: ${error.message}`; }
 });
 $('#message-text').addEventListener('input', updateConversationControls);
+$('#microphone-button').addEventListener('click', async () => {
+  try {
+    if (microphoneState === 'capturing') { await asrClient.stop(); return; }
+    if (!serviceReady || !currentProfile) return;
+    if (conversationClient && webRtcClient?.sessionId()) await conversationClient.interrupt();
+    asrClient?.dispose();
+    asrClient = createAsrClient({
+      getUserMedia: navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices),
+      AudioContext: window.AudioContext,
+      AudioWorkletNode: window.AudioWorkletNode,
+      WebSocket: window.WebSocket,
+      baseUrl: `http://127.0.0.1:${currentProfile.liveTalking.port}`,
+      onState: showMicrophoneState,
+      onText: text => {
+        $('#message-text').value = text;
+        $('#conversation-message').textContent = 'Проверьте распознанный текст и нажмите Отправить.';
+        updateConversationControls();
+      },
+    });
+    await asrClient.start();
+  } catch (error) { showMicrophoneState('failed', error.message); }
+});
 $('#conversation-form').addEventListener('submit', async event => {
   event.preventDefault();
   if (!conversationClient || sending) return;
@@ -309,7 +344,7 @@ const speakingTimer = setInterval(async () => {
   catch { $('#speaking-state').textContent = 'Нет статуса'; }
   finally { speakingPollBusy = false; }
 }, 1000);
-window.addEventListener('beforeunload', () => clearInterval(speakingTimer));
+window.addEventListener('beforeunload', () => { clearInterval(speakingTimer); asrClient?.dispose(); });
 window.addEventListener('beforeunload', disconnectAvatar);
 
 if (bridge) {

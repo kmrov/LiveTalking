@@ -94,6 +94,10 @@ body { overflow: hidden; }
 .conversation-tools span { margin-right: auto; color: #8dab9a; }
 .conversation-tools button, .composer-actions button { padding: 7px 9px; border: 1px solid #405b4c; border-radius: 5px; background: #203127; color: #cde1d6; font: inherit; font-size: 10px; cursor: pointer; }
 .conversation-tools button:disabled, .composer-actions button:disabled { opacity: .4; cursor: default; }
+.microphone-tools { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
+.microphone-tools button { padding: 8px 10px; border: 1px solid #557362; border-radius: 5px; background: #263b2f; color: #d4e7dc; font: inherit; font-size: 11px; cursor: pointer; }
+.microphone-tools button:disabled { opacity: .4; cursor: default; }
+.microphone-tools span { color: #8ca496; font-size: 10px; line-height: 1.4; }
 #conversation-form textarea { width: 100%; min-height: 90px; padding: 12px; border: 1px solid #40574c; border-radius: 6px; background: #101817; color: #ecf0ed; font: inherit; font-size: 12px; resize: vertical; }
 .composer-actions { justify-content: space-between; margin-top: 8px; }
 .composer-actions select { max-width: 150px; padding: 7px; border: 1px solid #34483e; border-radius: 5px; background: #17211d; color: #c8dacd; font: inherit; font-size: 10px; }

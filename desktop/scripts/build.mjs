@@ -12,6 +12,7 @@ await mkdir(dist, { recursive: true });
 await Promise.all([
   copyFile(join(renderer, 'studio.html'), join(dist, 'studio.html')),
   copyFile(join(renderer, 'studio.css'), join(dist, 'studio.css')),
+  copyFile(join(renderer, 'pcm-worklet.js'), join(dist, 'pcm-worklet.js')),
 ]);
 await build({
   entryPoints: [join(renderer, 'studio.mjs')],
