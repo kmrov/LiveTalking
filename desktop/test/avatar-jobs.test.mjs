@@ -34,6 +34,24 @@ test('a final prepared line without a newline is processed before closing the pr
  f.child.stdout.emit('data','LT_AVATAR '+JSON.stringify({version:1,jobId:job.jobId,state:'prepared',stage:'validating',progress:100,frameCount:1}));
  f.close();await until(()=>!f.jobs.isBusy());assert.equal(published,1);
 });
+test('split UTF-8 letters survive in worker failures and both log streams',async t=>{
+ const f=await fixture(t);const job=await f.jobs.start(f.input);await until(()=>f.calls.length===1);
+ const message='Ошибка подготовки портрета';
+ const event=Buffer.from('LT_AVATAR '+JSON.stringify({version:1,jobId:job.jobId,state:'failed',stage:'generating',progress:45,message})+'\n');
+ const cut=event.indexOf(Buffer.from('Ошибка'))+1;
+ f.child.stdout.emit('data',event.subarray(0,cut));f.child.stdout.emit('data',event.subarray(cut));
+ const diagnostic=Buffer.from('Подробности ошибки\n');
+ f.child.stderr.emit('data',diagnostic.subarray(0,1));f.child.stderr.emit('data',diagnostic.subarray(1));
+ f.close(1);await until(()=>!f.jobs.isBusy());
+ assert.equal((await f.jobs.snapshot(f.root)).errorMessage,message);
+ const log=await readFile(job.logPath,'utf8');assert.ok(log.includes(message));assert.ok(log.includes('Подробности ошибки'));assert.equal(log.includes('\uFFFD'),false);
+});
+test('bounded worker logs start at a complete UTF-8 character',async t=>{
+ const f=await fixture(t);const job=await f.jobs.start(f.input);await until(()=>f.calls.length===1);
+ f.child.stderr.emit('data',Buffer.from('я'.repeat(600000)+'\n'));f.close(1);await until(()=>!f.jobs.isBusy());
+ const log=await readFile(job.logPath);assert.ok(log.length<=1024*1024);
+ assert.equal(log.toString('utf8'),'я'.repeat(524287)+'\n');
+});
 test('cancel and shutdown signal only the owned group and leave no active job',async t=>{
  const f=await fixture(t);const job=await f.jobs.start(f.input);await until(()=>f.calls.length===1);
  await Promise.all([f.jobs.cancel(job.jobId),f.jobs.shutdown()]);assert.deepEqual(f.signals,[[-4321,'SIGTERM']]);

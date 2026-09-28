@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { spawn as nodeSpawn } from 'node:child_process';
+import { StringDecoder } from 'node:string_decoder';
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile, readFile, readdir, lstat, rm } from 'node:fs/promises';
 import { avatarRoot, checkedPath, atomicJson } from './avatar-library.mjs';
@@ -68,9 +69,15 @@ export function createAvatarJobs({library,inspectCreation=inspectAvatarPrerequis
       if(owner.cancelled)return await finish(owner,'cancelled');
       const child=spawn(owner.record.python,['-u',path.join(owner.record.root,'scripts/prepare_desktop_avatar.py'),'--job',requestFile],{cwd:owner.record.root,detached:true,shell:false,stdio:['ignore','pipe','pipe']});
       owner.child=child;owner.log='';let buffer='',dropping=false;
+      const stdoutDecoder=new StringDecoder('utf8'),stderrDecoder=new StringDecoder('utf8');
       const log=chunk=>{
         owner.log=(owner.log+String(chunk));
-        const bytes=Buffer.from(owner.log);if(bytes.length>1024*1024)owner.log=bytes.subarray(-1024*1024).toString('utf8');
+        const bytes=Buffer.from(owner.log);
+        if(bytes.length>1024*1024) {
+          let start=bytes.length-1024*1024;
+          while((bytes[start]&0xc0)===0x80)start++;
+          owner.log=bytes.subarray(start).toString('utf8');
+        }
         void queueWrite(owner,()=>writeFile(owner.record.logPath,owner.log,{mode:0o600}));
       };
       const line=value=>{
@@ -85,16 +92,20 @@ export function createAvatarJobs({library,inspectCreation=inspectAvatarPrerequis
           else {owner.record.stage=event.stage;owner.record.progress=Math.min(99,event.progress);publish(owner);void persist(owner).catch(()=>{});}
         }catch { /* Nonprotocol output remains in the bounded log. */ }
       };
-      child.stdout.on('data',chunk=>{
-        if(owner.closed)return;log(chunk);
-        for(const char of chunk.toString()) {
+      const consumeStdout=text=>{
+        if(owner.closed||!text)return;log(text);
+        for(const char of text) {
           if(char==='\n'){if(!dropping)line(buffer);buffer='';dropping=false;}
           else if(!dropping){buffer+=char;if(Buffer.byteLength(buffer)>65536){buffer='';dropping=true;}}
         }
-      });
-      child.stderr.on('data',chunk=>{if(!owner.closed)log(chunk);});
+      };
+      const consumeStderr=text=>{if(!owner.closed&&text)log(text);};
+      child.stdout.on('data',chunk=>consumeStdout(stdoutDecoder.write(Buffer.from(chunk))));
+      child.stderr.on('data',chunk=>consumeStderr(stderrDecoder.write(Buffer.from(chunk))));
       child.once('error',error=>{owner.workerError=error.message;if(!child.pid){owner.closed=true;void finish(owner,owner.cancelled?'cancelled':'failed',error.message).catch(owner.rejectFinished);}});
       child.once('close',code=>{
+        if(owner.closed)return;
+        consumeStdout(stdoutDecoder.end());consumeStderr(stderrDecoder.end());
         if(buffer&&!dropping)line(buffer);
         owner.closed=true;
         void (async()=>{
