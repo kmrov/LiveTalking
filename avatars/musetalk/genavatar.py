@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 import torch
 from tqdm import tqdm
+from server.desktop_avatar_media import validate_face_box
 
 from avatars.musetalk.utils.preprocessing import get_landmark_and_bbox, read_imgs
 from avatars.musetalk.utils.blending import get_image_prepare_material
@@ -95,10 +96,19 @@ def generate_avatar(video_path, avatar_id, save_path='./data/avatars', bbox_shif
     if progress_callback: progress_callback(20)
 
     input_img_list = sorted(glob.glob(os.path.join(save_full_path, '*.[jpJP][pnPN]*[gG]')))
+    if not input_img_list:
+        raise ValueError("Исходник не содержит читаемых кадров.")
     print("extracting landmarks...")
     coord_list, frame_list = get_landmark_and_bbox(input_img_list, bbox_shift)
 
     if progress_callback: progress_callback(50)
+
+    if len(coord_list) != len(frame_list) or not frame_list:
+        raise ValueError("Кадры и координаты лица не согласованы.")
+    for box, frame in zip(coord_list, frame_list):
+        if frame is None:
+            raise ValueError("Не удалось прочитать кадр.")
+        validate_face_box(box, frame.shape, "xyxy")
 
     input_latent_list = []
     idx = -1
@@ -122,6 +132,7 @@ def generate_avatar(video_path, avatar_id, save_path='./data/avatars', bbox_shif
             y2 = y2 + extra_margin
             y2 = min(y2, frame.shape[0])
             coord_list[idx] = [x1, y1, x2, y2]
+        x1, y1, x2, y2 = validate_face_box((x1, y1, x2, y2), frame.shape, "xyxy")
         crop_frame = frame[y1:y2, x1:x2]
         resized_crop_frame = cv2.resize(crop_frame, (256, 256), interpolation=cv2.INTER_LANCZOS4)
         latents = vae_local.get_latents_for_unet(resized_crop_frame)

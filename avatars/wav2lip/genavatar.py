@@ -3,6 +3,7 @@ import numpy as np
 import scipy, cv2, os, sys, argparse
 import json, subprocess, random, string
 from tqdm import tqdm
+from server.desktop_avatar_media import validate_face_box
 from glob import glob
 import torch
 import pickle
@@ -76,7 +77,11 @@ def generate_avatar(video_path, avatar_id, save_path='./data/avatars', img_size=
     if progress_callback: progress_callback(20)
 
     input_img_list = sorted(glob(os.path.join(full_imgs_path, '*.[jpJP][pnPN]*[gG]')))
+    if not input_img_list:
+        raise ValueError("Исходник не содержит читаемых кадров.")
     frames = read_imgs(input_img_list)
+    if any(frame is None for frame in frames):
+        raise ValueError("Не удалось прочитать кадр.")
 
     if progress_callback: progress_callback(40)
 
@@ -105,15 +110,17 @@ def generate_avatar(video_path, avatar_id, save_path='./data/avatars', img_size=
 
     results = []
     pady1, pady2, padx1, padx2 = pads
+    if len(predictions) != len(frames):
+        raise ValueError("Кадры и результаты детектора не согласованы.")
     for rect, image in zip(predictions, frames):
         if rect is None:
-            rect = [0, 0, image.shape[1], image.shape[0]]
+            raise ValueError("Лицо не найдено в одном из кадров. Выберите исходник с хорошо видимым лицом.")
 
         y1 = max(0, rect[1] - pady1)
         y2 = min(image.shape[0], rect[3] + pady2)
         x1 = max(0, rect[0] - padx1)
         x2 = min(image.shape[1], rect[2] + padx2)
-        results.append([x1, y1, x2, y2])
+        results.append(validate_face_box((x1, y1, x2, y2), image.shape, "xyxy"))
 
     boxes = np.array(results)
     if not nosmooth:
@@ -124,7 +131,8 @@ def generate_avatar(video_path, avatar_id, save_path='./data/avatars', img_size=
     coord_list = []
     print("Saving face images and coordinates...")
     for idx, (rect, frame) in enumerate(zip(boxes, frames)):
-        face_frame = frame[int(rect[1]):int(rect[3]), int(rect[0]):int(rect[2])]
+        x1, y1, x2, y2 = validate_face_box(rect, frame.shape, "xyxy")
+        face_frame = frame[y1:y2, x1:x2]
         resized_crop_frame = cv2.resize(face_frame, (img_size, img_size))
         cv2.imwrite(f"{face_imgs_path}/{idx:08d}.png", resized_crop_frame)
         coord_list.append((int(rect[1]), int(rect[3]), int(rect[0]), int(rect[2])))

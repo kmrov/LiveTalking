@@ -1,5 +1,5 @@
 import sys
-from face_detection import FaceAlignment,LandmarksType
+from avatars.musetalk.utils.face_detection import FaceAlignment, LandmarksType
 from os import listdir, path
 import subprocess
 import numpy as np
@@ -150,6 +150,8 @@ def get_landmark_and_bbox(img_list,upperbondrange =0):
             else:
                 coords_list += [f_landmark]
     
+    if not frames or not average_range_minus:
+        raise ValueError("Лицо не найдено в исходнике.")
     print("********************************************bbox_shift parameter adjustment**********************************************************")
     print(f"Total frame:「{len(frames)}」 Manually adjust range : [ -{int(sum(average_range_minus) / len(average_range_minus))}~{int(sum(average_range_plus) / len(average_range_plus))} ] , the current value: {upperbondrange}")
     print("*************************************************************************************************************************************")
