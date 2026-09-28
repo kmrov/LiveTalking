@@ -18,6 +18,20 @@ contextBridge.exposeInMainWorld('liveTalkingDesktop', Object.freeze({
   stopProfile: () => ipcRenderer.invoke('desktop:stop-profile'),
   getSnapshot: () => ipcRenderer.invoke('desktop:get-snapshot'),
   saveRecording: sessionId => ipcRenderer.invoke('desktop:save-recording', sessionId),
+  avatarLibrary: profile => ipcRenderer.invoke('desktop:avatar-library', profile),
+  chooseAvatarSource: profile => ipcRenderer.invoke('desktop:avatar-source', profile),
+  checkAvatarCreation: input => ipcRenderer.invoke('desktop:avatar-check', input),
+  createAvatar: (input, options) => ipcRenderer.invoke('desktop:avatar-create', input, options),
+  retryAvatar: (input, options) => ipcRenderer.invoke('desktop:avatar-retry', input, options),
+  cancelAvatar: jobId => ipcRenderer.invoke('desktop:avatar-cancel', jobId),
+  renameAvatar: input => ipcRenderer.invoke('desktop:avatar-rename', input),
+  selectAvatar: (profile, id, options) => ipcRenderer.invoke('desktop:avatar-select', profile, id, options),
+  avatarSnapshot: profile => ipcRenderer.invoke('desktop:avatar-state', profile),
+  onAvatarSnapshot: listener => {
+    const wrapped = (_event, value) => listener(value);
+    ipcRenderer.on('desktop:avatar-snapshot', wrapped);
+    return () => ipcRenderer.removeListener('desktop:avatar-snapshot', wrapped);
+  },
   onSnapshot: listener => {
     const wrapped = (_event, snapshot) => listener(snapshot);
     ipcRenderer.on('desktop:snapshot', wrapped);

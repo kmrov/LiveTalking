@@ -4,6 +4,7 @@ import { existsSync, statSync, readdirSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { connect } from 'node:net';
 import { normalizeProfile } from '../src/profile.mjs';
+import { createAvatarLibrary } from './avatar-library.mjs';
 
 const item = (id, state, detail, action = '') => ({ id, state, detail, action });
 const asrModel = 'Qwen/Qwen3-ASR-0.6B';
@@ -80,6 +81,7 @@ async function portStatus(port, profile) {
 
 export const defaultProbes = {
   exists: existsSync,
+  avatar: async lt => createAvatarLibrary().get(lt.root, lt.avatarId),
   fileReady,
   cachedModelReady,
   async python(executable) {
@@ -105,9 +107,13 @@ export async function inspectPrerequisites(input, probes = defaultProbes) {
     ? item('checkout', 'ready', `LiveTalking: ${lt.root}`)
     : item('checkout', 'missing', lt.root ? `Совместимый LiveTalking не найден: ${lt.root}` : 'LiveTalking рядом с приложением не найден', 'Положите папку LiveTalking рядом с приложением или выберите другой каталог с scripts/start_qwen_avatar.py.'));
 
-  results.push(rootReady && probes.exists(path.join(lt.root, 'data/avatars', lt.avatarId))
-    ? item('avatar', 'ready', `Аватар ${lt.avatarId} найден`)
-    : item('avatar', 'missing', `Аватар ${lt.avatarId} не найден`, 'Подготовьте аватар в data/avatars или выберите существующий ID.'));
+  let avatar = null;
+  if (rootReady) {
+    try { avatar = await probes.avatar(lt); } catch { /* Library provides the repair action below. */ }
+  }
+  results.push(avatar?.ready && avatar.model === lt.model
+    ? item('avatar', 'ready', `Аватар ${avatar.name || lt.avatarId} готов`)
+    : item('avatar', 'missing', avatar?.reason || `Аватар ${lt.avatarId} не готов для ${lt.model}`, 'Выберите готового аватара из библиотеки или создайте нового.'));
 
   const requiredWeights = avatarWeightFiles(lt);
   const missingWeights = requiredWeights.filter(file => !probes.fileReady(file));

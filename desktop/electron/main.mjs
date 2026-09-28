@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, session, safeStorage } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, session, safeStorage, nativeImage } from 'electron';
 import path from 'node:path';
 import { writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -17,6 +17,11 @@ import { createBatyaApi } from './batya-api.mjs';
 import { readServiceEnvironment, serviceEnvironment } from './service-environment.mjs';
 import { createBatyaSupervisor } from './batya-supervisor.mjs';
 import { inspectBatyaPrerequisites } from './batya-prerequisites.mjs';
+import { createAvatarLibrary } from './avatar-library.mjs';
+import { createAvatarJobs } from './avatar-jobs.mjs';
+import { createAvatarSources } from './avatar-sources.mjs';
+import { inspectAvatarPrerequisites, runAvatarCommand } from './avatar-prerequisites.mjs';
+import { createAvatarRuntime } from './avatar-runtime.mjs';
 
 const studioFile = fileURLToPath(new URL('../dist/studio.html', import.meta.url));
 const studioUrl = pathToFileURL(studioFile).href;
@@ -30,6 +35,9 @@ let profileStore;
 let supervisor;
 let batyaSupervisor;
 let secrets;
+let avatarRuntime;
+let avatarJobs;
+let avatarLibrary;
 let serviceState = initialServiceState();
 let startJob;
 let runGeneration = 0;
@@ -46,6 +54,8 @@ const setupChecks = async profile => fixtureMode
   : [...await inspectPrerequisites(profile), ...await inspectBatyaPrerequisites(profile, brainEnvironment(profile))];
 
 async function startProfile(id) {
+  if (!fixtureMode) await avatarRuntime.assertCanStart(profileStore.get(id));
+  else if (avatarJobs.isBusy()) throw new Error("Сначала завершите подготовку аватара.");
   if (startJob) return startJob;
   const profile = profileStore.get(id);
   if (!profile) throw new Error(`Профиль ${id} не найден`);
@@ -150,17 +160,17 @@ function brainApi(id) {
 }
 
 function registerSetupIpc() {
-  ipcMain.handle('desktop:get-setup', trusted(() => {
+  ipcMain.handle('desktop:get-setup', trusted(async () => {
     const profile = discoverBrain(initialProfile());
     const voiceReferences = findVoiceReferences(profile.liveTalking.root);
     if (!profile.speech.referenceWav && voiceReferences.length) {
       profile.speech.referenceWav = voiceReferences[0].wav;
       profile.speech.referenceText = voiceReferences[0].text;
     }
-    return { profile, voiceReferences, secrets: secretStatus(profile), recoveryError: profileStore.recoveryError(), testFixture: fixtureMode };
+    return { profile, voiceReferences, avatars: await avatarRuntime.snapshot(profile), secrets: secretStatus(profile), recoveryError: profileStore.recoveryError(), testFixture: fixtureMode };
   }));
   ipcMain.handle('desktop:check-setup', trusted(async input => setupChecks(normalizeProfile(input))));
-  ipcMain.handle('desktop:save-profile', trusted(input => profileStore.save(normalizeProfile(input))));
+  ipcMain.handle('desktop:save-profile', trusted(input => avatarRuntime.runLifecycle(async () => { const profile = normalizeProfile(input); await avatarRuntime.assertCanSave(profile); return profileStore.save(profile); })));
   ipcMain.handle('desktop:brain-secrets', trusted((id, input = {}) => {
     const profile = profileStore.get(id);
     if (!profile) throw new Error('Профиль не найден');
@@ -198,8 +208,17 @@ function registerSetupIpc() {
     const result = await dialog.showOpenDialog(studioWindow, { title: 'Выбрать WAV-образец голоса', properties: ['openFile'], filters: [{ name: 'WAV', extensions: ['wav'] }] });
     return result.canceled ? null : result.filePaths[0];
   }));
-  ipcMain.handle('desktop:start-profile', trusted(startProfile));
+  ipcMain.handle('desktop:start-profile', trusted(id => avatarRuntime.runLifecycle(() => startProfile(id))));
   ipcMain.handle('desktop:stop-profile', trusted(stopProfile));
+  ipcMain.handle('desktop:avatar-library', trusted(profile => avatarRuntime.list(profile)));
+  ipcMain.handle('desktop:avatar-source', trusted(profile => avatarRuntime.chooseSource(profile)));
+  ipcMain.handle('desktop:avatar-check', trusted(input => avatarRuntime.checkCreation(input)));
+  ipcMain.handle('desktop:avatar-create', trusted((input, options) => avatarRuntime.create(input, options)));
+  ipcMain.handle('desktop:avatar-retry', trusted((input, options) => avatarRuntime.retry(input, options)));
+  ipcMain.handle('desktop:avatar-cancel', trusted(jobId => avatarJobs.cancel(jobId)));
+  ipcMain.handle('desktop:avatar-rename', trusted(input => avatarRuntime.rename(input)));
+  ipcMain.handle('desktop:avatar-select', trusted((profile, id, options) => avatarRuntime.select(profile, id, options)));
+  ipcMain.handle('desktop:avatar-state', trusted(profile => avatarRuntime.snapshot(normalizeProfile(profile))));
   ipcMain.handle('desktop:get-snapshot', trusted(runtimeSnapshot));
   ipcMain.handle('desktop:save-recording', trusted(async sessionId => {
     if (typeof sessionId !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(sessionId)) throw new Error('Invalid recording session');
@@ -241,7 +260,7 @@ export function createStudioWindow() {
     if (!autoStarted) {
       autoStarted = true;
       const id = profileStore.lastSuccessfulId();
-      if (id && profileStore.get(id)?.autoStart) void startProfile(id).catch(() => {});
+      if (id && profileStore.get(id)?.autoStart) void avatarRuntime.runLifecycle(() => startProfile(id)).catch(() => {});
     }
   });
   window.on('closed', () => {
@@ -251,7 +270,7 @@ export function createStudioWindow() {
   return window;
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   profileStore = createProfileStore(app.getPath('userData'));
   secrets = createSecretStore({ safeStorage, backend: createFileSecretBackend(app.getPath('userData')) });
   batyaSupervisor = createBatyaSupervisor({ emit: snapshot => {
@@ -266,6 +285,30 @@ app.whenReady().then(() => {
     }
     publishSnapshot();
   } });
+  avatarLibrary = createAvatarLibrary({
+    makeThumbnail: async bytes => {
+      const source = nativeImage.createFromBuffer(bytes);
+      if (source.isEmpty()) return null;
+      const { width, height } = source.getSize();
+      const scale = Math.min(1, 256 / width, 256 / height);
+      return 'data:image/jpeg;base64,' + source.resize({ width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) }).toJPEG(85).toString('base64');
+    },
+    moveDirectoryNoReplace: async (_staged, final, context) => {
+      const result = await runAvatarCommand({ ...context, schemaVersion: 1 }, 'publish');
+      if (result.version !== 1 || result.avatarId !== context.avatarId || result.path !== final) throw new Error('Публикация аватара не подтверждена.');
+    },
+  });
+  avatarJobs = createAvatarJobs({ library: avatarLibrary, emit: job => {
+    if (studioWindow && !studioWindow.isDestroyed()) studioWindow.webContents.send('desktop:avatar-snapshot', { root: job.root, job });
+  } });
+  const avatarSources = createAvatarSources({ chooseFile: async () => {
+    const result = await dialog.showOpenDialog(studioWindow, { title: 'Фото или видео для аватара', properties: ['openFile'], filters: [{ name: 'Фото и видео', extensions: ['png', 'jpg', 'jpeg', 'mp4', 'mov', 'mkv', 'avi'] }] });
+    return result.canceled ? null : result.filePaths[0];
+  } });
+  avatarRuntime = createAvatarRuntime({ library: avatarLibrary, jobs: avatarJobs, sources: avatarSources, profiles: profileStore, stopProfile,
+    getServiceState: () => serviceState, inspectCreation: inspectAvatarPrerequisites });
+  const avatarProfile = initialProfile();
+  if (avatarProfile.liveTalking.root) await avatarJobs.recover(avatarProfile.liveTalking.root);
   registerSetupIpc();
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     callback(mayUseMicrophone({ sender: webContents }, permission, studioWindow, studioUrl, details));
@@ -278,7 +321,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', event => {
-  if (quitAfterStop || !supervisor || (supervisor.snapshot().state === 'stopped' && batyaSupervisor?.snapshot().state === 'stopped' && !startJob)) return;
+  if (quitAfterStop || !supervisor || (supervisor.snapshot().state === 'stopped' && batyaSupervisor?.snapshot().state === 'stopped' && !startJob && !avatarJobs?.isBusy())) return;
   event.preventDefault();
-  if (!quitJob) quitJob = stopProfile().finally(() => { quitAfterStop = true; app.quit(); });
+  if (!quitJob) quitJob = Promise.all([avatarRuntime?.shutdown(), stopProfile()]).finally(() => { quitAfterStop = true; app.quit(); });
 });

@@ -9,6 +9,7 @@ const base = normalizeProfile({ id: 'main', liveTalking: { root, python: `${root
 function probes(overrides = {}) {
   return {
     exists: () => true,
+    avatar: async lt => ({ready:true,model:lt.model}),
     fileReady: () => true,
     cachedModelReady: () => true,
     python: async () => ({ ok: true, detail: 'Python и модули доступны' }),
@@ -62,4 +63,12 @@ test('prerequisite rejects empty speech cache folders before cold model startup'
   const results = await inspectPrerequisites(base, probes({ model: async () => 'unavailable', cachedModelReady: () => false }));
   assert.equal(results.find(item => item.id === 'asr-model').state, 'missing');
   assert.equal(results.find(item => item.id === 'tts-model').state, 'missing');
+});
+
+test('avatar preparation completeness and model compatibility block startup', async () => {
+ for(const avatar of [null,{ready:false,reason:'Нет координат',model:'wav2lip'},{ready:true,model:'musetalk'}]) {
+  const results=await inspectPrerequisites(base,probes({avatar:async()=>avatar}));
+  assert.equal(results.find(x=>x.id==='avatar').state,'missing');
+  assert.match(results.find(x=>x.id==='avatar').action,/выберите|Выберите/);
+ }
 });
