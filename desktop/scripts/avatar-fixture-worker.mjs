@@ -7,13 +7,13 @@ const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAFElEQVR
 export async function avatarFixtureOptions(root, userData) {
   const canonical = await realpath(root), base = await realpath(userData);
   if (!canonical.startsWith(base + path.sep)) throw new Error('Avatar fixture must be inside test userData.');
-  const checkRoot = value => { if (value !== canonical) throw new Error('Unexpected avatar fixture root.'); };
-  const inspectCreation = async input => { checkRoot(input.root); return [{ id: 'fixture-avatar', state: 'ready', detail: 'Avatar fixture ready', action: '' }]; };
+  const checkRoot = async value => { if (await realpath(value) !== canonical) throw new Error('Unexpected avatar fixture root.'); };
+  const inspectCreation = async input => { await checkRoot(input.root); return [{ id: 'fixture-avatar', state: 'ready', detail: 'Avatar fixture ready', action: '' }]; };
   return {
     root: canonical, inspectCreation,
-    inspectPreview: async input => { checkRoot(input.root); return 'data:image/png;base64,' + png.toString('base64'); },
+    inspectPreview: async input => { await checkRoot(input.root); return 'data:image/png;base64,' + png.toString('base64'); },
     spawn: (_python, args, options) => spawn(process.execPath, [fileURLToPath(import.meta.url), '--job', args.at(-1)], { ...options, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } }),
-    moveDirectoryNoReplace: async (staged, final, context) => { checkRoot(context.root); await rename(staged, final); },
+    moveDirectoryNoReplace: async (staged, final, context) => { await checkRoot(context.root); await rename(staged, final); },
   };
 }
 

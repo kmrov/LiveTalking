@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 from PIL import Image
-from server.desktop_avatar_media import normalize_media, validate_face_box, validate_generated_avatar, publish_directory
+from server.desktop_avatar_media import normalize_media, preview_media, validate_face_box, validate_generated_avatar, publish_directory
 
 class DesktopAvatarMediaTest(unittest.TestCase):
     def setUp(self):
@@ -22,6 +22,14 @@ class DesktopAvatarMediaTest(unittest.TestCase):
         for box in ((0,0,0,0),(-1,0,30,40),(0,0,400,40),(50,20,10,30)):
             with self.assertRaises(ValueError):validate_face_box(box,(100,100,3),'xyxy')
         self.assertEqual(validate_face_box((1,20,2,30),(100,100,3),'yxyx'),(1,20,2,30))
+    def test_preview_rejects_excessive_pixel_dimensions_before_decoding(self):
+        import struct, zlib
+        source=self.root/'large.png';Image.new('RGB',(1,1)).save(source)
+        data=bytearray(source.read_bytes());data[16:24]=struct.pack('>II',9000,9000)
+        data[29:33]=struct.pack('>I',zlib.crc32(data[12:29]));source.write_bytes(data)
+        with self.assertRaisesRegex(ValueError,'пиксел'):
+            preview_media(source,'image',self.root/'thumbnail.jpg')
+        self.assertFalse((self.root/'thumbnail.jpg').exists())
     def test_video_normalization_passes_one_path_and_25fps_without_audio(self):
         source=self.root/'Мой фильм.mov';source.write_bytes(b'video')
         calls=[]

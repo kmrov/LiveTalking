@@ -1,9 +1,9 @@
-import { filterAvatars,avatarActionState,buildCreationInput } from './avatar-library-state.mjs';
+import { filterAvatars,avatarActionState,buildCreationInput,avatarSnapshotBelongsToRoot } from './avatar-library-state.mjs';
 const models={musetalk:'MuseTalk',wav2lip:'Wav2Lip',ultralight:'Ultralight'};
 const stages={checking:'Проверяем окружение',copying:'Сохраняем исходник',normalizing:'Подготавливаем фото или видео',generating:'Создаём аватара',validating:'Проверяем результат',publishing:'Сохраняем аватара'};
 export function mountAvatarLibrary({document,bridge,getProfile,onProfileSelected,prepareSessionChange,getSessionState}) {
  const $=selector=>document.querySelector(selector),cleanups=[];
- let entries=[],job=null,selection=null,pending=false,refreshGeneration=0,disposed=false;
+ let entries=[],job=null,selection=null,pending=false,refreshGeneration=0,disposed=false,catalog=null;
  const listen=(element,type,handler)=>{element.addEventListener(type,handler);cleanups.push(()=>element.removeEventListener(type,handler));};
  const action=()=>avatarActionState(getSessionState(),job);
  function show(dialog){if(!dialog.open){dialog.opener=document.activeElement;dialog.showModal();}}
@@ -76,10 +76,12 @@ export function mountAvatarLibrary({document,bridge,getProfile,onProfileSelected
  }
  function applySnapshot(snapshot={}) {
   if(disposed)return;
-  if(snapshot.root && snapshot.root!==getProfile()?.liveTalking.root)return;
+  if(snapshot.entries)catalog={root:snapshot.root,profileRoot:getProfile()?.liveTalking.root};
+  if(!avatarSnapshotBelongsToRoot(snapshot,getProfile()?.liveTalking.root,catalog))return;
   const previous=job;
   if(snapshot.entries)entries=snapshot.entries;if(Object.hasOwn(snapshot,'job'))job=snapshot.job;
   renderCurrent();renderJob();renderControls();
+  if(Object.hasOwn(snapshot,'error'))$('#avatar-summary-message').textContent=snapshot.error||(!job?'':$('#avatar-summary-message').textContent);
   if(snapshot.entries||previous?.state!==job?.state)renderCards();
   if(job?.state==='completed' && (previous?.state!=='completed'||previous?.jobId!==job.jobId))void refresh();
  }

@@ -1,6 +1,9 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import { mkdtemp,rm } from 'node:fs/promises';import os from 'node:os';import path from 'node:path';
 import { createAvatarRuntime } from '../electron/avatar-runtime.mjs';
+import { createAvatarLibrary } from '../electron/avatar-library.mjs';
+import { createAvatarSources } from '../electron/avatar-sources.mjs';
+import { writeFile,rename } from 'node:fs/promises';
 import { createProfileStore } from '../electron/profile-store.mjs';import { normalizeProfile } from '../src/profile.mjs';
 async function fixture(t){const root=await mkdtemp(path.join(os.tmpdir(),'studio-runtime-'));t.after(()=>rm(root,{recursive:true,force:true}));const profiles=createProfileStore(root);const profile=normalizeProfile({liveTalking:{root},speech:{referenceWav:path.join(root,'voice.wav'),referenceText:'Новое поле'}});profiles.save(profile);let busy=false,state={phase:'not-configured'},stops=0;
  const jobs={isBusy:()=>busy,start:async input=>{busy=true;return{jobId:'job',root:input.root};},retry:async()=>{busy=true;return{jobId:'retry'};},shutdown:async()=>{busy=false;},snapshot:async()=>null};
@@ -34,4 +37,18 @@ test('a failed profile is stopped before preparation because its other services 
  const input={root:f.root,python:f.profile.liveTalking.python,sourceToken:'selected',name:'Аватар',model:'musetalk',parameters:{}};
  await assert.rejects(f.runtime.create(input,{stopServices:false}));assert.equal(f.jobs.isBusy(),false);
  await f.runtime.create(input,{stopServices:true});assert.equal(f.getStops(),1);
+});
+test('an unavailable checkout returns a library error while preserving editable setup',async t=>{
+ const f=await fixture(t);
+ const runtime=createAvatarRuntime({library:createAvatarLibrary(),jobs:{recover:async()=>null,snapshot:async()=>null}});
+ const result=await runtime.snapshot({...f.profile,liveTalking:{...f.profile.liveTalking,root:path.join(f.root,'removed')}});
+ assert.deepEqual(result.entries,[]);assert.equal(result.job,null);assert.match(result.error,/каталог|ENOENT/i);
+});
+test('source replacement while stopping services is refused before starting a worker',async t=>{
+ const f=await fixture(t),file=path.join(f.root,'photo.png');await writeFile(file,'original');
+ const sources=createAvatarSources({chooseFile:async()=>file,inspectPreview:async()=>null});
+ const selection=await sources.choose(f.profile);let starts=0;
+ const runtime=createAvatarRuntime({sources,jobs:{isBusy:()=>false,start:async()=>{starts++;}},getServiceState:()=>({phase:'ready'}),stopProfile:async()=>{await rename(file,file+'.old');await writeFile(file,'replacement');}});
+ await assert.rejects(runtime.create({root:f.root,python:f.profile.liveTalking.python,sourceToken:selection.token,name:'Фото',model:'musetalk',parameters:{}},{stopServices:true}),/заново|измен/i);
+ assert.equal(starts,0);
 });

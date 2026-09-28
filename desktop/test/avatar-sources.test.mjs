@@ -7,7 +7,7 @@ async function fixture(t){const root=await mkdtemp(path.join(os.tmpdir(),'studio
 test('source tokens hide paths and bind file identity and root',async t=>{
  const {root,file,profile}=await fixture(t);const sources=createAvatarSources({chooseFile:async()=>file,inspectPreview:async()=> 'data:image/jpeg;base64,QQ=='});
  const selection=await sources.choose(profile);assert.equal(selection.fileName,'Мой портрет.png');assert.equal(selection.kind,'image');assert.equal(Object.hasOwn(selection,'sourceFile'),false);
- assert.deepEqual(await sources.resolve(selection.token,root),{sourceFile:file,sourceKind:'image'});
+ const resolved=await sources.resolve(selection.token,root);assert.equal(resolved.sourceFile,file);assert.equal(resolved.sourceKind,'image');assert.match(resolved.sourceFingerprint,/^\d+:\d+:\d+:\d+$/);
  await assert.rejects(sources.resolve(selection.token,os.tmpdir()));await assert.rejects(sources.resolve('unknown',root));
  await writeFile(file,'changed photo');await assert.rejects(sources.resolve(selection.token,root),/заново|измен/i);
 });

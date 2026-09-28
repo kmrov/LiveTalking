@@ -2,6 +2,8 @@ import json
 import sys
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
+import os
 
 from aiohttp import web
 
@@ -33,6 +35,10 @@ class DesktopHealthTest(unittest.IsolatedAsyncioTestCase):
         routes.setup_routes(app)
         registered = [(route.method, route.resource.canonical) for route in app.router.routes()]
         self.assertIn(("GET", "/api/desktop/health"), registered)
+    async def test_health_identifies_process_model_and_canonical_avatar_checkout(self):
+        request=SimpleNamespace(app={'opt':SimpleNamespace(model='musetalk',llm_provider='direct')})
+        data=json.loads((await routes.desktop_health(request)).text)['data']
+        self.assertEqual(data['avatar'],{'model':'musetalk','root':os.path.realpath(os.getcwd())})
 
 
 if __name__ == "__main__":

@@ -1,10 +1,12 @@
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
 export async function startFixtureServer() {
   const commands = [];
   const conversations = [], history = new Map(), streams = new Set();
-  const control = { brainMode: 'direct', currentConversation: '', pendingTurn: null, failNextTurn: false };
+  const control = { brainMode: 'direct', currentConversation: '', pendingTurn: null, failNextTurn: false,
+    avatarModel:'wav2lip',avatarRoot:fileURLToPath(new URL('../..',import.meta.url)).replace(/\/$/,'') };
   function send(event, fields = {}) {
     if (!control.pendingTurn) return;
     const turn = control.pendingTurn;
@@ -44,7 +46,8 @@ export async function startFixtureServer() {
     catch { response.writeHead(400); response.end('{}'); return; }
     if (request.method === 'POST') commands.push({ path: request.url, body });
     let result;
-    if (request.url === '/api/desktop/health') result = { code: 0, msg: 'ok', data: { service: 'livetalking', api_version: 1, brain: { mode: control.brainMode, url: `http://127.0.0.1:${server.address().port}` } } };
+    if (request.url === '/api/desktop/health') result = { code: 0, msg: 'ok', data: { service: 'livetalking', api_version: 1,
+      avatar:{model:control.avatarModel,root:control.avatarRoot},brain: { mode: control.brainMode, url: `http://127.0.0.1:${server.address().port}` } } };
     else if (request.url === '/api/v1/health') result = { status: 'ok' };
     else if (request.url === '/api/v1/capabilities') result = { service: 'batya', speech_stream: 1 };
     else if (request.url === '/api/v1/conversations' && request.method === 'POST') {

@@ -64,11 +64,13 @@ def preview_media(source, kind, destination):
     destination.parent.mkdir(parents=True, exist_ok=True)
     if kind == 'image':
         with Image.open(source) as image:
+            if max(image.size)>16384 or image.width*image.height>32_000_000:
+                raise ValueError('Слишком много пикселей для миниатюры.')
             image = ImageOps.exif_transpose(image).convert('RGB')
             image.thumbnail((256, 256))
             image.save(destination, 'JPEG')
     else:
-        subprocess.run(['ffmpeg', '-v', 'error', '-nostdin', '-y', '-i', str(source), '-frames:v', '1', '-vf', 'scale=256:256:force_original_aspect_ratio=decrease', str(destination)], check=True, timeout=30)
+        subprocess.run(['ffmpeg', '-v', 'error', '-nostdin', '-y', '-threads', '1', '-i', str(source), '-frames:v', '1', '-filter_threads', '1', '-vf', 'scale=256:256:force_original_aspect_ratio=decrease', '-threads', '1', str(destination)], check=True, timeout=30)
     if not destination.is_file() or not destination.stat().st_size or destination.stat().st_size > 512 * 1024:
         raise ValueError('Не удалось создать миниатюру.')
     return destination

@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { spawn as nodeSpawn } from 'node:child_process';
 import { normalizeProfile } from '../src/profile.mjs';
+import { realpath } from 'node:fs/promises';
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -8,11 +9,16 @@ export async function desktopHealth(port, profile) {
   try {
     const response = await fetch(`http://127.0.0.1:${port}/api/desktop/health`, { signal: AbortSignal.timeout(2000) });
     const payload = await response.json();
-    const compatible = response.ok && payload.code === 0 && payload.data?.service === 'livetalking' && payload.data?.api_version === 1;
-    if (!compatible || !profile) return compatible;
-    const mode = payload.data.brain?.mode || 'direct';
-    return mode === profile.brain.mode && (mode !== 'batya' || payload.data.brain.url?.replace(/\/$/, '') === profile.brain.url);
+    return response.ok && await isCompatibleDesktopHealth(payload,profile);
   } catch { return false; }
+}
+export async function isCompatibleDesktopHealth(payload,profile) {
+  const compatible=payload.code===0 && payload.data?.service==='livetalking' && payload.data?.api_version===1;
+  if(!compatible||!profile)return compatible;
+  const mode=payload.data.brain?.mode||'direct';
+  if(mode!==profile.brain.mode || (mode==='batya' && payload.data.brain.url?.replace(/\/$/,'')!==profile.brain.url))return false;
+  try{return payload.data.avatar?.model===profile.liveTalking.model && payload.data.avatar.root===await realpath(profile.liveTalking.root);}
+  catch{return false;}
 }
 
 async function modelHealth(url, expected) {

@@ -2,6 +2,7 @@ import test from 'node:test';import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { mkdtemp,mkdir,writeFile,readFile,rm } from 'node:fs/promises';import os from 'node:os';import path from 'node:path';
 import { createAvatarJobs } from '../electron/avatar-jobs.mjs';
+import { createAvatarRuntime } from '../electron/avatar-runtime.mjs';
 async function fixture(t,overrides={}) {
  const root=await mkdtemp(path.join(os.tmpdir(),'studio-job-'));t.after(()=>rm(root,{recursive:true,force:true}));const file=path.join(root,'source.png');await writeFile(file,'image');
  const child=new EventEmitter();child.pid=4321;child.stdout=new EventEmitter();child.stderr=new EventEmitter();let alive=true;const signals=[],calls=[],events=[];
@@ -72,4 +73,20 @@ test('oversized log lines are bounded and cannot impersonate a prepared event',a
  f.child.stdout.emit('data','x'.repeat(1100000)+'\n');f.close(1);await until(()=>!f.jobs.isBusy());
  const log=await readFile(path.join(f.root,'data/.studio-avatar-work',job.jobId,'worker.log'));
  assert.ok(log.length<=1024*1024);assert.equal((await f.jobs.snapshot(f.root)).state,'failed');assert.ok((await f.jobs.snapshot(f.root)).errorMessage.length<=8192);
+});
+test('cancellation still stops the owned worker after a log write failure',async t=>{
+ const f=await fixture(t);const job=await f.jobs.start(f.input);await until(()=>f.calls.length===1);
+ await mkdir(job.logPath);f.child.stdout.emit('data','diagnostic\n');
+ await new Promise(resolve=>setTimeout(resolve,5));
+ await f.jobs.cancel(job.jobId);assert.deepEqual(f.signals,[[-4321,'SIGTERM']]);assert.equal(f.jobs.isBusy(),false);
+ assert.equal((await f.jobs.snapshot(f.root)).state,'cancelled');
+});
+test('the first visit to a second checkout recovers an interrupted job',async t=>{
+ const f=await fixture(t),jobId='a'.repeat(32),dir=path.join(f.root,'data/.studio-avatar-work',jobId);
+ await mkdir(dir,{recursive:true});await writeFile(path.join(dir,'job.json'),JSON.stringify({schemaVersion:1,...f.input,jobDir:dir,jobId,avatarId:'studio_'+'b'.repeat(32),state:'running',updatedAt:'2026-09-28T00:00:00Z'}));
+ const other=path.join(f.root,'other');await mkdir(other);
+ const runtime=createAvatarRuntime({library:{list:async()=>[]},jobs:f.jobs});
+ await runtime.snapshot({liveTalking:{root:other,python:f.input.python}});
+ const result=await runtime.snapshot({liveTalking:{root:f.root,python:f.input.python}});
+ assert.equal(result.job.state,'interrupted');assert.deepEqual(f.signals,[]);
 });

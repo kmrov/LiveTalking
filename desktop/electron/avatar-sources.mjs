@@ -25,7 +25,7 @@ export function createAvatarSources({chooseFile,inspectPreview=input=>runAvatarC
     if(!selection||selection.root!==await realpath(root))throw new Error('Выберите исходник заново для этого каталога.');
     let info;try{info=await stat(selection.file);}catch{throw new Error('Исходник удалён: выберите файл заново.');}
     if(!info.isFile()||info.isSymbolicLink()||fingerprint(info)!==selection.fingerprint)throw new Error('Исходник изменился: выберите файл заново.');
-    return {sourceFile:selection.file,sourceKind:selection.kind};
+    return {sourceFile:selection.file,sourceKind:selection.kind,sourceFingerprint:selection.fingerprint};
   }
   return {choose,resolve,forgetAll:()=>selections.clear()};
 }

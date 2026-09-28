@@ -2,6 +2,7 @@ import json
 import pickle
 import tempfile
 import unittest
+import shutil,subprocess,sys
 from pathlib import Path
 from unittest.mock import patch
 from PIL import Image
@@ -12,6 +13,9 @@ class DesktopAvatarWorkerTest(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name);self.source=self.root/'Фото.jpg';Image.new('RGB',(100,100)).save(self.source)
         self.request={'schemaVersion':1,'jobId':'a'*32,'avatarId':'studio_'+'b'*32,'root':str(self.root),'jobDir':str(self.root/'data/.studio-avatar-work'/('a'*32)),'sourceFile':str(self.source),'sourceKind':'image','name':'Батя','model':'musetalk','parameters':{}}
+        self.request['sourceFingerprint']=self.fingerprint()
+    def fingerprint(self):
+        value=self.source.stat();return ':'.join(str(x) for x in (value.st_dev,value.st_ino,value.st_size,value.st_mtime_ns))
     def generate(self,**kwargs):
         folder=Path(kwargs['save_path'])/kwargs['avatar_id'];(folder/'full_imgs').mkdir(parents=True)
         Image.new('RGB',(100,100)).save(folder/'full_imgs/00000000.png')
@@ -39,6 +43,7 @@ class DesktopAvatarWorkerTest(unittest.TestCase):
     def test_wav2lip_uses_current_server_resolution(self):
         self.source=self.root/'input.mp4';self.source.write_bytes(b'video')
         self.request.update(sourceFile=str(self.source),sourceKind='video',model='wav2lip')
+        self.request['sourceFingerprint']=self.fingerprint()
         with patch('scripts.prepare_desktop_avatar.inspect_creation',return_value=[]),patch('scripts.prepare_desktop_avatar.normalize_media',return_value=self.source):
             self.assertEqual(run_job(self.request,lambda _:None,generator_loader=lambda _:self.generate)['frameCount'],1)
     def test_bad_result_and_one_missing_face_never_report_prepared(self):
@@ -67,6 +72,31 @@ class DesktopAvatarWorkerTest(unittest.TestCase):
         out=StringIO()
         with patch('sys.stdout',out):code=main(['--job',str(file)])
         self.assertNotEqual(code,0);self.assertIn('LT_AVATAR ',out.getvalue());self.assertIn('failed',out.getvalue())
+    def test_source_replaced_during_probe_is_rejected_before_copying(self):
+        def probe(request):
+            self.source.rename(self.source.with_suffix('.old'));Image.new('RGB',(100,100),'blue').save(self.source)
+            return []
+        with patch('scripts.prepare_desktop_avatar.inspect_creation',side_effect=probe):
+            with self.assertRaisesRegex(ValueError,'заново'):
+                run_job(self.request,lambda _:None,generator_loader=lambda _:self.generate)
+        self.assertFalse((Path(self.request['jobDir'])/'source/input.jpg').exists())
+    def test_source_changed_during_copy_is_rejected_without_committing_a_copy(self):
+        import shutil
+        copy=shutil.copyfileobj
+        def changing_copy(source,destination,*args,**kwargs):
+            copy(source,destination,*args,**kwargs);self.source.write_bytes(b'changed during copy')
+        with patch('scripts.prepare_desktop_avatar.inspect_creation',return_value=[]),patch('scripts.prepare_desktop_avatar.shutil.copyfileobj',side_effect=changing_copy):
+            with self.assertRaisesRegex(ValueError,'заново'):
+                run_job(self.request,lambda _:None,generator_loader=lambda _:self.generate)
+        self.assertFalse((Path(self.request['jobDir'])/'source/input.jpg').exists())
+    @unittest.skipUnless(shutil.which('ffmpeg'),'FFmpeg unavailable')
+    def test_real_video_preview_fits_the_subprocess_resource_budget(self):
+        video=self.root/'Короткое видео.mp4'
+        subprocess.run(['ffmpeg','-v','error','-loop','1','-i',str(self.source),'-t','0.12','-threads','1','-pix_fmt','yuv420p',str(video)],check=True)
+        request=self.root/'preview.json';request.write_text(json.dumps({'sourceKind':'video','sourceFile':str(video)}))
+        result=subprocess.run([sys.executable,str(Path(inspect_creation.__code__.co_filename).resolve()),'--preview',str(request)],capture_output=True,text=True)
+        self.assertEqual(result.returncode,0,result.stderr+result.stdout)
+        with Image.open(self.root/'preview.jpg') as image:self.assertLessEqual(max(image.size),256)
 
     def test_packaged_musetalk_detector_import(self):
         import sys

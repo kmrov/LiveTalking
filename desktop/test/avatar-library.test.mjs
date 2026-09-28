@@ -84,3 +84,8 @@ test('preview limits do not break a ready avatar',async t=>{
  const entries=await createAvatarLibrary({makeThumbnail:async()=> 'data:image/jpeg;base64,'+'a'.repeat(600000)}).list(root);
  assert.equal(entries[0].ready,true);assert.equal(entries[0].thumbnail,null);
 });
+test('thumbnail decoding receives a bounded file and the selected interpreter outside main',async t=>{
+ const root=await fixture(t),dir=await avatar(root,'a');let context;
+ const entries=await createAvatarLibrary({readThumbnailBytes:false,makeThumbnail:async(bytes,options)=>{assert.equal(bytes,null);context=options;return null;}}).list(root,{python:'/usr/bin/python3'});
+ assert.equal(entries[0].ready,true);assert.deepEqual(context,{root,python:'/usr/bin/python3',sourceFile:path.join(dir,'full_imgs/2.png')});
+});

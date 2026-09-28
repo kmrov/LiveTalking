@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, session, safeStorage, nativeImage } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, session, safeStorage } from 'electron';
 import path from 'node:path';
 import { writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -39,6 +39,7 @@ let avatarRuntime;
 let avatarJobs;
 let avatarLibrary;
 let avatarFixture;
+let thumbnailQueue=Promise.resolve();
 let serviceState = initialServiceState();
 let startJob;
 let runGeneration = 0;
@@ -291,12 +292,14 @@ app.whenReady().then(async () => {
     publishSnapshot();
   } });
   avatarLibrary = createAvatarLibrary({
-    makeThumbnail: async bytes => {
-      const source = nativeImage.createFromBuffer(bytes);
-      if (source.isEmpty()) return null;
-      const { width, height } = source.getSize();
-      const scale = Math.min(1, 256 / width, 256 / height);
-      return 'data:image/jpeg;base64,' + source.resize({ width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) }).toJPEG(85).toString('base64');
+    readThumbnailBytes: false,
+    makeThumbnail: async (_bytes, context) => {
+      if(!context.python)return null;
+      const result=thumbnailQueue.then(()=>avatarFixture
+        ? avatarFixture.inspectPreview(context)
+        : runAvatarCommand({...context,sourceKind:'image'},'preview'));
+      thumbnailQueue=result.catch(()=>{});
+      return result;
     },
     moveDirectoryNoReplace: avatarFixture?.moveDirectoryNoReplace ?? (async (_staged, final, context) => {
       const result = await runAvatarCommand({ ...context, schemaVersion: 1 }, 'publish');
@@ -312,8 +315,6 @@ app.whenReady().then(async () => {
   } });
   avatarRuntime = createAvatarRuntime({ library: avatarLibrary, jobs: avatarJobs, sources: avatarSources, profiles: profileStore, stopProfile,
     getServiceState: () => serviceState, inspectCreation: avatarFixture?.inspectCreation ?? inspectAvatarPrerequisites });
-  const avatarProfile = initialProfile();
-  if (avatarProfile.liveTalking.root) await avatarJobs.recover(avatarProfile.liveTalking.root);
   registerSetupIpc();
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     callback(mayUseMicrophone({ sender: webContents }, permission, studioWindow, studioUrl, details));

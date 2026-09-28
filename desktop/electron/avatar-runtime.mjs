@@ -1,8 +1,23 @@
 import { normalizeProfile } from '../src/profile.mjs';
 import { normalizeAvatarCreation } from '../src/avatar-contract.mjs';
+import { avatarRoot } from './avatar-library.mjs';
 
 export function createAvatarRuntime({library,jobs,sources,profiles,stopProfile,getServiceState,inspectCreation}={}) {
   let queue=Promise.resolve();
+  const recovery=new Map();
+  async function snapshot(input) {
+    const profile=normalizeProfile(input),lt=profile.liveTalking;
+    try {
+      if(!lt.root)return {root:null,entries:[],job:null,error:''};
+      const root=(await avatarRoot(lt.root)).root;
+      if(!recovery.has(root)) {
+        const result=Promise.resolve().then(()=>jobs.recover(root));
+        recovery.set(root,result);result.catch(()=>recovery.delete(root));
+      }
+      await recovery.get(root);
+      return {root,entries:await library.list(root,{python:lt.python}),job:await jobs.snapshot(root),error:''};
+    } catch(error) {return {root:null,entries:[],job:null,error:`Не удалось открыть библиотеку: ${error.message}`};}
+  }
   function runLifecycle(operation) {const result=queue.then(operation);queue=result.catch(()=>{});return result;}
   function ensureIdle() {if(jobs.isBusy())throw new Error('Сначала завершите или отмените подготовку аватара.');}
   const active=()=>['checking','starting','ready','reconnecting','failed'].includes(getServiceState().phase);
@@ -26,10 +41,10 @@ export function createAvatarRuntime({library,jobs,sources,profiles,stopProfile,g
   }
   return {
     runLifecycle,
-    list:profile=>library.list(normalizeProfile(profile).liveTalking.root),
+    list:input=>{const profile=normalizeProfile(input);return library.list(profile.liveTalking.root,{python:profile.liveTalking.python});},
     chooseSource:profile=>{ensureIdle();return sources.choose(normalizeProfile(profile));},
     checkCreation:async input=>inspectCreation(await creation(input)),
-    create:(input,options)=>runLifecycle(async()=>{ensureIdle();const value=await creation(input);await stopIfNeeded(options);return jobs.start(value);}),
+    create:(input,options)=>runLifecycle(async()=>{ensureIdle();await creation(input);await stopIfNeeded(options);return jobs.start(await creation(input));}),
     retry:(input,options)=>runLifecycle(async()=>{ensureIdle();await stopIfNeeded(options);return jobs.retry({root:input.root,python:input.python,jobId:input.jobId});}),
     rename:({root,id,name})=>library.rename(root,id,name),
     select:(input,id,options)=>runLifecycle(async()=>{
@@ -41,6 +56,6 @@ export function createAvatarRuntime({library,jobs,sources,profiles,stopProfile,g
     assertCanStart:async profile=>{ensureIdle();const entry=await library.get(profile.liveTalking.root,profile.liveTalking.avatarId);if(!entry?.ready||entry.model!==profile.liveTalking.model)throw new Error(entry?.reason||'Выберите готового аватара нужной модели.');},
     assertCanSave,
     shutdown:()=>jobs.shutdown(),
-    snapshot:async profile=>({entries:await library.list(profile.liveTalking.root),job:await jobs.snapshot(profile.liveTalking.root)}),
+    snapshot,
   };
 }

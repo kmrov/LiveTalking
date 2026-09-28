@@ -1,4 +1,7 @@
 import { normalizeAvatarCreation } from '../src/avatar-contract.mjs';
+export function avatarSnapshotBelongsToRoot(snapshot,profileRoot,catalog) {
+ return !snapshot.root || snapshot.root===profileRoot || (catalog?.profileRoot===profileRoot && snapshot.root===catalog.root);
+}
 export function filterAvatars(entries,query) {
  const value=query.trim().toLocaleLowerCase('ru');return entries.filter(entry=>`${entry.name} ${entry.id}`.toLocaleLowerCase('ru').includes(value));
 }

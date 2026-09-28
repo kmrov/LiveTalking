@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { _electron as electron } from 'playwright';
 import { createRequire } from 'node:module';
-import { mkdir, mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile, readFile, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startFixtureServer } from './fixture-server.mjs';
+import { normalizeProfile } from '../src/profile.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const artifactDirectory = path.join(root, 'test-results');
@@ -64,6 +65,7 @@ async function runCase(corrupt) {
 try {
   await runCase(false);
   await runCase(true);
+  await runMissingRootCase();
   await runAvatarCase();
   await runBatyaCase();
   assert.equal(logs.some(line => line.includes('Renderer error')), false);
@@ -72,15 +74,35 @@ try {
   await writeFile(path.join(artifactDirectory, 'smoke.log'), logs.join('\n'));
 }
 
+async function runMissingRootCase() {
+ const userData=await mkdtemp(path.join(os.tmpdir(),'livetalking-missing-root-'));
+ const profile=normalizeProfile({id:'fixture',autoStart:false,liveTalking:{root:path.join(userData,'removed'),python:'/usr/bin/python3',port:fixture.port}});
+ await writeFile(path.join(userData,'profiles.json'),JSON.stringify({schemaVersion:1,profiles:[profile],lastSuccessfulId:null}));
+ const application=await electron.launch({executablePath,args:[root],env:{...process.env,LIVETALKING_DESKTOP_TEST_FIXTURE:'1',LIVETALKING_DESKTOP_TEST_PORT:String(fixture.port),LIVETALKING_DESKTOP_TEST_USER_DATA:userData},timeout:30000});
+ try {
+  const window=await application.firstWindow();
+  window.on('pageerror',error=>logs.push(`Renderer error: ${error.stack}`));
+  await window.waitForFunction(()=>document.querySelector('#avatar-summary-message').textContent.includes('Не удалось открыть библиотеку'));
+  assert.equal(await window.locator('#choose-root').isEnabled(),true);
+  console.log('Unavailable saved checkout → editable setup and library error: passed');
+ } finally {await application.close();await rm(userData,{recursive:true,force:true});}
+}
+
 async function runAvatarCase() {
   const userData = await mkdtemp(path.join(os.tmpdir(), 'livetalking-avatar-smoke-'));
   const avatarRoot = path.join(userData, 'checkout');
   const source = path.join(userData, 'Фото.png');
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAFElEQVR4nGNMmXaCARtgwio6aCUAYr8B0jIwXssAAAAASUVORK5CYII=', 'base64');
   await mkdir(avatarRoot);
+  await symlink(avatarRoot,path.join(userData,'checkout-link'));
   await writeFile(source, png);
   const control = mode => writeFile(path.join(avatarRoot, 'fixture-control.json'), JSON.stringify({ mode }));
   await control('delay');
+  const previousRoot=fixture.control.avatarRoot;
+  fixture.control.avatarRoot=avatarRoot;
+  const profile=normalizeProfile({id:'fixture',autoStart:false,liveTalking:{root:path.join(userData,'checkout-link')+'/',python:'/usr/bin/python3',port:fixture.port},
+    speech:{mode:'external',asrUrl:`http://127.0.0.1:${fixture.port}`,ttsUrl:`http://127.0.0.1:${fixture.port}`}});
+  await writeFile(path.join(userData,'profiles.json'),JSON.stringify({schemaVersion:1,profiles:[profile],lastSuccessfulId:null}));
   let application, window;
   const launch = async () => {
     application = await electron.launch({ executablePath, args: [root], env: { ...process.env,
@@ -169,6 +191,7 @@ async function runAvatarCase() {
     await window.locator('#brain-service-mode').selectOption('external');
     await window.locator('#brain-url').fill(`http://127.0.0.1:${fixture.port}`);
     fixture.control.brainMode = 'batya';
+    fixture.control.avatarModel = 'musetalk';
     await window.locator('#start-profile').click();
     await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Работает');
     await window.locator('#connect-avatar').click();
@@ -193,6 +216,7 @@ async function runAvatarCase() {
     assert.equal(await window.locator('#conversation-list').textContent(), before);
     const selected = JSON.parse(await readFile(path.join(userData, 'profiles.json'), 'utf8')).profiles[0];
     assert.equal(selected.liveTalking.avatarId, 'legacy'); assert.equal(selected.liveTalking.model, 'wav2lip');
+    fixture.control.avatarModel = 'wav2lip';
     await window.locator('#start-profile').click();
     await window.waitForFunction(() => document.querySelector('#conversation-list [data-role="assistant"]')?.textContent.includes('Это тестовый ответ.'));
     await window.locator('#stop-profile').click();
@@ -238,7 +262,7 @@ async function runAvatarCase() {
       logs.push(await window.locator('#avatar-library-message').textContent());
     }
     throw error;
-  } finally { await application?.close(); await rm(userData, { recursive: true, force: true }); fixture.control.brainMode = 'direct'; }
+  } finally { await application?.close(); await rm(userData, { recursive: true, force: true }); fixture.control.brainMode = 'direct';fixture.control.avatarRoot=previousRoot;fixture.control.avatarModel='wav2lip'; }
 }
 
 async function runBatyaCase() {

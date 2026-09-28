@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import sys
 from pathlib import Path
 
@@ -128,7 +129,23 @@ def run_job(request, emit, generator_loader=None):
     event('copying')
     source=Path(request['sourceFile']);source_dir=safe_path(job_dir,'source');source_dir.mkdir(exist_ok=True)
     own=source_dir/('input'+source.suffix.lower());temporary=own.with_suffix(own.suffix+'.tmp')
-    shutil.copyfile(source,temporary);os.replace(temporary,own)
+    expected=request.get('sourceFingerprint')
+    if not isinstance(expected,str) or not re.fullmatch(r'\d+:\d+:\d+:-?\d+',expected):
+        raise ValueError('Исходник не проверен: выберите файл заново.')
+    def identity(value):
+        return ':'.join(str(x) for x in (value.st_dev,value.st_ino,value.st_size,value.st_mtime_ns))
+    def unchanged(value):
+        if not stat.S_ISREG(value.st_mode) or identity(value)!=expected:
+            raise ValueError('Исходник изменился: выберите файл заново.')
+    try:
+        with os.fdopen(os.open(source,os.O_RDONLY|os.O_NOFOLLOW),'rb') as opened:
+            unchanged(os.fstat(opened.fileno()));unchanged(source.stat(follow_symlinks=False))
+            with temporary.open('wb') as destination:shutil.copyfileobj(opened,destination)
+            unchanged(os.fstat(opened.fileno()));unchanged(source.stat(follow_symlinks=False))
+        os.replace(temporary,own)
+    except (OSError,ValueError) as error:
+        temporary.unlink(missing_ok=True)
+        raise ValueError('Исходник изменился или недоступен: выберите файл заново.') from error
     event('normalizing')
     normalized=normalize_media(own,request['sourceKind'],safe_path(job_dir,'input'))
     output=safe_path(job_dir,'output');output.mkdir(exist_ok=True)
@@ -158,6 +175,8 @@ def main(argv=None):
         elif args.probe:
             print('LT_AVATAR_PROBE '+json.dumps(inspect_creation(request),ensure_ascii=False),flush=True)
         elif args.preview:
+            import resource
+            resource.setrlimit(resource.RLIMIT_AS,(1024*1024*1024,1024*1024*1024))
             destination=Path(filename).parent/'preview.jpg'
             preview_media(Path(request['sourceFile']),request['sourceKind'],destination)
             print('LT_AVATAR_PREVIEW '+json.dumps({'path':str(destination)}),flush=True)

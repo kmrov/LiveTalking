@@ -11,12 +11,21 @@ const phases=new Set(['checking','copying','normalizing','generating','validatin
 const fields=['schemaVersion','jobId','avatarId','root','name','model','sourceKind','state','stage','progress','errorMessage','logPath','createdAt','updatedAt'];
 export function createAvatarJobs({library,inspectCreation=inspectAvatarPrerequisites,spawn=nodeSpawn,kill=process.kill.bind(process),emit=()=>{},now=()=>new Date().toISOString(),schedule=setTimeout,cancelSchedule=clearTimeout,shutdownTimeoutMs=5000}={}) {
   let active=null;
+  const recoveredStates=new Map();
   const publicRecord=record=>Object.fromEntries(fields.map(key=>[key,record[key]??null]));
   const timestamp=()=>{const value=now();return typeof value==='number'?new Date(value).toISOString():value;};
+  function queueWrite(owner,operation) {
+    const result=owner.writes.then(operation);
+    owner.writes=result.catch(error=>{
+      owner.ioError=error;
+      owner.record.errorMessage=`Ошибка сохранения задания: ${error.message}`;
+      publish(owner);
+    });
+    return result;
+  }
   function persist(owner) {
     owner.record.updatedAt=timestamp();const copy=structuredClone(owner.record);
-    owner.writes=owner.writes.then(()=>atomicJson(path.join(owner.record.jobDir,'job.json'),copy));
-    return owner.writes;
+    return queueWrite(owner,()=>atomicJson(path.join(owner.record.jobDir,'job.json'),copy));
   }
   function publish(owner) {emit(publicRecord(owner.record));}
   function update(owner,values) {Object.assign(owner.record,values);publish(owner);return persist(owner);}
@@ -36,7 +45,7 @@ export function createAvatarJobs({library,inspectCreation=inspectAvatarPrerequis
         if(!info.isFile()||info.isSymbolicLink()||info.size>65536)continue;
         const value=JSON.parse(await readFile(file,'utf8'));
         if(value.schemaVersion!==1 || value.jobId!==jobId || value.root!==paths.root || value.jobDir!==jobDir || !/^studio_[0-9a-f]{32}$/.test(value.avatarId))continue;
-        value.logPath=path.join(jobDir,'worker.log');result.push(value);
+        value.logPath=path.join(jobDir,'worker.log');Object.assign(value,recoveredStates.get(jobDir));result.push(value);
       }catch { /* An invalid job record cannot authorize retry or deletion. */ }
     }
     return result.sort((a,b)=>String(b.updatedAt).localeCompare(String(a.updatedAt)));
@@ -47,6 +56,7 @@ export function createAvatarJobs({library,inspectCreation=inspectAvatarPrerequis
   }
   async function run(owner) {
     try {
+      if(owner.cancelled)return await finish(owner,'cancelled');
       const checks=await inspectCreation(owner.record,{signal:owner.controller.signal});
       if(owner.cancelled)return await finish(owner,'cancelled');
       const blockers=checks.filter(x=>x.state!=='ready');
@@ -61,7 +71,7 @@ export function createAvatarJobs({library,inspectCreation=inspectAvatarPrerequis
       const log=chunk=>{
         owner.log=(owner.log+String(chunk));
         const bytes=Buffer.from(owner.log);if(bytes.length>1024*1024)owner.log=bytes.subarray(-1024*1024).toString('utf8');
-        owner.writes=owner.writes.then(()=>writeFile(owner.record.logPath,owner.log,{mode:0o600}));
+        void queueWrite(owner,()=>writeFile(owner.record.logPath,owner.log,{mode:0o600}));
       };
       const line=value=>{
         if(!value.startsWith('LT_AVATAR '))return;
@@ -91,6 +101,7 @@ export function createAvatarJobs({library,inspectCreation=inspectAvatarPrerequis
           try {
             await owner.writes;
             if(owner.cancelled)return await finish(owner,'cancelled');
+            if(owner.ioError)throw owner.ioError;
             if(code!==0||owner.workerError||!owner.prepared)throw new Error(owner.workerError||owner.log.slice(-8192)||'Python завершился без подтверждённого результата подготовки.');
             await update(owner,{state:'publishing',stage:'publishing',frameCount:owner.prepared.frameCount,progress:99});
             const result=await library.publish(owner.record.root,owner.record);
@@ -128,12 +139,12 @@ export function createAvatarJobs({library,inspectCreation=inspectAvatarPrerequis
     owner.stopPromise=(async()=>{
       if(owner.record?.state==='publishing')return owner.finished;
       owner.cancelled=true;owner.controller.abort();
-      if(owner.record)await update(owner,{state:'cancelling'});
+      if(owner.record)await update(owner,{state:'cancelling'}).catch(()=>{});
       if(owner.child?.pid && !owner.closed) {
         try{kill(-owner.child.pid,'SIGTERM');}catch(error){if(error.code!=='ESRCH')throw error;}
         await new Promise(resolve=>{
           const timer=schedule(()=>{if(groupAlive(owner)){try{kill(-owner.child.pid,'SIGKILL');}catch{}}resolve();},shutdownTimeoutMs);
-          owner.finished.then(()=>{if(!groupAlive(owner)){cancelSchedule(timer);resolve();}});
+          owner.finished.then(()=>{if(!groupAlive(owner)){cancelSchedule(timer);resolve();}},resolve);
         });
       }
       return owner.finished;
@@ -149,11 +160,14 @@ export function createAvatarJobs({library,inspectCreation=inspectAvatarPrerequis
     const records=await readRecords(root);
     for(const record of records) {
       if(terminal.has(record.state)||active?.record?.jobId===record.jobId)continue;
-      const result=await library.get(record.root,record.avatarId);
+      let result;
+      try {result=await library.get(record.root,record.avatarId);}catch { /* Broken output must not block other records or setup. */ }
       record.state=result?.ready&&result.origin==='studio'&&result.model===record.model?'completed':'interrupted';
       record.errorMessage=record.state==='interrupted'?'Подготовка прервана закрытием приложения. Можно повторить.':'';
       record.updatedAt=timestamp();if(record.state==='completed')record.progress=100;
-      await atomicJson(path.join(record.jobDir,'job.json'),record);
+      try {await atomicJson(path.join(record.jobDir,'job.json'),record);}
+      catch(error){record.errorMessage+=` Не удалось сохранить восстановление: ${error.message}`;}
+      recoveredStates.set(record.jobDir,{state:record.state,errorMessage:record.errorMessage,updatedAt:record.updatedAt,progress:record.progress});
     }
     return snapshot(root);
   }
@@ -166,7 +180,8 @@ export function createAvatarJobs({library,inspectCreation=inspectAvatarPrerequis
     if(files.length!==1)throw new Error('Копия исходника не сохранена. Выберите файл заново.');
     const sourceFile=await checkedPath(sourceDir,files[0]);const info=await lstat(sourceFile);
     if(!info.isFile()||!info.size)throw new Error('Сохранённый исходник повреждён.');
-    return start({root,python,sourceFile,sourceKind:old.sourceKind,name:old.name,model:old.model,parameters:old.parameters});
+    const value=await lstat(sourceFile,{bigint:true}),sourceFingerprint=[value.dev,value.ino,value.size,value.mtimeNs].map(String).join(':');
+    return start({root,python,sourceFile,sourceFingerprint,sourceKind:old.sourceKind,name:old.name,model:old.model,parameters:old.parameters});
   }
   return {start,retry,cancel,recover,snapshot,isBusy:()=>Boolean(active),shutdown:async()=>{if(active)await stopOwner(active);}};
 }

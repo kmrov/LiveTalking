@@ -3,6 +3,7 @@
 ###############################################################################
 
 import json
+import os
 import asyncio
 import ipaddress
 from urllib.parse import urlsplit
@@ -37,6 +38,7 @@ async def desktop_health(request):
     data = {"service": "livetalking", "api_version": 1}
     opt = request.app.get('opt') if request is not None else None
     if opt is not None:
+        data['avatar']={'model':getattr(opt,'model',''),'root':os.path.realpath(os.getcwd())}
         mode = 'batya' if getattr(opt, 'llm_provider', '') == 'batya' else 'direct'
         data['brain'] = {'mode': mode}
         if mode == 'batya':

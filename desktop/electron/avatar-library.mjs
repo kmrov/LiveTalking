@@ -45,10 +45,10 @@ async function frames(dir) {
 }
 function sameIndices(a,b) {if(JSON.stringify(a.ids)!==JSON.stringify(b.ids)) throw new Error('Число и индексы кадров, лиц или масок не совпадают.');}
 
-export function createAvatarLibrary({makeThumbnail=async()=>null,moveDirectoryNoReplace}={}) {
+export function createAvatarLibrary({makeThumbnail=async()=>null,readThumbnailBytes=true,moveDirectoryNoReplace}={}) {
   let mutation=Promise.resolve();
   const serialize=operation=>{const result=mutation.then(operation);mutation=result.catch(()=>{});return result;};
-  async function inspect(base,id) {
+  async function inspect(base,id,context={}) {
     const entry={id,name:id,model:null,ready:false,reason:'',origin:'existing',thumbnail:null};
     try {
       validateAvatarId(id);const dir=await checkedPath(base,id);
@@ -84,23 +84,23 @@ export function createAvatarLibrary({makeThumbnail=async()=>null,moveDirectoryNo
       try {
         const preferred=await present(path.join(dir,'thumbnail.jpg'))?'thumbnail.jpg':path.join('full_imgs',full.names[0]);
         const file=await checkedPath(base,id,preferred);await regular(file,20*1024*1024);
-        const value=await makeThumbnail(await readFile(file));
+        const value=await makeThumbnail(readThumbnailBytes?await readFile(file):null,{...context,sourceFile:file});
         if(typeof value==='string' && /^data:image\/(jpeg|png);base64,/.test(value) && value.length<=512*1024)entry.thumbnail=value;
       }catch { /* Preview failure does not disable otherwise valid data. */ }
       return {...entry,frameCount:full.names.length};
     }catch(error){entry.reason=error.message;return entry;}
   }
-  async function list(root) {
+  async function list(root,{python}={}) {
     if(!root)return [];
-    const base=(await avatarRoot(root)).avatars;
+    const paths=await avatarRoot(root),base=paths.avatars;
     let names;try{names=await readdir(base);}catch(e){if(e.code==='ENOENT')return [];throw e;}
-    const entries=await Promise.all(names.filter(name=>!name.startsWith('.')).map(name=>inspect(base,name)));
+    const entries=await Promise.all(names.filter(name=>!name.startsWith('.')).map(name=>inspect(base,name,{root:paths.root,python})));
     return entries.sort((a,b)=>a.name.localeCompare(b.name,'ru'));
   }
-  async function get(root,id) {
-    validateAvatarId(id);const base=(await avatarRoot(root)).avatars;
+  async function get(root,id,{python}={}) {
+    validateAvatarId(id);const paths=await avatarRoot(root),base=paths.avatars;
     if(!await present(await checkedPath(base,id)))return null;
-    return inspect(base,id);
+    return inspect(base,id,{root:paths.root,python});
   }
   return {
     list,get,
