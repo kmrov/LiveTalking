@@ -85,10 +85,10 @@ export function createAvatarJobs({library,inspectCreation=inspectAvatarPrerequis
       child.stderr.on('data',chunk=>{if(!owner.closed)log(chunk);});
       child.once('error',error=>{owner.workerError=error.message;if(!child.pid){owner.closed=true;void finish(owner,owner.cancelled?'cancelled':'failed',error.message).catch(owner.rejectFinished);}});
       child.once('close',code=>{
+        if(buffer&&!dropping)line(buffer);
         owner.closed=true;
         void (async()=>{
           try {
-            if(buffer&&!dropping)line(buffer);
             await owner.writes;
             if(owner.cancelled)return await finish(owner,'cancelled');
             if(code!==0||owner.workerError||!owner.prepared)throw new Error(owner.workerError||owner.log.slice(-8192)||'Python завершился без подтверждённого результата подготовки.');

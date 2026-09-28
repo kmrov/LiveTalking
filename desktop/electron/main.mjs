@@ -38,6 +38,7 @@ let secrets;
 let avatarRuntime;
 let avatarJobs;
 let avatarLibrary;
+let avatarFixture;
 let serviceState = initialServiceState();
 let startJob;
 let runGeneration = 0;
@@ -115,7 +116,7 @@ function initialProfile() {
   const saved = profileStore.get(profileStore.lastSuccessfulId()) ?? profileStore.list()[0];
   if (saved) return saved;
   if (fixtureMode) return normalizeProfile({
-    id: 'fixture', liveTalking: { root: path.dirname(app.getAppPath()), python: '/usr/bin/python3', port: fixturePort },
+    id: 'fixture', liveTalking: { root: avatarFixture?.root ?? path.dirname(app.getAppPath()), python: '/usr/bin/python3', port: fixturePort },
     speech: { mode: 'external', referenceWav: '/tmp/fixture.wav', referenceText: 'Привет', asrUrl: `http://127.0.0.1:${fixturePort}`, ttsUrl: `http://127.0.0.1:${fixturePort}` },
     autoStart: false,
   });
@@ -271,6 +272,10 @@ export function createStudioWindow() {
 }
 
 app.whenReady().then(async () => {
+  if (fixtureMode && process.env.LIVETALKING_DESKTOP_TEST_AVATAR_ROOT) {
+    const { avatarFixtureOptions } = await import('../scripts/avatar-fixture-worker.mjs');
+    avatarFixture = await avatarFixtureOptions(process.env.LIVETALKING_DESKTOP_TEST_AVATAR_ROOT, app.getPath('userData'));
+  }
   profileStore = createProfileStore(app.getPath('userData'));
   secrets = createSecretStore({ safeStorage, backend: createFileSecretBackend(app.getPath('userData')) });
   batyaSupervisor = createBatyaSupervisor({ emit: snapshot => {
@@ -293,20 +298,20 @@ app.whenReady().then(async () => {
       const scale = Math.min(1, 256 / width, 256 / height);
       return 'data:image/jpeg;base64,' + source.resize({ width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) }).toJPEG(85).toString('base64');
     },
-    moveDirectoryNoReplace: async (_staged, final, context) => {
+    moveDirectoryNoReplace: avatarFixture?.moveDirectoryNoReplace ?? (async (_staged, final, context) => {
       const result = await runAvatarCommand({ ...context, schemaVersion: 1 }, 'publish');
       if (result.version !== 1 || result.avatarId !== context.avatarId || result.path !== final) throw new Error('Публикация аватара не подтверждена.');
-    },
+    }),
   });
-  avatarJobs = createAvatarJobs({ library: avatarLibrary, emit: job => {
+  avatarJobs = createAvatarJobs({ library: avatarLibrary, ...(avatarFixture ? { inspectCreation: avatarFixture.inspectCreation, spawn: avatarFixture.spawn } : {}), emit: job => {
     if (studioWindow && !studioWindow.isDestroyed()) studioWindow.webContents.send('desktop:avatar-snapshot', { root: job.root, job });
   } });
-  const avatarSources = createAvatarSources({ chooseFile: async () => {
+  const avatarSources = createAvatarSources({ ...(avatarFixture ? { inspectPreview: avatarFixture.inspectPreview } : {}), chooseFile: async () => {
     const result = await dialog.showOpenDialog(studioWindow, { title: 'Фото или видео для аватара', properties: ['openFile'], filters: [{ name: 'Фото и видео', extensions: ['png', 'jpg', 'jpeg', 'mp4', 'mov', 'mkv', 'avi'] }] });
     return result.canceled ? null : result.filePaths[0];
   } });
   avatarRuntime = createAvatarRuntime({ library: avatarLibrary, jobs: avatarJobs, sources: avatarSources, profiles: profileStore, stopProfile,
-    getServiceState: () => serviceState, inspectCreation: inspectAvatarPrerequisites });
+    getServiceState: () => serviceState, inspectCreation: avatarFixture?.inspectCreation ?? inspectAvatarPrerequisites });
   const avatarProfile = initialProfile();
   if (avatarProfile.liveTalking.root) await avatarJobs.recover(avatarProfile.liveTalking.root);
   registerSetupIpc();

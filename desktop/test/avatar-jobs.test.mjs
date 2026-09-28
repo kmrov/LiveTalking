@@ -27,6 +27,12 @@ test('chunked events ignore strangers and only publish after successful close',a
  f.child.stdout.emit('data','LT_AVATAR '+JSON.stringify({version:1,jobId:job.jobId,state:'prepared',stage:'validating',progress:100,frameCount:1,message:''})+'\n');assert.equal(published,0);
  f.close();await until(()=>!f.jobs.isBusy());assert.equal(published,1);assert.equal((await f.jobs.snapshot(f.root)).state,'completed');
 });
+test('a final prepared line without a newline is processed before closing the protocol',async t=>{
+ let published=0;const f=await fixture(t,{library:{publish:async()=>{published++;return{ready:true};},get:async()=>null}});
+ const job=await f.jobs.start(f.input);await until(()=>f.calls.length===1);
+ f.child.stdout.emit('data','LT_AVATAR '+JSON.stringify({version:1,jobId:job.jobId,state:'prepared',stage:'validating',progress:100,frameCount:1}));
+ f.close();await until(()=>!f.jobs.isBusy());assert.equal(published,1);
+});
 test('cancel and shutdown signal only the owned group and leave no active job',async t=>{
  const f=await fixture(t);const job=await f.jobs.start(f.input);await until(()=>f.calls.length===1);
  await Promise.all([f.jobs.cancel(job.jobId),f.jobs.shutdown()]);assert.deepEqual(f.signals,[[-4321,'SIGTERM']]);

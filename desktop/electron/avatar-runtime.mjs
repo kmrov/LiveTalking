@@ -5,7 +5,7 @@ export function createAvatarRuntime({library,jobs,sources,profiles,stopProfile,g
   let queue=Promise.resolve();
   function runLifecycle(operation) {const result=queue.then(operation);queue=result.catch(()=>{});return result;}
   function ensureIdle() {if(jobs.isBusy())throw new Error('Сначала завершите или отмените подготовку аватара.');}
-  const active=()=>['checking','starting','ready','reconnecting'].includes(getServiceState().phase);
+  const active=()=>['checking','starting','ready','reconnecting','failed'].includes(getServiceState().phase);
   async function stopIfNeeded(options={}) {
     if(!active())return;
     if(options.stopServices!==true)throw new Error('Остановите профиль перед созданием или выбором аватара.');

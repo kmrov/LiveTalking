@@ -7,7 +7,11 @@ export function mountAvatarLibrary({document,bridge,getProfile,onProfileSelected
  const listen=(element,type,handler)=>{element.addEventListener(type,handler);cleanups.push(()=>element.removeEventListener(type,handler));};
  const action=()=>avatarActionState(getSessionState(),job);
  function show(dialog){if(!dialog.open){dialog.opener=document.activeElement;dialog.showModal();}}
- for(const dialog of [$('#avatar-library-dialog'),$('#avatar-create-dialog')])listen(dialog,'close',()=>dialog.opener?.focus());
+ for(const dialog of [$('#avatar-library-dialog'),$('#avatar-create-dialog')])listen(dialog,'close',()=>{
+  const opener=dialog.opener;
+  (opener&&!opener.disabled?opener:!$('#open-avatar-job').hidden?$('#open-avatar-job'):$('#open-avatar-library')).focus();
+ });
+ for(const dialog of [$('#avatar-library-dialog'),$('#avatar-create-dialog')])listen(dialog,'keydown',event=>{if(event.key==='Escape'){event.preventDefault();dialog.close();}});
  document.querySelectorAll('[data-close-avatar]').forEach(button=>listen(button,'click',()=>$('#'+button.dataset.closeAvatar).close()));
  async function perform(operation,target='#avatar-create-message') {
   if(pending)return;pending=true;$(target).textContent='';renderControls();
@@ -42,7 +46,7 @@ export function mountAvatarLibrary({document,bridge,getProfile,onProfileSelected
    const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent='Сведения';details.append(summary);
    const id=document.createElement('small');id.textContent=entry.id;details.append(id);card.append(details);
    if(!entry.ready){const error=document.createElement('p');error.className='avatar-error';error.textContent=entry.reason;card.append(error);}
-   const choose=document.createElement('button');choose.type='button';choose.textContent=action().selectLabel;choose.disabled=!entry.ready||!action().canSelect||pending;choose.addEventListener('click',()=>void select(entry.id));card.append(choose);
+   const choose=document.createElement('button');choose.type='button';choose.dataset.avatarSelect=entry.id;choose.dataset.ready=String(entry.ready);choose.textContent=action().selectLabel;choose.disabled=!entry.ready||!action().canSelect||pending;choose.addEventListener('click',()=>void select(entry.id));card.append(choose);
    if(entry.ready){const rename=document.createElement('details'),label=document.createElement('summary');label.textContent='Переименовать';rename.append(label);const input=document.createElement('input');input.value=entry.name;input.maxLength=120;input.setAttribute('aria-label','Новое имя аватара');const save=document.createElement('button');save.type='button';save.textContent='Сохранить имя';save.addEventListener('click',()=>void perform(async()=>{await bridge.renameAvatar({root:getProfile().liveTalking.root,id:entry.id,name:input.value});await refresh();},'#avatar-library-message'));rename.append(input,save);card.append(rename);}
    container.append(card);
   }
@@ -59,6 +63,7 @@ export function mountAvatarLibrary({document,bridge,getProfile,onProfileSelected
  }
  function renderControls(){
   const value=action(),session=getSessionState();
+  for(const control of document.querySelectorAll('[data-avatar-select]')){control.disabled=control.dataset.ready!=='true'||!value.canSelect||pending;control.textContent=value.selectLabel;}
   for(const id of ['open-avatar-create','library-create-avatar','choose-avatar-source'])$('#'+id).disabled=!value.canCreate||pending;
   $('#submit-avatar-create').disabled=!value.canCreate||pending||!selection;$('#submit-avatar-create').textContent=value.createLabel;
   $('#check-avatar-create').disabled=!value.canCreate||pending||!selection;

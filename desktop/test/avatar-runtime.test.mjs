@@ -29,3 +29,9 @@ test('startup-only saved fields are blocked while a profile is running',async t=
  await assert.rejects(f.runtime.assertCanSave({...f.profile,liveTalking:{...f.profile.liveTalking,model:'musetalk',avatarId:'portrait'}}));
  await f.runtime.assertCanSave(f.profile);
 });
+test('a failed profile is stopped before preparation because its other services may still be owned',async t=>{
+ const f=await fixture(t);f.setState({phase:'failed',profileId:f.profile.id});
+ const input={root:f.root,python:f.profile.liveTalking.python,sourceToken:'selected',name:'Аватар',model:'musetalk',parameters:{}};
+ await assert.rejects(f.runtime.create(input,{stopServices:false}));assert.equal(f.jobs.isBusy(),false);
+ await f.runtime.create(input,{stopServices:true});assert.equal(f.getStops(),1);
+});
