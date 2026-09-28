@@ -34,7 +34,14 @@ def json_error(msg: str, code: int = -1):
 
 async def desktop_health(request):
     """Versioned readiness response for the local desktop application."""
-    return json_ok({"service": "livetalking", "api_version": 1})
+    data = {"service": "livetalking", "api_version": 1}
+    opt = request.app.get('opt') if request is not None else None
+    if opt is not None:
+        mode = 'batya' if getattr(opt, 'llm_provider', '') == 'batya' else 'direct'
+        data['brain'] = {'mode': mode}
+        if mode == 'batya':
+            data['brain']['url'] = getattr(opt, 'batya_url', '')
+    return json_ok(data)
 
 
 from server.session_manager import session_manager
@@ -58,7 +65,14 @@ async def human(request):
         if avatar_session is None:
             return json_error("session not found")
 
-        if params.get('interrupt'):
+        text = params.get('text')
+        if not isinstance(text, str) or not text.strip() or len(text) > 20_000:
+            return json_error('Message must contain 1–20000 characters')
+        kind = params.get('type')
+        if kind not in ('echo', 'chat'):
+            return json_error('Invalid conversation mode')
+        batya = kind == 'chat' and getattr(request.app.get('opt'), 'llm_provider', '') == 'batya'
+        if params.get('interrupt') and not batya:
             avatar_session.flush_talk()
 
         datainfo = {}
@@ -68,6 +82,11 @@ async def human(request):
         if params['type'] == 'echo':
             avatar_session.put_msg_txt(params['text'], datainfo)
         elif params['type'] == 'chat':
+            if batya:
+                accepted = await request.app['batya_brain'].submit(
+                    avatar_session, text, params.get('request_id'), datainfo, interrupt=bool(params.get('interrupt'))
+                )
+                return json_ok(accepted)
             llm_response = request.app.get("llm_response")
             if llm_response:
                 asyncio.get_event_loop().run_in_executor(
@@ -157,6 +176,14 @@ async def is_speaking(request):
         return json_error("session not found")
     return json_ok(data=avatar_session.is_speaking())
 
+
+async def brain_session(request):
+    avatar = get_session(request, request.query.get('sessionid', ''))
+    if avatar is None:
+        return json_error('session not found')
+    return json_ok({'conversation_id': getattr(avatar.opt, 'batya_conversation_id', ''),
+                    'pending': getattr(avatar, 'batya_pending', 0)})
+
 async def sse_handler(request):
     """SSE 事件流，推送服务器状态更新到客户端"""
     sessionid = request.query.get('sessionid', '')
@@ -219,6 +246,8 @@ async def admin_sessions(request):
                     "sessionid": sid,
                     "speaking": avatar_session.is_speaking() if hasattr(avatar_session, 'is_speaking') else False,
                     "recording": getattr(avatar_session, 'recording', False),
+                    "batya_conversation_id": getattr(s_opt, 'batya_conversation_id', ''),
+                    "brain_pending": getattr(avatar_session, 'batya_pending', 0),
                 }
                 if s_opt:
                     s_data.update({
@@ -322,6 +351,12 @@ async def index(request):
 
 def setup_routes(app):
     """注册所有路由到 aiohttp app"""
+    if getattr(app.get('opt'), 'llm_provider', '') == 'batya':
+        from server.batya_brain import BatyaBrain
+        app['batya_brain'] = BatyaBrain(app['opt'].batya_url)
+        async def close_brain(application):
+            await application['batya_brain'].close()
+        app.on_cleanup.append(close_brain)
     app.router.add_get("/", index)
     app.router.add_post("/human", human)
     app.router.add_post("/humanaudio", humanaudio)
@@ -332,20 +367,21 @@ def setup_routes(app):
     app.router.add_get("/api/admin/config", admin_config)
     app.router.add_get("/api/desktop/health", desktop_health)
     app.router.add_get("/api/admin/sessions", admin_sessions)
+    app.router.add_get('/api/brain/session', brain_session)
     app.router.add_get("/api/whip/status", whip_status)
     app.router.add_post("/api/whip/connect", whip_connect)
     app.router.add_post("/api/whip/disconnect", whip_disconnect)
     app.router.add_get('/sse', sse_handler)
 
-    # ── Local ASR endpoint (SenseVoice/FunASR) ── Issue #604 ──
+    # ── Browser microphone ASR endpoint ──
     try:
         from server.asr_server import asr_websocket_handler, is_funasr_available
-        if is_funasr_available():
+        backend = getattr(app.get('opt'), 'ASR_BACKEND', 'sensevoice')
+        if backend == 'qwen3asr' or (backend == 'sensevoice' and is_funasr_available()):
             app.router.add_get("/api/asr", asr_websocket_handler)
-            logger.info("[ASR] Local SenseVoice ASR endpoint enabled at /api/asr")
+            logger.info(f"[ASR] {backend} endpoint enabled at /api/asr")
         else:
-            logger.info("[ASR] funasr not installed — local ASR endpoint disabled "
-                        "(pip install funasr modelscope)")
+            logger.info("[ASR] SenseVoice unavailable: install funasr and modelscope")
     except Exception as e:
         logger.warning(f"[ASR] Failed to register ASR endpoint: {e}")
 

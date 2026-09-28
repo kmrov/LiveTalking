@@ -60,6 +60,8 @@ class SessionManager:
         """
         if self.build_session_fn is None:
             raise Exception("SessionManager builder not initialized")
+        from server.batya_brain import conversation_id
+        batya_id = conversation_id(params.get('batya_conversation_id', ''))
             
         if sessionid is None:
             sessionid = _rand_session_id()
@@ -79,6 +81,7 @@ class SessionManager:
         avatar_session = await asyncio.get_event_loop().run_in_executor(
             None, self.build_session_fn, sessionid, params
         )
+        avatar_session.opt.batya_conversation_id = batya_id
         self.sessions[sessionid] = avatar_session
         return sessionid
         

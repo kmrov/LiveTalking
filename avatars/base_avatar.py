@@ -66,6 +66,7 @@ class BaseAvatar:
         self.sample_rate = 16000
         self.chunk = self.sample_rate // (opt.fps*2) # 320 samples per chunk (20ms)
         self.sessionid = self.opt.sessionid
+        self.talk_generation = 0
 
         self.speaking = False
         self.recording = False
@@ -98,7 +99,8 @@ class BaseAvatar:
             # 'indextts2': 'tts.indextts2',
             'azuretts': 'tts.azure',
             'qwentts': 'tts.qwentts',
-            'omnitts': 'tts.omnitts'
+            'omnitts': 'tts.omnitts',
+            'qwen3tts': 'tts.qwen3tts',
         }
 
         if opt.tts in _tts_modules:
@@ -184,6 +186,7 @@ class BaseAvatar:
         return stream
 
     def flush_talk(self):
+        self.talk_generation += 1
         if hasattr(self, 'tts') and hasattr(self.tts, 'flush_talk'):
             self.tts.flush_talk()
         if hasattr(self, 'asr') and hasattr(self.asr, 'flush_talk'):

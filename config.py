@@ -85,6 +85,8 @@ def parse_args():
     parser.add_argument('--ASR_MODEL', type=str, default='Qwen/Qwen3-ASR-0.6B')
 
     # ─── LLM ──────────────────────────────────────────────────────────
+    parser.add_argument('--batya_url', type=str, default='http://127.0.0.1:8000',
+                        help='Batya API URL when llm_provider is batya')
     parser.add_argument('--llm_provider', type=str, default='dashscope',
                         help="llm provider: dashscope/orcarouter")
     parser.add_argument('--llm_model', type=str, default='',
