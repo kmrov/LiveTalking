@@ -24,14 +24,21 @@ class DesktopModelDownloadTest(unittest.TestCase):
         download_file(self.root, 'models/test.pth', self.spec, open_url=lambda *_args, **_kwargs: self.fail('A present file must be reused'))
         self.assertFalse(list(target.parent.glob('*.part')))
 
-    def test_wrong_checksum_and_truncated_download_never_become_ready(self):
-        for content in [b'x'*len(self.content), self.content[:-1]]:
-            with self.assertRaises(ValueError):
-                download_file(self.root, 'models/test.pth', self.spec, open_url=lambda *_args, **_kwargs: io.BytesIO(content))
-            self.assertFalse((self.root/'models/test.pth').exists())
-            self.assertFalse(list((self.root/'models').glob('*.part')))
+    def test_wrong_checksum_is_discarded_without_publishing_a_model(self):
+        with self.assertRaises(ValueError):
+            download_file(self.root, 'models/test.pth', self.spec, open_url=lambda *_args, **_kwargs: io.BytesIO(b'x'*len(self.content)))
+        self.assertFalse((self.root/'models/test.pth').exists())
+        self.assertFalse(list((self.root/'models').glob('*.part')))
 
-    def test_cancel_discards_partial_file_and_repeat_installs_the_model(self):
+    def test_truncated_download_is_preserved_without_publishing_a_model(self):
+        with self.assertRaises(ValueError):
+            download_file(self.root, 'models/test.pth', self.spec, open_url=lambda *_args, **_kwargs: io.BytesIO(self.content[:-1]))
+        self.assertFalse((self.root/'models/test.pth').exists())
+        partials=list((self.root/'models').glob('*.part'))
+        self.assertEqual(len(partials),1)
+        self.assertEqual(partials[0].read_bytes(),self.content[:-1])
+
+    def test_cancel_preserves_a_complete_file_and_repeat_installs_without_network(self):
         cancelled = False
         def progress(_event):
             nonlocal cancelled
@@ -39,8 +46,8 @@ class DesktopModelDownloadTest(unittest.TestCase):
         with self.assertRaises(DownloadCancelled):
             download_file(self.root, 'models/test.pth', self.spec, open_url=lambda *_args, **_kwargs: io.BytesIO(self.content), emit=progress, cancelled=lambda: cancelled)
         self.assertFalse((self.root/'models/test.pth').exists())
-        self.assertFalse(list((self.root/'models').glob('*.part')))
-        target = download_file(self.root, 'models/test.pth', self.spec, open_url=lambda *_args, **_kwargs: io.BytesIO(self.content))
+        self.assertEqual(len(list((self.root/'models').glob('*.part'))),1)
+        target = download_file(self.root, 'models/test.pth', self.spec, open_url=lambda *_args, **_kwargs:self.fail('Complete partial must be verified locally'))
         self.assertEqual(target.read_bytes(), self.content)
 
     def test_path_escape_and_symlinked_parent_never_write_outside_the_model_root(self):

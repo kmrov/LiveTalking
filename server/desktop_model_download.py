@@ -8,13 +8,71 @@ from pathlib import Path, PurePosixPath
 import re
 import shutil
 import signal
+import stat
 import tempfile
 import time
-from urllib.request import urlopen
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 
 class DownloadCancelled(Exception):
     pass
+
+
+class _InvalidModel(ValueError):
+    """Bytes known to be unusable must not be retained for another attempt."""
+
+
+def _partial_file(target, spec):
+    identity = json.dumps({key: spec[key] for key in ('repo','revision','file','size','algorithm','digest')}, sort_keys=True)
+    key = hashlib.sha256((target.name + '\0' + identity).encode()).hexdigest()
+    return target.parent / f'.studio-model-{key}.part'
+
+
+def _digest(spec):
+    if spec['algorithm'] == 'sha256':
+        return hashlib.sha256()
+    if spec['algorithm'] == 'git-sha1':
+        digest = hashlib.sha1()
+        digest.update(f"blob {spec['size']}\0".encode())
+        return digest
+    raise ValueError('Неподдерживаемая проверка модели.')
+
+
+def _response(open_url, url, offset):
+    headers = {'Accept-Encoding': 'identity'}
+    if offset:
+        headers['Range'] = f'bytes={offset}-'
+    try:
+        return open_url(Request(url, headers=headers), timeout=30)
+    except HTTPError as error:
+        if error.code != 416 or not offset:
+            raise
+        error.close()
+        return open_url(Request(url, headers={'Accept-Encoding': 'identity'}), timeout=30)
+
+
+def _response_end(response, offset, size):
+    status = getattr(response, 'status', 200)
+    headers = getattr(response, 'headers', {})
+    if headers.get('Content-Encoding', 'identity').lower() != 'identity':
+        raise ValueError('Сервер вернул сжатый файл вместо исходных байтов модели.')
+    if status == 206:
+        match = re.fullmatch(r'bytes (\d+)-(\d+)/(\d+)', headers.get('Content-Range') or '')
+        if not match:
+            raise ValueError('Сервер не подтвердил диапазон докачивания.')
+        first, last, total = map(int, match.groups())
+        if first != offset or not first <= last < size or total != size:
+            raise ValueError('Диапазон докачивания не совпал с сохранённой моделью.')
+        end = last + 1
+    elif status == 200:
+        offset, end = 0, size
+    else:
+        raise ValueError(f'Неподдерживаемый ответ загрузки: HTTP {status}.')
+    length = headers.get('Content-Length')
+    if length is not None and (not re.fullmatch(r'\d+', str(length)) or int(length) != end-offset):
+        raise ValueError('Размер ответа сервера не совпал с моделью.')
+    return offset, end
 
 
 def _safe_target(base, relative):
@@ -74,46 +132,82 @@ def download_file(base, relative, spec, *, open_url=urlopen, emit=lambda _event:
         size = spec['size']
         if type(size) is not int or size <= 0:
             raise ValueError('Некорректный размер модели.')
-        if shutil.disk_usage(target.parent)[2] < size:
-            raise OSError('Недостаточно места для загрузки модели.')
         url = f"https://huggingface.co/{spec['repo']}/resolve/{spec['revision']}/{spec['file']}?download=true"
-        algorithm = spec['algorithm']
-        digest = hashlib.sha256() if algorithm == 'sha256' else hashlib.sha1() if algorithm == 'git-sha1' else None
-        if digest is None:
-            raise ValueError('Неподдерживаемая проверка модели.')
-        if algorithm == 'git-sha1':
-            digest.update(f'blob {size}\0'.encode())
-        temporary = None
+        digest = _digest(spec)
+        temporary = _partial_file(target, spec)
+        if cancelled():
+            raise DownloadCancelled('Загрузка отменена.')
+        fd = os.open(temporary, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
         try:
-            with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.studio-model-', suffix='.part', delete=False) as output:
-                temporary = Path(output.name)
-                done = 0
-                with open_url(url, timeout=30) as response:
-                    while True:
-                        if cancelled():
-                            raise DownloadCancelled('Загрузка отменена.')
-                        chunk = response.read(1024 * 1024)
-                        if not chunk:
-                            break
-                        done += len(chunk)
-                        if done > size:
-                            raise ValueError('Размер загруженной модели не совпал.')
-                        digest.update(chunk)
-                        output.write(chunk)
-                        emit({'file':spec['file'], 'downloadedBytes':done, 'totalBytes':size, 'progress':min(100, int(done*100/size))})
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise ValueError('Непригодный временный файл модели.')
+            # Unbuffered writes retain each received chunk even after a forced process exit.
+            with os.fdopen(fd, 'r+b', buffering=0) as output:
+                fd = None
+                done = info.st_size
+                if done > size:
+                    raise _InvalidModel('Сохранённая часть больше файла модели; повторите загрузку.')
+                def progress():
+                    emit({'file':spec['file'], 'downloadedBytes':done, 'totalBytes':size, 'progress':int(done*100/size)})
+                if done:
+                    progress()
+                while True:
                     if cancelled():
                         raise DownloadCancelled('Загрузка отменена.')
-                if done != size or digest.hexdigest() != spec['digest']:
-                    raise ValueError(f"Проверка файла {spec['file']} не прошла; повторите загрузку.")
-                output.flush()
+                    chunk = output.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    digest.update(chunk)
+                if done < size:
+                    if shutil.disk_usage(target.parent)[2] < size-done:
+                        raise OSError('Недостаточно места для загрузки модели.')
+                    with _response(open_url, url, done) as response:
+                        start, end = _response_end(response, done, size)
+                        if start == 0 and done:
+                            # Range is optional: preserve the old prefix until a full response is usable.
+                            if shutil.disk_usage(target.parent)[2] < size:
+                                raise OSError('Недостаточно места для загрузки модели заново.')
+                            output.seek(0); output.truncate(0)
+                            done = 0; digest = _digest(spec)
+                            progress()
+                        while True:
+                            if cancelled():
+                                raise DownloadCancelled('Загрузка отменена.')
+                            chunk = response.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            if done + len(chunk) > end:
+                                raise _InvalidModel('Размер загруженной модели не совпал.')
+                            pending = memoryview(chunk)
+                            while pending:
+                                if cancelled():
+                                    raise DownloadCancelled('Загрузка отменена.')
+                                written = output.write(pending)
+                                if not written:
+                                    raise OSError('Не удалось сохранить загруженные байты модели.')
+                                pending = pending[written:]
+                            done += len(chunk)
+                            digest.update(chunk)
+                            progress()
+                if cancelled():
+                    raise DownloadCancelled('Загрузка отменена.')
+                if done != size:
+                    raise ValueError('Загрузка оборвалась; повторите, чтобы докачать сохранённую часть.')
+                if digest.hexdigest() != spec['digest']:
+                    raise _InvalidModel(f"Проверка файла {spec['file']} не прошла; повторите загрузку.")
                 os.fsync(output.fileno())
-            os.chmod(temporary, 0o644)
+                os.fchmod(output.fileno(), 0o644)
             # Atomic no-replace publication: a race cannot overwrite an existing model.
             os.link(temporary, target)
+            temporary.unlink()
             return target
+        except _InvalidModel:
+            temporary.unlink(missing_ok=True)
+            raise
         finally:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
+            if fd is not None:
+                os.close(fd)
 
 
 def speech_cache(root):

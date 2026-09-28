@@ -2,6 +2,8 @@
 
 User approved adding automatic weight downloads to the existing Create and Start flows, including local Qwen ASR/TTS. Python, CUDA and software package installation are outside this change. Local integration was previously authorized.
 
+This report records the initial implementation in `d2eb7a5`. Subsequent file resumption is documented in [the resume verification report](2026-09-28-studio-model-resume.md); its partial-file retention replaces the cancellation cleanup behavior below.
+
 ## Result
 
 - Create installs only the chosen avatar preparation models: S3FD for Wav2Lip, S3FD/VAE/MuseTalk v15/face parsing for MuseTalk.
