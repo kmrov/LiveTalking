@@ -21,10 +21,11 @@ test('WebRTC client sends avatar and voice parameters and retains returned sessi
     fetch: async (_url, options) => { body = JSON.parse(options.body); return { ok: true, json: async () => ({ type: 'answer', sdp: 'remote-sdp', sessionid: 123 }) }; },
     baseUrl: 'http://127.0.0.1:8010', onState: () => {}, onTrack: () => {},
   });
-  await client.connect({ avatarId: 'avatar_1', referenceWav: '/tmp/голос.wav', referenceText: 'Привет' });
+  await client.connect({ avatarId: 'avatar_1', referenceWav: '/tmp/голос.wav', referenceText: 'Привет', conversationId: 'persistent-conversation' });
   assert.equal(body.avatar, 'avatar_1');
   assert.equal(body.refaudio, '/tmp/голос.wav');
   assert.equal(body.reftext, 'Привет');
+  assert.equal(body.batya_conversation_id, 'persistent-conversation');
   assert.equal(client.sessionId(), '123');
   assert.deepEqual(client.peer().transceivers, [['video', 'recvonly'], ['audio', 'recvonly']]);
   assert.equal(client.peer().remoteDescription.sdp, 'remote-sdp');

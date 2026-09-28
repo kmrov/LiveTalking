@@ -105,6 +105,16 @@ body { overflow: hidden; }
 .composer-actions select { max-width: 150px; padding: 7px; border: 1px solid #34483e; border-radius: 5px; background: #17211d; color: #c8dacd; font: inherit; font-size: 10px; }
 #conversation-message { min-height: 18px; margin: 8px 0 0; color: #acbdb2; font-size: 11px; line-height: 1.4; }
 .statusbar { display: flex; align-items: center; justify-content: space-between; min-height: 51px; padding: 0 28px; border-top: 1px solid #272d30; background: #15191c; color: #a2b2a9; font-size: 11px; }
+.setting-hint, #brain-turn-state, #brain-library-message { color: #94b1a0; font-size: 11px; line-height: 1.5; }
+#brain-settings { padding-top: 10px; border-top: 1px solid #334139; }
+#brain-conversations { flex-shrink: 0; margin: 14px 0 0; }
+#brain-conversations label, #brain-document-form label { display: grid; gap: 6px; margin-bottom: 10px; color: #9ab3a4; font-size: 10px; }
+#brain-conversations select, #brain-document-form input, #brain-document-form textarea { width: 100%; padding: 8px; border: 1px solid #3b5145; border-radius: 5px; background: #131f18; color: #dbe8df; font: inherit; }
+.brain-actions { display: flex; gap: 8px; }
+.brain-actions button { padding: 6px 10px; border: 1px solid #405b4c; border-radius: 5px; background: #203127; color: #cde1d6; font: inherit; font-size: 10px; cursor: pointer; }
+#brain-memories { max-height: 180px; overflow-y: auto; padding-left: 15px; font-size: 11px; line-height: 1.5; color: #b1c7b9; }
+#conversation-list li[data-role="assistant"] { background: #152c21; border-color: #466952; }
+#conversation-list li[data-status="error"] { border-color: #a9745a; }
 .statusbar > div, .statusbar-right { display: flex; align-items: center; gap: 11px; }
 .statusbar-separator { width: 1px; height: 15px; background: #37413c; }
 @media (max-width: 1120px) {

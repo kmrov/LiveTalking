@@ -28,7 +28,7 @@ export function createWebRtcClient({ RTCPeerConnection, fetch, baseUrl, onState 
     });
   }
 
-  async function connect({ avatarId, referenceWav = '', referenceText = '' }) {
+  async function connect({ avatarId, referenceWav = '', referenceText = '', conversationId = '' }) {
     if (connection) disconnect();
     const token = ++generation;
     const peer = new RTCPeerConnection({ sdpSemantics: 'unified-plan' });
@@ -58,6 +58,7 @@ export function createWebRtcClient({ RTCPeerConnection, fetch, baseUrl, onState 
         body: JSON.stringify({
           sdp: peer.localDescription.sdp, type: peer.localDescription.type,
           avatar: avatarId, refaudio: referenceWav, reftext: referenceText,
+          ...(conversationId ? { batya_conversation_id: conversationId } : {}),
         }),
       });
       const answer = await response.json();

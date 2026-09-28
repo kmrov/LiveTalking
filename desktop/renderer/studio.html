@@ -35,6 +35,22 @@
             <label>Образец голоса WAV<input id="voice-wav" autocomplete="off" spellcheck="false" placeholder="/путь/к/voice.wav"></label>
             <button type="button" class="text-button" id="choose-voice">Выбрать WAV</button>
             <label>Текст образца<textarea id="voice-text" rows="2" placeholder="Дословная расшифровка записи"></textarea></label>
+            <label>Мозг аватара<select id="brain-mode"><option value="direct">Прямой LLM</option><option value="batya">Батя · память и разговоры</option></select></label>
+            <div id="brain-settings" hidden>
+              <p class="setting-hint">Смена мозга требует остановки и запуска профиля.</p>
+              <label>Сервис Бати<select id="brain-service-mode"><option value="managed">Запускать автоматически</option><option value="external">Уже работающий API</option></select></label>
+              <label>URL Бати<input id="brain-url" type="url" placeholder="http://127.0.0.1:8000"></label>
+              <div id="brain-managed-fields">
+                <label>Каталог Бати<input id="brain-root" autocomplete="off" spellcheck="false"></label>
+                <button type="button" class="text-button" id="choose-brain-root">Выбрать каталог</button>
+                <label>Python Бати<input id="brain-python" autocomplete="off" spellcheck="false"></label>
+                <label>PostgreSQL<select id="brain-database-mode"><option value="compose">Docker Compose из Бати</option><option value="external">Работающая база</option></select></label>
+                <label>ID проекта Yandex<input id="brain-folder" autocomplete="off" spellcheck="false"></label>
+                <label>Ключ Yandex<input id="brain-key" type="password" autocomplete="off" placeholder="Оставьте пустым, если уже настроен"></label>
+                <label>Адрес PostgreSQL<input id="brain-database-url" type="password" autocomplete="off" placeholder="Необязательно при настроенном .env"></label>
+                <p id="brain-secret-status" class="setting-hint"></p>
+              </div>
+            </div>
             <label class="checkbox-label"><input id="auto-start" type="checkbox"> Запускать при открытии</label>
             <div class="setup-actions"><button type="button" id="check-setup">Проверить</button><button type="submit" class="primary-button">Сохранить профиль</button></div>
           </form></details>
@@ -48,8 +64,21 @@
           <div class="service-row"><span>LiveTalking</span><span id="livetalking-state">Ожидает</span></div>
           <div class="service-row"><span>Распознавание</span><span id="asr-state">Ожидает</span></div>
           <div class="service-row"><span>Синтез речи</span><span id="tts-state">Ожидает</span></div>
+          <div class="service-row brain-service" hidden><span>Батя</span><span id="batya-state">Ожидает</span></div>
+          <div class="service-row brain-service" hidden><span>PostgreSQL</span><span id="database-state">Ожидает</span></div>
         </div>
         <details class="runtime-logs"><summary>Журнал запуска</summary><pre id="runtime-log"></pre></details>
+        <details id="brain-library" class="setup-details" hidden><summary>Память и документы Бати</summary>
+          <button type="button" id="refresh-memories" class="text-button">Показать память</button>
+          <ul id="brain-memories"></ul>
+          <form id="brain-document-form">
+            <label>Название документа<input id="brain-document-title" maxlength="500"></label>
+            <label>Источник<input id="brain-document-source" value="LiveTalking Studio" maxlength="1000"></label>
+            <label>Текст<textarea id="brain-document-content" rows="3" placeholder="Текст для памяти Бати"></textarea></label>
+            <button type="submit" class="text-button">Добавить документ</button>
+          </form>
+          <p id="brain-library-message" role="status"></p>
+        </details>
       </aside>
 
       <section class="stage" aria-label="Превью аватара">
@@ -72,8 +101,13 @@
 
       <aside class="right-panel" aria-label="Диалог">
         <div class="panel-heading"><span>ДИАЛОГ</span><span class="index">03</span></div>
+        <div id="brain-conversations" hidden>
+          <label>Разговор с Батей<select id="brain-conversation"><option value="">Новый разговор</option></select></label>
+          <div class="brain-actions"><button type="button" id="new-brain-conversation">Новый</button><button type="button" id="refresh-brain-conversations">Обновить</button></div>
+          <p id="brain-turn-state" role="status">Батя ожидает</p>
+        </div>
         <div class="conversation-empty"><div class="conversation-glyph" aria-hidden="true">↗</div><p>Подключите аватара и начните разговор.</p></div>
-        <ol id="conversation-list" aria-label="Отправленные сообщения" hidden></ol>
+        <ol id="conversation-list" aria-label="История разговора" hidden></ol>
         <div class="conversation-tools"><span id="speaking-state">Ожидает</span><button type="button" id="interrupt-avatar" disabled>Прервать</button><button type="button" id="record-avatar" disabled>Записать</button></div>
         <div class="microphone-tools"><button id="microphone-button" type="button" disabled>Микрофон</button><span id="microphone-state">Нажмите, чтобы говорить</span></div>
         <form id="conversation-form">
@@ -82,6 +116,7 @@
           <div class="composer-actions"><label><span class="sr-only">Режим разговора</span><select id="conversation-mode"><option value="chat">Чат с LLM</option><option value="echo">Озвучить текст</option></select></label><button id="send-message" type="submit" disabled>Отправить</button></div>
         </form>
         <p id="conversation-message" role="status"></p>
+        <button type="button" id="retry-message" class="text-button" hidden>Повторить сообщение</button>
       </aside>
     </main>
 
