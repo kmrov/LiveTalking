@@ -24,3 +24,4 @@ desktop/test-results/
 models/
 *.log
 dist
+.worktrees/
