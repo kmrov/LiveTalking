@@ -19,6 +19,16 @@ test('one job owns its checking slot and fails exit without prepared result',asy
  f.close();await until(()=>!f.jobs.isBusy());assert.equal((await f.jobs.snapshot(f.root)).state,'failed');
  const data=JSON.parse(await readFile(path.join(f.root,'data/.studio-avatar-work',job.jobId,'job.json')));assert.equal(Object.hasOwn(data,'pid'),false);
 });
+test('missing downloadable weights start the worker while other missing prerequisites block it',async t=>{
+ const f=await fixture(t,{inspectCreation:async()=>[{id:'weights',state:'missing',detail:'Missing S3FD',action:''}]});
+ const job=await f.jobs.start(f.input);await until(()=>f.calls.length===1);
+ f.child.stdout.emit('data','LT_AVATAR '+JSON.stringify({version:1,jobId:job.jobId,state:'running',stage:'downloading',progress:50,message:'S3FD: 5 / 10',downloadedBytes:5,totalBytes:10})+'\n');
+ await until(()=>f.events.some(x=>x.stage==='downloading'&&x.downloadedBytes===5));
+ assert.equal((await f.jobs.snapshot(f.root)).message,'S3FD: 5 / 10');
+ f.close(1);await until(()=>!f.jobs.isBusy());
+ const blocked=await fixture(t,{inspectCreation:async()=>[{id:'gpu',state:'missing',detail:'No CUDA',action:''},{id:'weights',state:'missing',detail:'Missing S3FD',action:''}]});
+ await blocked.jobs.start(blocked.input);await until(()=>!blocked.jobs.isBusy());assert.equal(blocked.calls.length,0);
+});
 test('chunked events ignore strangers and only publish after successful close',async t=>{
  let published=0;const f=await fixture(t,{library:{publish:async()=>{published++;return{ready:true};},get:async()=>null}});const job=await f.jobs.start(f.input);await until(()=>f.calls.length===1);
  const event=JSON.stringify({version:1,jobId:job.jobId,state:'running',stage:'generating',progress:45,message:''});

@@ -80,6 +80,16 @@ class DesktopAvatarWorkerTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'заново'):
                 run_job(self.request,lambda _:None,generator_loader=lambda _:self.generate)
         self.assertFalse((Path(self.request['jobDir'])/'source/input.jpg').exists())
+    def test_missing_weights_are_downloaded_after_saving_source_then_generation_continues(self):
+        checks=[{'id':'weights','state':'missing','detail':'Missing weights','action':''}]
+        events=[]
+        def prepare(_request,emit):
+            self.assertTrue((Path(self.request['jobDir'])/'source/input.jpg').exists())
+            emit({'file':'s3fd.pth','downloadedBytes':5,'totalBytes':10,'progress':50})
+        with patch('scripts.prepare_desktop_avatar.inspect_creation',side_effect=[checks,[]]),patch('scripts.prepare_desktop_avatar.ensure_creation_models',side_effect=prepare,create=True):
+            run_job(self.request,events.append,generator_loader=lambda _:self.generate)
+        self.assertTrue(any(event['stage']=='downloading' and event.get('downloadedBytes')==5 for event in events))
+        self.assertEqual(events[-1]['state'],'prepared')
     def test_source_changed_during_copy_is_rejected_without_committing_a_copy(self):
         import shutil
         copy=shutil.copyfileobj

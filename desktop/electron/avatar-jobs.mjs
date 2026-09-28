@@ -8,8 +8,8 @@ import { normalizeAvatarCreation } from '../src/avatar-contract.mjs';
 import { inspectAvatarPrerequisites } from './avatar-prerequisites.mjs';
 
 const terminal=new Set(['completed','failed','cancelled','interrupted']);
-const phases=new Set(['checking','copying','normalizing','generating','validating']);
-const fields=['schemaVersion','jobId','avatarId','root','name','model','sourceKind','state','stage','progress','errorMessage','logPath','createdAt','updatedAt'];
+const phases=new Set(['checking','copying','downloading','normalizing','generating','validating']);
+const fields=['schemaVersion','jobId','avatarId','root','name','model','sourceKind','state','stage','progress','message','downloadedBytes','totalBytes','errorMessage','logPath','createdAt','updatedAt'];
 export function createAvatarJobs({library,inspectCreation=inspectAvatarPrerequisites,spawn=nodeSpawn,kill=process.kill.bind(process),emit=()=>{},now=()=>new Date().toISOString(),schedule=setTimeout,cancelSchedule=clearTimeout,shutdownTimeoutMs=5000}={}) {
   let active=null;
   const recoveredStates=new Map();
@@ -60,7 +60,7 @@ export function createAvatarJobs({library,inspectCreation=inspectAvatarPrerequis
       if(owner.cancelled)return await finish(owner,'cancelled');
       const checks=await inspectCreation(owner.record,{signal:owner.controller.signal});
       if(owner.cancelled)return await finish(owner,'cancelled');
-      const blockers=checks.filter(x=>x.state!=='ready');
+      const blockers=checks.filter(x=>x.state!=='ready'&&x.id!=='weights');
       if(blockers.length)throw new Error(blockers.map(x=>x.detail).join('; '));
       await update(owner,{state:'running'});
       if(owner.cancelled)return await finish(owner,'cancelled');
@@ -89,7 +89,13 @@ export function createAvatarJobs({library,inspectCreation=inspectAvatarPrerequis
           if(event.state==='prepared') {
             if(event.stage==='validating'&&Number.isInteger(event.frameCount)&&event.frameCount>0)owner.prepared=event;
           }else if(event.state==='failed')owner.workerError=String(event.message||'Подготовка завершилась ошибкой.').slice(0,8192);
-          else {owner.record.stage=event.stage;owner.record.progress=Math.min(99,event.progress);publish(owner);void persist(owner).catch(()=>{});}
+          else {
+            owner.record.stage=event.stage;owner.record.progress=Math.min(99,event.progress);
+            owner.record.message=typeof event.message==='string'?event.message.slice(0,1024):'';
+            const bytes=event.stage==='downloading'&&Number.isSafeInteger(event.downloadedBytes)&&Number.isSafeInteger(event.totalBytes)&&event.downloadedBytes>=0&&event.totalBytes>=event.downloadedBytes;
+            owner.record.downloadedBytes=bytes?event.downloadedBytes:null;owner.record.totalBytes=bytes?event.totalBytes:null;
+            publish(owner);void persist(owner).catch(()=>{});
+          }
         }catch { /* Nonprotocol output remains in the bounded log. */ }
       };
       const consumeStdout=text=>{

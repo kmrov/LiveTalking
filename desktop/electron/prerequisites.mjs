@@ -1,6 +1,6 @@
 import path from 'node:path';
 import os from 'node:os';
-import { existsSync, statSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, statSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { connect } from 'node:net';
 import { normalizeProfile } from '../src/profile.mjs';
@@ -30,20 +30,28 @@ function weightsReady(folder) {
 
 export function cachedModelReady(folder, needsSpeechTokenizer = false) {
   try {
-    return readdirSync(path.join(folder, 'snapshots')).some(revision => {
+      const revision = readFileSync(path.join(folder, 'refs/main'), 'utf8').trim();
+      if (!/^[0-9a-f]{40}$/.test(revision)) return false;
       const snapshot = path.join(folder, 'snapshots', revision);
-      return ['config.json', 'tokenizer_config.json', 'preprocessor_config.json'].every(file => fileReady(path.join(snapshot, file)))
+      return ['config.json', 'tokenizer_config.json', 'preprocessor_config.json', 'vocab.json', 'merges.txt'].every(file => fileReady(path.join(snapshot, file)))
         && weightsReady(snapshot)
-        && (!needsSpeechTokenizer || (fileReady(path.join(snapshot, 'speech_tokenizer/config.json')) && weightsReady(path.join(snapshot, 'speech_tokenizer'))));
-    });
+        && (!needsSpeechTokenizer || (['config.json', 'preprocessor_config.json'].every(file => fileReady(path.join(snapshot, 'speech_tokenizer', file))) && weightsReady(path.join(snapshot, 'speech_tokenizer'))));
   } catch { return false; }
+}
+
+export function speechCacheRoot(root, { env = process.env, home = os.homedir(), exists = existsSync } = {}) {
+  if (env.HF_HUB_CACHE) return env.HF_HUB_CACHE;
+  if (env.HF_HOME) return path.join(env.HF_HOME, 'hub');
+  const adjacent = path.join(path.dirname(root), '.hf-cache-qwen');
+  if (exists(adjacent)) return path.join(adjacent, 'hub');
+  return path.join(env.XDG_CACHE_HOME || path.join(home, '.cache'), 'huggingface/hub');
 }
 
 function avatarWeightFiles(lt) {
   const models = {
     wav2lip: ['models/wav2lip.pth'],
-    musetalk: ['models/musetalkV15/unet.pth', 'models/musetalkV15/musetalk.json', 'models/sd-vae/config.json', 'models/sd-vae/diffusion_pytorch_model.bin', 'models/whisper/config.json', 'models/whisper/pytorch_model.bin'],
-    ultralight: [`data/avatars/${lt.avatarId}/ultralight.pth`, 'models/hubert-large-ls960-ft/config.json', 'models/hubert-large-ls960-ft/pytorch_model.bin'],
+    musetalk: ['models/musetalkV15/unet.pth', 'models/musetalkV15/musetalk.json', 'models/sd-vae/config.json', 'models/sd-vae/diffusion_pytorch_model.bin', 'models/whisper/config.json', 'models/whisper/pytorch_model.bin', 'models/whisper/preprocessor_config.json'],
+    ultralight: [`data/avatars/${lt.avatarId}/ultralight.pth`, 'models/hubert-large-ls960-ft/config.json', 'models/hubert-large-ls960-ft/pytorch_model.bin', 'models/hubert-large-ls960-ft/preprocessor_config.json', 'models/hubert-large-ls960-ft/vocab.json', 'models/hubert-large-ls960-ft/tokenizer_config.json', 'models/hubert-large-ls960-ft/special_tokens_map.json'],
   };
   return (models[lt.model] || []).map(file => path.join(lt.root, file));
 }
@@ -119,7 +127,7 @@ export async function inspectPrerequisites(input, probes = defaultProbes) {
   const missingWeights = requiredWeights.filter(file => !probes.fileReady(file));
   results.push(requiredWeights.length && !missingWeights.length
     ? item('avatar-model', 'ready', `Веса ${lt.model} найдены`)
-    : item('avatar-model', 'missing', `Веса ${lt.model} не готовы: ${missingWeights.join(', ') || 'неподдерживаемая модель'}`, 'Подготовьте указанные файлы модели в каталоге LiveTalking.'));
+    : item('avatar-model', 'missing', `Веса ${lt.model} не готовы: ${missingWeights.join(', ') || 'неподдерживаемая модель'}`, 'Нажмите «Запустить»: Studio скачает недостающие модели.'));
 
   const pythonReady = Boolean(lt.python && probes.exists(lt.python));
   if (!pythonReady) results.push(item('python', 'missing', `Python не найден: ${lt.python || 'путь не задан'}`, `Создайте окружение: python3 -m venv "${lt.root || 'LiveTalking'}/.venv" и установите зависимости.`));
@@ -150,14 +158,9 @@ export async function inspectPrerequisites(input, probes = defaultProbes) {
   if (speech.mode === 'local') {
     for (const [id, name] of [['asr-model', 'Qwen3-ASR-0.6B'], ['tts-model', 'Qwen3-TTS-12Hz-1.7B-Base']]) {
       const folder = `models--Qwen--${name}`;
-      const locations = [
-        process.env.HF_HOME && path.join(process.env.HF_HOME, 'hub', folder),
-        lt.root && path.join(path.dirname(lt.root), '.hf-cache-qwen/hub', folder),
-        path.join(os.homedir(), '.cache/huggingface/hub', folder),
-      ].filter(Boolean);
-      results.push(locations.some(folder => probes.cachedModelReady(folder, id === 'tts-model'))
+      results.push(probes.cachedModelReady(path.join(speechCacheRoot(lt.root), folder), id === 'tts-model')
         ? item(id, 'ready', `${name}: файлы модели найдены`)
-        : item(id, 'missing', `${name}: файлы модели не найдены`, 'Подготовьте веса в Hugging Face cache или настройте внешние серверы моделей.'));
+        : item(id, 'missing', `${name}: файлы модели не найдены`, 'Нажмите «Запустить»: Studio скачает модель в Hugging Face cache.'));
     }
   }
 

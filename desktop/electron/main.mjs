@@ -22,6 +22,7 @@ import { createAvatarJobs } from './avatar-jobs.mjs';
 import { createAvatarSources } from './avatar-sources.mjs';
 import { inspectAvatarPrerequisites, runAvatarCommand } from './avatar-prerequisites.mjs';
 import { createAvatarRuntime } from './avatar-runtime.mjs';
+import { createModelDownloads, prepareProfileModels } from './model-downloads.mjs';
 
 const studioFile = fileURLToPath(new URL('../dist/studio.html', import.meta.url));
 const studioUrl = pathToFileURL(studioFile).href;
@@ -39,6 +40,7 @@ let avatarRuntime;
 let avatarJobs;
 let avatarLibrary;
 let avatarFixture;
+let modelDownloads;
 let thumbnailQueue=Promise.resolve();
 let serviceState = initialServiceState();
 let startJob;
@@ -47,12 +49,12 @@ let autoStarted = false;
 let quitAfterStop = false;
 let quitJob;
 
-function runtimeSnapshot() { return { service: serviceState, supervisor: supervisor?.snapshot() ?? null, brain: batyaSupervisor?.snapshot() ?? null }; }
+function runtimeSnapshot() { return { service: serviceState, supervisor: supervisor?.snapshot() ?? null, brain: batyaSupervisor?.snapshot() ?? null, downloads: modelDownloads?.snapshot() ?? null }; }
 function publishSnapshot() {
   if (studioWindow && !studioWindow.isDestroyed()) studioWindow.webContents.send('desktop:snapshot', runtimeSnapshot());
 }
 const setupChecks = async profile => fixtureMode
-  ? Promise.resolve([{ id: 'fixture', state: 'ready', detail: 'Smoke fixture ready', action: '' }])
+  ? avatarFixture?.inspectSetup(profile) ?? Promise.resolve([{ id: 'fixture', state: 'ready', detail: 'Smoke fixture ready', action: '' }])
   : [...await inspectPrerequisites(profile), ...await inspectBatyaPrerequisites(profile, brainEnvironment(profile))];
 
 async function startProfile(id) {
@@ -70,10 +72,8 @@ async function startProfile(id) {
   startJob = (async () => {
     try {
       if (wasFailed) { await supervisor.stop(); await batyaSupervisor.stop(); }
-      const checks = await setupChecks(profile);
+      await prepareProfileModels(profile, { inspect: setupChecks, download: value => modelDownloads.prepare(value), cancelled: () => token !== runGeneration });
       if (token !== runGeneration) return runtimeSnapshot();
-      const blockers = checks.filter(result => result.state !== 'ready');
-      if (blockers.length) throw new Error(blockers.map(result => result.detail).join('; '));
       if (supervisor.snapshot().state === 'failed') await supervisor.stop();
       serviceState = transitionServiceState(serviceState, { type: 'START', profileId: id });
       publishSnapshot();
@@ -99,6 +99,7 @@ async function startProfile(id) {
 
 async function stopProfile() {
   ++runGeneration;
+  await modelDownloads?.stop();
   await supervisor.stop();
   await batyaSupervisor.stop();
   serviceState = transitionServiceState(serviceState, { type: 'STOP' });
@@ -278,6 +279,7 @@ app.whenReady().then(async () => {
     avatarFixture = await avatarFixtureOptions(process.env.LIVETALKING_DESKTOP_TEST_AVATAR_ROOT, app.getPath('userData'));
   }
   profileStore = createProfileStore(app.getPath('userData'));
+  modelDownloads = createModelDownloads({ ...(avatarFixture ? { spawn: avatarFixture.spawnModels } : {}), emit: publishSnapshot });
   secrets = createSecretStore({ safeStorage, backend: createFileSecretBackend(app.getPath('userData')) });
   batyaSupervisor = createBatyaSupervisor({ emit: snapshot => {
     if (snapshot.state === 'failed' && !['failed', 'not-configured'].includes(serviceState.phase)) {

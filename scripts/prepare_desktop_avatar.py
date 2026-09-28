@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from server.desktop_avatar_media import normalize_media, preview_media, safe_path, validate_generated_avatar, publish_directory
+from server.desktop_model_download import ensure_creation_models
 
 
 def normalized_creation(request):
@@ -90,7 +91,7 @@ def inspect_creation(request):
     weights=['models/sd-vae/config.json','models/sd-vae/diffusion_pytorch_model.bin','models/musetalkV15/musetalk.json','models/musetalkV15/unet.pth','models/face-parse-bisent/resnet18-5c106cde.pth','models/face-parse-bisent/79999_iter.pth'] if request['model']=='musetalk' else []
     absent=[x for x in weights if not (root/x).is_file() or not (root/x).stat().st_size]
     if not detector:absent.append('s3fd.pth (детектор лица)')
-    check('weights',not absent,'Веса подготовки найдены' if not absent else 'Отсутствуют веса: '+', '.join(absent),'Подготовьте указанные локальные веса; Studio их не скачивает.')
+    check('weights',not absent,'Веса подготовки найдены' if not absent else 'Будут скачаны веса: '+', '.join(absent),'Нажмите «Создать»: Studio загрузит недостающие веса с Hugging Face.')
     if request['sourceKind']=='video':check('ffmpeg',bool(shutil.which('ffmpeg')),'FFmpeg для видео','Установите FFmpeg или создайте аватара из фото.')
     try:
         target = root/'data'
@@ -124,7 +125,7 @@ def run_job(request, emit, generator_loader=None):
         emit(value);return value
     event('checking')
     checks=inspect_creation(request)
-    blockers=[x['detail'] for x in checks if x['state']!='ready']
+    blockers=[x['detail'] for x in checks if x['state']!='ready' and x['id']!='weights']
     if blockers:raise ValueError('; '.join(blockers))
     event('copying')
     source=Path(request['sourceFile']);source_dir=safe_path(job_dir,'source');source_dir.mkdir(exist_ok=True)
@@ -146,6 +147,17 @@ def run_job(request, emit, generator_loader=None):
     except (OSError,ValueError) as error:
         temporary.unlink(missing_ok=True)
         raise ValueError('Исходник изменился или недоступен: выберите файл заново.') from error
+    if any(x['id']=='weights' and x['state']!='ready' for x in checks):
+        event('downloading')
+        def download_progress(value):
+            label=value.get('label') or value['file']
+            message=f"{label}: {value['downloadedBytes']/1048576:.1f} / {value['totalBytes']/1048576:.1f} МБ"
+            event('downloading',value['progress'],message=message,downloadedBytes=value['downloadedBytes'],totalBytes=value['totalBytes'])
+        ensure_creation_models(request,download_progress)
+        # The saved source remains valid if the user's original disappears during the download.
+        checks=inspect_creation({**request,'sourceFile':str(own)})
+        blockers=[x['detail'] for x in checks if x['state']!='ready']
+        if blockers:raise ValueError('; '.join(blockers))
     event('normalizing')
     normalized=normalize_media(own,request['sourceKind'],safe_path(job_dir,'input'))
     output=safe_path(job_dir,'output');output.mkdir(exist_ok=True)

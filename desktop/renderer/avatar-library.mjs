@@ -1,6 +1,6 @@
 import { filterAvatars,avatarActionState,buildCreationInput,avatarSnapshotBelongsToRoot } from './avatar-library-state.mjs';
 const models={musetalk:'MuseTalk',wav2lip:'Wav2Lip',ultralight:'Ultralight'};
-const stages={checking:'Проверяем окружение',copying:'Сохраняем исходник',normalizing:'Подготавливаем фото или видео',generating:'Создаём аватара',validating:'Проверяем результат',publishing:'Сохраняем аватара'};
+const stages={checking:'Проверяем окружение',copying:'Сохраняем исходник',downloading:'Скачиваем модели',normalizing:'Подготавливаем фото или видео',generating:'Создаём аватара',validating:'Проверяем результат',publishing:'Сохраняем аватара'};
 export function mountAvatarLibrary({document,bridge,getProfile,onProfileSelected,prepareSessionChange,getSessionState}) {
  const $=selector=>document.querySelector(selector),cleanups=[];
  let entries=[],job=null,selection=null,pending=false,refreshGeneration=0,disposed=false,catalog=null;
@@ -58,6 +58,7 @@ export function mountAvatarLibrary({document,bridge,getProfile,onProfileSelected
   const label=labels[job.state]||stages[job.stage]||'Подготовка';
   $('#avatar-job-state').textContent=`${job.name}: ${label}`;$('#avatar-job-state').dataset.avatarStage=job.state;
   $('#avatar-job-progress').value=job.progress||0;$('#avatar-job-error').textContent=job.errorMessage||'';
+  $('#avatar-job-message').textContent=['checking','running','publishing'].includes(job.state)?job.message||'':'';
   $('#avatar-job-log').textContent=job.logPath?`Журнал: ${job.logPath}`:'';
   $('#avatar-summary-message').textContent=label;
  }

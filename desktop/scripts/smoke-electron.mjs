@@ -134,6 +134,7 @@ async function runAvatarCase() {
     await window.locator('#submit-avatar-create').click();
     await state('running');
     await window.waitForFunction(() => document.querySelector('#avatar-job-progress').value >= 25);
+    assert.match(await window.locator('#avatar-job-message').textContent(), /Скачиваем модель аватара/);
     await window.screenshot({ path: path.join(artifactDirectory, 'smoke-avatar-create.png') });
     await window.keyboard.press('Escape');
     assert.equal(await window.locator('#avatar-create-dialog').isVisible(), false);
@@ -179,6 +180,29 @@ async function runAvatarCase() {
     await rm(source); await control('success');
     await window.locator('#retry-avatar-job').click(); await state('completed');
     await window.locator('#select-created-avatar').click();
+
+    await writeFile(path.join(avatarRoot, 'fixture-control.json'), JSON.stringify({ mode: 'success', modelsMode: 'delay' }));
+    fixture.control.avatarModel = 'musetalk';
+    await window.locator('#start-profile').click();
+    await window.waitForFunction(() => document.querySelector('#model-download-progress').value === 25);
+    assert.equal(await window.locator('#model-download-panel').isVisible(), true);
+    assert.equal(await window.locator('#model-download-panel').evaluate(panel => { const box = panel.getBoundingClientRect(); return box.top >= 0 && box.bottom <= innerHeight; }), true, 'download progress must be visible without scrolling settings');
+    assert.match(await window.locator('#model-download-state').textContent(), /Модель аватара/);
+    await window.screenshot({ path: path.join(artifactDirectory, 'smoke-model-download.png') });
+    await window.locator('#stop-profile').click();
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Не настроено');
+    await assert.rejects(readFile(path.join(avatarRoot, '.fixture-models-ready')), { code: 'ENOENT' });
+    await writeFile(path.join(avatarRoot, 'fixture-control.json'), JSON.stringify({ mode: 'success', modelsMode: 'fail' }));
+    await window.locator('#start-profile').click();
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Ошибка');
+    assert.match(await window.locator('#runtime-log').textContent(), /Fixture model download failed/);
+    await writeFile(path.join(avatarRoot, 'fixture-control.json'), JSON.stringify({ mode: 'success', modelsMode: 'success' }));
+    await window.locator('#start-profile').click();
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Работает');
+    assert.equal(await readFile(path.join(avatarRoot, '.fixture-models-ready'), 'utf8'), 'verified');
+    await window.locator('#stop-profile').click();
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Не настроено');
+    console.log('Model download progress → Stop cancellation → failure → repeat → startup: passed');
 
     const existing = path.join(avatarRoot, 'data/avatars/legacy');
     await mkdir(path.join(existing, 'full_imgs'), { recursive: true });

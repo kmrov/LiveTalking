@@ -123,7 +123,12 @@ function showSnapshot(snapshot) {
   if (!serviceReady && webRtcClient) disconnectAvatar();
   if (!serviceReady && asrClient) { asrClient.dispose(); asrClient = null; }
   showMicrophoneState(microphoneState);
-  $('#runtime-state').textContent = phaseLabels[phase] || phase;
+  const downloading = phase === 'checking' && ['checking', 'downloading'].includes(snapshot.downloads?.state);
+  $('#runtime-state').textContent = downloading ? 'Скачиваем модели' : phaseLabels[phase] || phase;
+  $('#model-download-panel').hidden = !downloading;
+  $('#model-download-progress').value = snapshot.downloads?.progress || 0;
+  $('#model-download-state').textContent = downloading
+    ? `${snapshot.downloads.label || 'Подготовка загрузки'}${snapshot.downloads.totalBytes ? ` · ${Math.round(snapshot.downloads.downloadedBytes / 1048576)} / ${Math.round(snapshot.downloads.totalBytes / 1048576)} МБ` : ''}` : '';
   $('#start-profile').disabled = ['checking', 'starting', 'ready'].includes(phase);
   $('#stop-profile').disabled = ['not-configured'].includes(phase);
   for (const stage of ['livetalking', 'asr', 'tts']) {
@@ -338,8 +343,9 @@ async function checkSetup() {
     const results = await bridge.checkSetup(formProfile());
     showResults(results);
     const missing = results.filter(item => item.state !== 'ready').length;
+    const manual = results.filter(item => item.state !== 'ready' && !(item.state === 'missing' && ['avatar-model', 'asr-model', 'tts-model'].includes(item.id))).length;
     $('#check-details').open = missing > 0;
-    message(missing ? `Нужно исправить: ${missing}` : 'Все проверки пройдены. Профиль готов к запуску.');
+    message(manual ? `Нужно исправить: ${manual}` : missing ? 'Модели будут скачаны при запуске.' : 'Все проверки пройдены. Профиль готов к запуску.');
     return results;
   } catch (error) { message(error.message); return null; }
 }
@@ -421,7 +427,7 @@ $('#start-profile').addEventListener('click', async () => {
   try {
     await saveCurrentProfile();
     const results = await checkSetup();
-    if (!results || results.some(result => result.state !== 'ready')) return;
+    if (!results) return;
     message('Запускаем сервисы…');
     await bridge.startProfile(currentProfile.id);
   } catch (error) { message(error.message); }

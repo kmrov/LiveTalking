@@ -87,6 +87,7 @@
       </aside>
 
       <section class="stage" aria-label="Превью аватара">
+        <div id="model-download-panel" hidden><p id="model-download-state" role="status"></p><progress id="model-download-progress" max="100" value="0" aria-label="Загрузка моделей"></progress></div>
         <div class="stage-toolbar"><span>Аватар</span><span class="stage-tag">ПРЕВЬЮ</span><button type="button" id="connect-avatar" disabled>Подключить WebRTC</button></div>
         <div class="stage-screen">
           <video id="avatar-video" autoplay playsinline muted hidden></video>
@@ -149,7 +150,7 @@
     </form>
     <section id="avatar-job-panel" hidden aria-label="Последняя подготовка">
       <p id="avatar-job-state" role="status" data-avatar-stage></p><progress id="avatar-job-progress" max="100" value="0" aria-label="Подготовка аватара"></progress>
-      <p id="avatar-job-error" role="alert"></p><p id="avatar-job-log" class="setting-hint"></p>
+      <p id="avatar-job-message" role="status"></p><p id="avatar-job-error" role="alert"></p><p id="avatar-job-log" class="setting-hint"></p>
       <div class="avatar-actions"><button type="button" id="cancel-avatar-job">Отменить</button><button type="button" id="retry-avatar-job" hidden>Повторить</button><button type="button" id="select-created-avatar" hidden>Выбрать</button></div>
     </section>
   </dialog>

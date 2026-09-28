@@ -167,6 +167,7 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
       if (token !== generation) return snapshot();
       child = spawn(profile.liveTalking.python, launcherArguments(profile), {
         cwd: profile.liveTalking.root,
+        env: { ...process.env, HF_HUB_OFFLINE: '1', TRANSFORMERS_OFFLINE: '1' },
         detached: true,
         shell: false,
         stdio: ['ignore', 'pipe', 'pipe'],

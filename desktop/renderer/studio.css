@@ -155,6 +155,8 @@ body { overflow: hidden; }
 .avatar-checks { padding-left: 20px; font-size: 12px; line-height: 1.7; }
 #avatar-create-message, #avatar-job-error, #avatar-library-message, .avatar-card .avatar-error { color: #e4b59b; font-size: 12px; line-height: 1.6; }
 #avatar-job-panel { margin-top: 20px; padding-top: 16px; border-top: 1px solid #36513f; }
-#avatar-job-panel progress { width: 100%; height: 10px; accent-color: #81b78d; }
+#avatar-job-panel progress, #model-download-progress { width: 100%; height: 10px; accent-color: #81b78d; }
+#model-download-panel { color: #a5c7ad; font-size: 12px; overflow-wrap: anywhere; }
+#model-download-panel p { margin: 12px 0 8px; }
 #avatar-job-state { font-size: 13px; }
 .avatar-dialog :focus-visible { outline: 2px solid #aadab7; outline-offset: 3px; }

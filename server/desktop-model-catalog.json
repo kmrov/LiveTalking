@@ -1,0 +1,329 @@
+{
+  "schemaVersion": 1,
+  "groups": {
+    "s3fd": {
+      "repo": "ByteDance/LatentSync",
+      "revision": "405eda8eab9f65c1a6e0c292a5dee5a08089e2ae",
+      "storage": "torch",
+      "label": "S3FD",
+      "files": [
+        {
+          "file": "auxiliary/s3fd-619a316812.pth",
+          "destination": "checkpoints/s3fd-619a316812.pth",
+          "size": 89843225,
+          "algorithm": "sha256",
+          "digest": "619a31681264d3f7f7fc7a16a42cbbe8b23f31a256f75a366e5a1bcd59b33543"
+        }
+      ]
+    },
+    "musetalk": {
+      "repo": "TMElyralab/MuseTalk",
+      "revision": "2bcb936e2fddb4d86db4c62fd45b387d0c061571",
+      "storage": "checkout",
+      "label": "MuseTalk v15",
+      "files": [
+        {
+          "file": "musetalkV15/musetalk.json",
+          "destination": "models/musetalkV15/musetalk.json",
+          "size": 748,
+          "algorithm": "git-sha1",
+          "digest": "b822db87e503a283fbbee73617f89dcd294cb91c"
+        },
+        {
+          "file": "musetalkV15/unet.pth",
+          "destination": "models/musetalkV15/unet.pth",
+          "size": 3400074924,
+          "algorithm": "sha256",
+          "digest": "7ebf6c98c181e20838e4c0054e96e944ac60d5d692cc01db42839fe11b787007"
+        }
+      ]
+    },
+    "vae": {
+      "repo": "stabilityai/sd-vae-ft-mse",
+      "revision": "31f26fdeee1355a5c34592e401dd41e45d25a493",
+      "storage": "checkout",
+      "label": "VAE",
+      "files": [
+        {
+          "file": "config.json",
+          "destination": "models/sd-vae/config.json",
+          "size": 547,
+          "algorithm": "git-sha1",
+          "digest": "0db26717579be63eb0ddbf15b43faa43700dfe5a"
+        },
+        {
+          "file": "diffusion_pytorch_model.bin",
+          "destination": "models/sd-vae/diffusion_pytorch_model.bin",
+          "size": 334707217,
+          "algorithm": "sha256",
+          "digest": "1b4889b6b1d4ce7ae320a02dedaeff1780ad77d415ea0d744b476155c6377ddc"
+        }
+      ]
+    },
+    "face-parsing": {
+      "repo": "ManyOtherFunctions/face-parse-bisent",
+      "revision": "0073b233a5a3c4b1377d4dbf49245017938a72b5",
+      "storage": "checkout",
+      "label": "Разбор лица",
+      "files": [
+        {
+          "file": "79999_iter.pth",
+          "destination": "models/face-parse-bisent/79999_iter.pth",
+          "size": 53289463,
+          "algorithm": "sha256",
+          "digest": "468e13ca13a9b43cc0881a9f99083a430e9c0a38abd935431d1c28ee94b26567"
+        },
+        {
+          "file": "resnet18-5c106cde.pth",
+          "destination": "models/face-parse-bisent/resnet18-5c106cde.pth",
+          "size": 46827520,
+          "algorithm": "sha256",
+          "digest": "5c106cde386e87d4033832f2996f5493238eda96ccf559d1d62760c4de0613f8"
+        }
+      ]
+    },
+    "wav2lip": {
+      "repo": "shibing624/ai-avatar-wav2lip",
+      "revision": "c96278cbcdcced29acc29272275c83063022ef90",
+      "storage": "checkout",
+      "label": "Wav2Lip256",
+      "files": [
+        {
+          "file": "wav2lip.pth",
+          "destination": "models/wav2lip.pth",
+          "size": 214670409,
+          "algorithm": "sha256",
+          "digest": "b22d7ac86295df667644b17254dc71250c2600b89e20403e90e58812450bc173"
+        }
+      ]
+    },
+    "whisper": {
+      "repo": "openai/whisper-tiny",
+      "revision": "169d4a4341b33bc18d8881c4b69c2e104e1cc0af",
+      "storage": "checkout",
+      "label": "Whisper Tiny",
+      "files": [
+        {
+          "file": "config.json",
+          "destination": "models/whisper/config.json",
+          "size": 1983,
+          "algorithm": "git-sha1",
+          "digest": "417aa9de49a132dd3eb6a56d3be2718b15f08917"
+        },
+        {
+          "file": "pytorch_model.bin",
+          "destination": "models/whisper/pytorch_model.bin",
+          "size": 151095027,
+          "algorithm": "sha256",
+          "digest": "9607f98a2b22d9e229ae43c52ecea79dcede9e0c5cfae67e8da6eda86d8aac1d"
+        },
+        {
+          "file": "preprocessor_config.json",
+          "destination": "models/whisper/preprocessor_config.json",
+          "size": 184990,
+          "algorithm": "git-sha1",
+          "digest": "c2048dfa9fd94a052e62e908d2c4dfb18534b4d2"
+        }
+      ]
+    },
+    "hubert": {
+      "repo": "facebook/hubert-large-ls960-ft",
+      "revision": "ece5fabbf034c1073acae96d5401b25be96709d8",
+      "storage": "checkout",
+      "label": "HuBERT",
+      "files": [
+        {
+          "file": "config.json",
+          "destination": "models/hubert-large-ls960-ft/config.json",
+          "size": 1376,
+          "algorithm": "git-sha1",
+          "digest": "2cd99ac14fa1cde977c292af904d66aaa607120f"
+        },
+        {
+          "file": "pytorch_model.bin",
+          "destination": "models/hubert-large-ls960-ft/pytorch_model.bin",
+          "size": 1262057559,
+          "algorithm": "sha256",
+          "digest": "9cf43abec3f0410ad6854afa4d376c69ccb364b48ddddfd25c4c5aa16398eab0"
+        },
+        {
+          "file": "preprocessor_config.json",
+          "destination": "models/hubert-large-ls960-ft/preprocessor_config.json",
+          "size": 212,
+          "algorithm": "git-sha1",
+          "digest": "36ebe8b7c1cc967b3059f0494ae8a1069dd67655"
+        },
+        {
+          "file": "special_tokens_map.json",
+          "destination": "models/hubert-large-ls960-ft/special_tokens_map.json",
+          "size": 85,
+          "algorithm": "git-sha1",
+          "digest": "25bc39604f72700b3b8e10bd69bb2f227157edd1"
+        },
+        {
+          "file": "tokenizer_config.json",
+          "destination": "models/hubert-large-ls960-ft/tokenizer_config.json",
+          "size": 138,
+          "algorithm": "git-sha1",
+          "digest": "43772fe82c516617b389124d359003795a06ce95"
+        },
+        {
+          "file": "vocab.json",
+          "destination": "models/hubert-large-ls960-ft/vocab.json",
+          "size": 291,
+          "algorithm": "git-sha1",
+          "digest": "88181b954aa14df68be9b444b3c36585f3078c0a"
+        }
+      ]
+    },
+    "asr": {
+      "repo": "Qwen/Qwen3-ASR-0.6B",
+      "revision": "5eb144179a02acc5e5ba31e748d22b0cf3e303b0",
+      "storage": "speech",
+      "label": "Qwen ASR",
+      "files": [
+        {
+          "file": "chat_template.json",
+          "destination": "chat_template.json",
+          "size": 1161,
+          "algorithm": "git-sha1",
+          "digest": "c44736493efd71ec96218cc626904698cdb13235"
+        },
+        {
+          "file": "config.json",
+          "destination": "config.json",
+          "size": 6193,
+          "algorithm": "git-sha1",
+          "digest": "8113d596dec2d1a2ef4552edfe005ee84d16d9ec"
+        },
+        {
+          "file": "generation_config.json",
+          "destination": "generation_config.json",
+          "size": 142,
+          "algorithm": "git-sha1",
+          "digest": "7382a4d347c0a865b76bb1b8277f66a5ac312854"
+        },
+        {
+          "file": "merges.txt",
+          "destination": "merges.txt",
+          "size": 1671853,
+          "algorithm": "git-sha1",
+          "digest": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+        },
+        {
+          "file": "model.safetensors",
+          "destination": "model.safetensors",
+          "size": 1876091704,
+          "algorithm": "sha256",
+          "digest": "79d6cbd4c98c7bbffe9db2edac07f56cd6637d0d5944b27f6c2b8353840323ea"
+        },
+        {
+          "file": "preprocessor_config.json",
+          "destination": "preprocessor_config.json",
+          "size": 330,
+          "algorithm": "git-sha1",
+          "digest": "8f7f07346466d5d494ec0d4969d1c3d0190eed72"
+        },
+        {
+          "file": "tokenizer_config.json",
+          "destination": "tokenizer_config.json",
+          "size": 12487,
+          "algorithm": "git-sha1",
+          "digest": "b93109843922a40c6654c5449d3bf95372267c66"
+        },
+        {
+          "file": "vocab.json",
+          "destination": "vocab.json",
+          "size": 2776833,
+          "algorithm": "git-sha1",
+          "digest": "4783fe10ac3adce15ac8f358ef5462739852c569"
+        }
+      ]
+    },
+    "tts": {
+      "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+      "revision": "fd4b254389122332181a7c3db7f27e918eec64e3",
+      "storage": "speech",
+      "label": "Qwen TTS",
+      "files": [
+        {
+          "file": "config.json",
+          "destination": "config.json",
+          "size": 4494,
+          "algorithm": "git-sha1",
+          "digest": "81b57e8e790c07e8fa7f82d8bdfd7574d485c396"
+        },
+        {
+          "file": "generation_config.json",
+          "destination": "generation_config.json",
+          "size": 245,
+          "algorithm": "git-sha1",
+          "digest": "1872b16d4535564abf2db5d6debe6cddd82b7f2e"
+        },
+        {
+          "file": "merges.txt",
+          "destination": "merges.txt",
+          "size": 1671839,
+          "algorithm": "git-sha1",
+          "digest": "20024bfe7c83998e9aeaf98a0cd6a2ce6306c2f0"
+        },
+        {
+          "file": "model.safetensors",
+          "destination": "model.safetensors",
+          "size": 3857413744,
+          "algorithm": "sha256",
+          "digest": "38fc7fc51c5e776e840414b6fd443962e9411b9654888fd7913e4da643cb857c"
+        },
+        {
+          "file": "preprocessor_config.json",
+          "destination": "preprocessor_config.json",
+          "size": 127,
+          "algorithm": "git-sha1",
+          "digest": "0525dd953bb9241912f7147666f0d535165d5d4f"
+        },
+        {
+          "file": "speech_tokenizer/config.json",
+          "destination": "speech_tokenizer/config.json",
+          "size": 2336,
+          "algorithm": "git-sha1",
+          "digest": "06cc8dc4c5ec8a1929086b71b98c313020d9268b"
+        },
+        {
+          "file": "speech_tokenizer/configuration.json",
+          "destination": "speech_tokenizer/configuration.json",
+          "size": 76,
+          "algorithm": "git-sha1",
+          "digest": "ab58e2eaf53cd14a1a2a7527d9261ceea93a24cd"
+        },
+        {
+          "file": "speech_tokenizer/model.safetensors",
+          "destination": "speech_tokenizer/model.safetensors",
+          "size": 682293092,
+          "algorithm": "sha256",
+          "digest": "836b7b357f5ea43e889936a3709af68dfe3751881acefe4ecf0dbd30ba571258"
+        },
+        {
+          "file": "speech_tokenizer/preprocessor_config.json",
+          "destination": "speech_tokenizer/preprocessor_config.json",
+          "size": 234,
+          "algorithm": "git-sha1",
+          "digest": "ba40914f4f49ab98a8ca545d4892ef7291a39592"
+        },
+        {
+          "file": "tokenizer_config.json",
+          "destination": "tokenizer_config.json",
+          "size": 7344,
+          "algorithm": "git-sha1",
+          "digest": "6ff9fd60cc623bb54bbd603cbd418c97a11528d7"
+        },
+        {
+          "file": "vocab.json",
+          "destination": "vocab.json",
+          "size": 2776833,
+          "algorithm": "git-sha1",
+          "digest": "4783fe10ac3adce15ac8f358ef5462739852c569"
+        }
+      ]
+    }
+  }
+}
