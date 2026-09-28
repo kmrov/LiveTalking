@@ -1,6 +1,8 @@
-import { app, BrowserWindow, dialog, ipcMain, session } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, session, safeStorage } from 'electron';
 import path from 'node:path';
 import { writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isAllowedStudioNavigation, isTrustedStudioSender, mayUseMicrophone } from './ipc-policy.mjs';
 import { discoverLiveTalkingRoot } from './discover-root.mjs';
@@ -10,6 +12,9 @@ import { inspectPrerequisites } from './prerequisites.mjs';
 import { normalizeProfile } from '../src/profile.mjs';
 import { createSupervisor } from './supervisor.mjs';
 import { initialServiceState, transitionServiceState } from '../src/service-state.mjs';
+import { createSecretStore, createFileSecretBackend } from './secret-store.mjs';
+import { createBatyaApi } from './batya-api.mjs';
+import { readServiceEnvironment, serviceEnvironment } from './service-environment.mjs';
 
 const studioFile = fileURLToPath(new URL('../dist/studio.html', import.meta.url));
 const studioUrl = pathToFileURL(studioFile).href;
@@ -21,6 +26,7 @@ if (fixtureMode && process.env.LIVETALKING_DESKTOP_TEST_USER_DATA) app.setPath('
 let studioWindow;
 let profileStore;
 let supervisor;
+let secrets;
 let serviceState = initialServiceState();
 let startJob;
 let runGeneration = 0;
@@ -108,18 +114,71 @@ function initialProfile() {
   });
 }
 
+function discoverBrain(profile) {
+  if (!profile.brain.root) {
+    const roots = [path.join(path.dirname(profile.liveTalking.root || app.getAppPath()), 'batya'), path.join(os.homedir(), 'batya')];
+    const root = roots.find(value => existsSync(path.join(value, 'src/batya/main.py')));
+    if (root) { profile.brain.root = root; profile.brain.python = path.join(root, '.venv/bin/python'); }
+  }
+  if (!profile.brain.folderId) profile.brain.folderId = readServiceEnvironment(profile).YANDEX_FOLDER_ID || '';
+  return profile;
+}
+
+function brainEnvironment(profile) {
+  return serviceEnvironment({ values: readServiceEnvironment(profile), folderId: profile.brain.folderId,
+    secrets: { YANDEX_AISTUDIO_KEY: secrets.get(`batya:${profile.id}:key`), BATYA_DATABASE_URL: secrets.get(`batya:${profile.id}:database`) } });
+}
+
+function secretStatus(profile) {
+  const env = brainEnvironment(profile);
+  return { persistent: secrets.persistent, apiKeyConfigured: Boolean(env.YANDEX_AISTUDIO_KEY), databaseConfigured: Boolean(env.BATYA_DATABASE_URL) };
+}
+
+function brainApi(id) {
+  const profile = profileStore.get(id);
+  if (!profile || profile.brain.mode !== 'batya') throw new Error('Сначала выберите и сохраните режим «Батя».');
+  return createBatyaApi({ baseUrl: profile.brain.url });
+}
+
 function registerSetupIpc() {
   ipcMain.handle('desktop:get-setup', trusted(() => {
-    const profile = initialProfile();
+    const profile = discoverBrain(initialProfile());
     const voiceReferences = findVoiceReferences(profile.liveTalking.root);
     if (!profile.speech.referenceWav && voiceReferences.length) {
       profile.speech.referenceWav = voiceReferences[0].wav;
       profile.speech.referenceText = voiceReferences[0].text;
     }
-    return { profile, voiceReferences, recoveryError: profileStore.recoveryError(), testFixture: fixtureMode };
+    return { profile, voiceReferences, secrets: secretStatus(profile), recoveryError: profileStore.recoveryError(), testFixture: fixtureMode };
   }));
   ipcMain.handle('desktop:check-setup', trusted(async input => setupChecks(normalizeProfile(input))));
   ipcMain.handle('desktop:save-profile', trusted(input => profileStore.save(normalizeProfile(input))));
+  ipcMain.handle('desktop:brain-secrets', trusted((id, input = {}) => {
+    const profile = profileStore.get(id);
+    if (!profile) throw new Error('Профиль не найден');
+    for (const [field, name] of [['apiKey', 'key'], ['databaseUrl', 'database']]) {
+      const value = input[field];
+      if (value === undefined || value === '') continue;
+      if (typeof value !== 'string' || value.includes('\0') || value.length > 8192) throw new Error(`Invalid ${field}`);
+      if (field === 'databaseUrl' && !/^postgres(?:ql)?:\/\//.test(value)) throw new Error('Database URL must use PostgreSQL');
+      secrets.set(`batya:${id}:${name}`, value);
+    }
+    return secretStatus(profile);
+  }));
+  ipcMain.handle('desktop:brain-conversations', trusted(id => brainApi(id).conversations()));
+  ipcMain.handle('desktop:brain-create', trusted(async id => {
+    const conversation = await brainApi(id).createConversation();
+    const profile = profileStore.get(id);
+    profile.brain.conversationId = conversation.id;
+    profileStore.save(profile);
+    return conversation;
+  }));
+  ipcMain.handle('desktop:brain-history', trusted((id, conversationId) => brainApi(id).history(conversationId)));
+  ipcMain.handle('desktop:brain-memories', trusted(id => brainApi(id).memories()));
+  ipcMain.handle('desktop:brain-document', trusted((id, input) => brainApi(id).document(input)));
+  ipcMain.handle('desktop:choose-brain-root', trusted(async () => {
+    const result = await dialog.showOpenDialog(studioWindow, { title: 'Выбрать Батю', properties: ['openDirectory'] });
+    return result.canceled ? null : result.filePaths[0];
+  }));
   ipcMain.handle('desktop:choose-root', trusted(async () => {
     const result = await dialog.showOpenDialog(studioWindow, { title: 'Выбрать LiveTalking', properties: ['openDirectory'] });
     if (result.canceled) return null;
@@ -185,6 +244,7 @@ export function createStudioWindow() {
 
 app.whenReady().then(() => {
   profileStore = createProfileStore(app.getPath('userData'));
+  secrets = createSecretStore({ safeStorage, backend: createFileSecretBackend(app.getPath('userData')) });
   supervisor = createSupervisor({ emit: snapshot => {
     if (snapshot.state === 'failed' && !['failed', 'not-configured'].includes(serviceState.phase)) {
       serviceState = transitionServiceState(serviceState, { type: 'CHILD_EXIT', detail: snapshot.logExcerpt || 'Сервис завершился' });
