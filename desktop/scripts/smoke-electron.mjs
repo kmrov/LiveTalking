@@ -99,6 +99,11 @@ async function runBatyaCase() {
     await window.locator('#interrupt-avatar').click();
     await window.waitForFunction(() => document.querySelector('#brain-turn-state').textContent.includes('завершает'));
     assert.match(await window.locator('#brain-turn-state').textContent(), /завершает/);
+    await window.locator('#connect-avatar').click();
+    await window.locator('#connect-avatar').click();
+    await window.waitForFunction(() => document.querySelector('#brain-turn-state').dataset.stream === 'connected' && document.querySelector('#conversation-list [data-role="assistant"]')?.dataset.status === 'delta');
+    assert.match(await window.locator('#conversation-list [data-role="assistant"]').textContent(), /Привет, сынок/);
+    assert.match(await window.locator('#brain-turn-state').textContent(), /отвечает|завершает/);
     fixture.finishTurn();
     await window.waitForFunction(() => document.querySelector('#conversation-list [data-role="assistant"]')?.dataset.status === 'done');
     await window.locator('#connect-avatar').click();

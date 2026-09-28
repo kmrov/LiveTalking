@@ -1,3 +1,4 @@
+import asyncio
 import json
 import unittest
 from types import SimpleNamespace
@@ -17,6 +18,36 @@ class Request:
 
 
 class BatyaRoutesTest(unittest.IsolatedAsyncioTestCase):
+    async def test_sse_reconnect_subscribes_to_pending_conversation_and_cleans_up(self):
+        from aiohttp import web
+        from aiohttp.test_utils import TestClient, TestServer
+        transport, original = Transport(), Avatar()
+        brain = BatyaBrain('http://127.0.0.1:8000', transport=transport)
+        await brain.submit(original, 'Привет', 'one')
+        await transport.started.wait()
+        reconnected = Avatar(transport.id)
+        app = web.Application()
+        app['batya_brain'] = brain
+        app.router.add_get('/sse', routes.sse_handler)
+        async def read_event(response):
+            while True:
+                line = await asyncio.wait_for(response.content.readline(), 2)
+                if line.startswith(b'data: '):
+                    return json.loads(line[6:])
+        with patch.object(routes.session_manager, 'get_session', return_value=reconnected):
+            async with TestClient(TestServer(app, shutdown_timeout=0.05)) as client:
+                response = await client.get('/sse?sessionid=new')
+                snapshot = await read_event(response)
+                self.assertEqual(snapshot['event'], 'snapshot')
+                self.assertEqual(snapshot['pending'], 1)
+                transport.release.set()
+                await brain.wait_idle()
+                events = [await read_event(response) for _ in range(3)]
+                self.assertEqual([e['event'] for e in events], ['delta', 'done', 'idle'])
+                self.assertEqual(events[1]['text'], 'Привет, сынок. Как дела?')
+        self.assertEqual(len(brain.listeners), 0)
+        await brain.close()
+
     async def test_all_external_chat_calls_reach_batya_and_echo_remains_direct(self):
         transport, avatar = Transport(), Avatar()
         brain = BatyaBrain('http://127.0.0.1:8000', transport=transport)

@@ -1,4 +1,4 @@
-export function createConversationClient({ fetch, baseUrl, getSessionId }) {
+export function createConversationClient({ fetch, baseUrl, getSessionId, idempotentChat = false }) {
   async function command(endpoint, payload = {}, retry = false) {
     const sessionid = getSessionId();
     if (!sessionid) throw new Error('An active WebRTC session is required');
@@ -22,7 +22,7 @@ export function createConversationClient({ fetch, baseUrl, getSessionId }) {
       if (typeof text !== 'string' || !text.trim()) throw new Error('Введите сообщение');
       if (!['echo', 'chat'].includes(type)) throw new Error('Invalid conversation mode');
       const request_id = type === 'chat' ? requestId || globalThis.crypto.randomUUID() : '';
-      return command('/human', { text: text.trim(), type, interrupt: Boolean(interrupt), ...(request_id ? { request_id } : {}) }, type === 'chat');
+      return command('/human', { text: text.trim(), type, interrupt: Boolean(interrupt), ...(request_id ? { request_id } : {}) }, type === 'chat' && idempotentChat);
     },
     interrupt: () => command('/interrupt_talk'),
     startRecording: () => command('/record', { type: 'start_record' }),

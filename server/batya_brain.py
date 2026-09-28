@@ -84,6 +84,8 @@ class BatyaBrain:
         self.transport = transport or BatyaTransport(base_url)
         self.tails = {}
         self.requests = OrderedDict()
+        self.turns = OrderedDict()
+        self.listeners = {}
         self.tasks = set()
         self.closed = False
 
@@ -113,8 +115,8 @@ class BatyaBrain:
             avatar.flush_talk()
         generation = getattr(avatar, 'talk_generation', 0)
         previous = self.tails.get(identifier)
-        avatar.batya_pending = getattr(avatar, 'batya_pending', 0) + 1
-        self.emit(avatar, 'queued', accepted, pending=avatar.batya_pending)
+        self.turns[key] = {**accepted, 'user_text': text, 'text': '', 'message': '', 'status': 'queued', 'active': True}
+        self.emit(avatar, 'queued', accepted, user_text=text)
         task = asyncio.create_task(self.run(previous, avatar, text, accepted, generation, datainfo or {}))
         self.requests[key] = (text, task)
         self.tails[identifier] = task
@@ -126,11 +128,50 @@ class BatyaBrain:
                 break
             if job.done():
                 self.requests.pop(cached)
+        for cached, turn in list(self.turns.items()):
+            if len(self.turns) <= 256:
+                break
+            if not turn['active']:
+                self.turns.pop(cached)
         return accepted
 
-    @staticmethod
-    def emit(avatar, event, accepted, **fields):
-        avatar.send_msg(json.dumps({'brain': 'batya', 'event': event, **accepted, **fields}, ensure_ascii=False))
+    def pending(self, avatar):
+        identifier = getattr(avatar.opt, 'batya_conversation_id', '')
+        return sum(turn['active'] for turn in self.turns.values() if turn['conversation_id'] == identifier)
+
+    def subscribe(self, avatar, send):
+        """Observe conversation state; observation never grants speech ownership."""
+        token = object()
+        self.listeners[token] = (avatar, send)
+        identifier = getattr(avatar.opt, 'batya_conversation_id', '')
+        avatar.batya_pending = self.pending(avatar)
+        for turn in self.turns.values():
+            if turn['conversation_id'] == identifier:
+                send(json.dumps({'brain': 'batya', 'event': 'snapshot',
+                                 **{key: value for key, value in turn.items() if key != 'active'},
+                                 'pending': avatar.batya_pending}, ensure_ascii=False))
+        return lambda: self.listeners.pop(token, None)
+
+    def emit(self, avatar, event, accepted, **fields):
+        turn = self.turns[(accepted['conversation_id'], accepted['request_id'])]
+        if event == 'delta':
+            turn['text'] += fields['text']
+        if event == 'done':
+            turn['text'] = fields['text']
+        if event == 'error':
+            turn['message'] = fields['message']
+        if event == 'idle':
+            turn['active'] = False
+        else:
+            turn['status'] = event
+        pending = self.pending(avatar)
+        avatar.batya_pending = pending
+        message = json.dumps({'brain': 'batya', 'event': event, **accepted, **fields, 'pending': pending}, ensure_ascii=False)
+        avatar.send_msg(message)
+        for target, send in list(self.listeners.values()):
+            if target is not avatar and getattr(target.opt, 'batya_conversation_id', '') == accepted['conversation_id']:
+                target.batya_pending = pending
+                send(message)
 
     @staticmethod
     def may_speak(avatar, generation):
@@ -188,16 +229,15 @@ class BatyaBrain:
                     self.emit(avatar, 'retrying', accepted)
         except asyncio.CancelledError:
             if self.may_speak(avatar, generation):
-                avatar.flush_talk()
+                avatar.clear_speech()
             raise
         except Exception as error:
             self.requests.pop((accepted['conversation_id'], accepted['request_id']), None)
             if self.may_speak(avatar, generation):
-                avatar.flush_talk()
+                avatar.clear_speech()
             self.emit(avatar, 'error', accepted, message=str(error))
         finally:
-            avatar.batya_pending = max(0, getattr(avatar, 'batya_pending', 1) - 1)
-            self.emit(avatar, 'idle', accepted, pending=avatar.batya_pending)
+            self.emit(avatar, 'idle', accepted)
 
     async def wait_idle(self):
         while self.tasks:
@@ -208,4 +248,5 @@ class BatyaBrain:
         for task in list(self.tasks):
             task.cancel()
         await asyncio.gather(*list(self.tasks), return_exceptions=True)
+        self.listeners.clear()
         await self.transport.close()

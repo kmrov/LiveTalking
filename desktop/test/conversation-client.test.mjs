@@ -31,3 +31,15 @@ test('conversation client reports API failure and returns speaking state', async
   const good = createConversationClient({ fetch: async () => ({ ok: true, json: async () => ({ code: 0, data: true }) }), baseUrl: 'http://127.0.0.1:8010', getSessionId: () => '123' });
   assert.equal(await good.speaking(), true);
 });
+
+test('network retry is enabled only for an idempotent brain', async () => {
+  for (const [idempotentChat, expected] of [[false, 1], [true, 2]]) {
+    const calls = [];
+    const client = createConversationClient({ idempotentChat,
+      fetch: async (url, options) => { calls.push(JSON.parse(options.body)); throw new Error('Lost HTTP response'); },
+      baseUrl: 'http://127.0.0.1:8010', getSessionId: () => '123' });
+    await assert.rejects(client.sendText('Привет', { requestId: 'stable' }), /Lost HTTP response/);
+    assert.equal(calls.length, expected);
+    assert.ok(calls.every(item => item.request_id === 'stable'));
+  }
+});

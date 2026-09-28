@@ -187,6 +187,10 @@ class BaseAvatar:
 
     def flush_talk(self):
         self.talk_generation += 1
+        self.clear_speech()
+
+    def clear_speech(self):
+        """Clear current audio without cancelling later queued brain turns."""
         if hasattr(self, 'tts') and hasattr(self.tts, 'flush_talk'):
             self.tts.flush_talk()
         if hasattr(self, 'asr') and hasattr(self.asr, 'flush_talk'):

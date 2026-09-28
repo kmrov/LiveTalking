@@ -274,7 +274,11 @@ function receiveBrainEvent(event) {
   if (next === brainState) return;
   brainState = next;
   const turn = brainState.turns[event.request_id];
-  if (['delta', 'reset', 'done', 'error'].includes(event.event)) {
+  if (typeof event.user_text === 'string' && ![...$('#conversation-list').children].some(item => item.dataset.role === 'user' && item.dataset.requestId === event.request_id)) {
+    appendMessage(event.user_text, 'chat', { role: 'user', requestId: event.request_id });
+    submittedTurns.set(event.request_id, { text: event.user_text, type: 'chat', requestId: event.request_id });
+  }
+  if (['snapshot', 'delta', 'reset', 'done', 'error'].includes(event.event)) {
     let row = [...$('#conversation-list').children].find(item => item.dataset.role === 'assistant' && item.dataset.requestId === event.request_id);
     if (!row) row = appendMessage('', 'chat', { role: 'assistant', requestId: event.request_id });
     row.dataset.status = turn.status;
@@ -282,7 +286,7 @@ function receiveBrainEvent(event) {
     row.querySelector('small').textContent = turn.status === 'delta' ? 'БАТЯ · ОТВЕЧАЕТ' : turn.status === 'error' ? 'БАТЯ · ОШИБКА' : 'БАТЯ';
     row.scrollIntoView({ block: 'nearest' });
   }
-  if (event.event === 'error') { failedTurn = submittedTurns.get(event.request_id); $('#retry-message').hidden = !failedTurn; }
+  if (turn.status === 'error') { failedTurn = submittedTurns.get(event.request_id); $('#retry-message').hidden = !failedTurn; }
   if (!brainState.pending) speechInterrupted = false;
   $('#brain-turn-state').textContent = brainState.pending
     ? speechInterrupted ? 'Речь остановлена; Батя завершает запись ответа…' : event.event === 'delta' ? 'Батя отвечает…' : 'Батя думает…'
@@ -432,6 +436,7 @@ $('#connect-avatar').addEventListener('click', async () => {
   });
   conversationClient = createConversationClient({
     fetch: window.fetch.bind(window),
+    idempotentChat: currentProfile.brain.mode === 'batya',
     baseUrl: `http://127.0.0.1:${currentProfile.liveTalking.port}`,
     getSessionId: () => webRtcClient?.sessionId(),
   });

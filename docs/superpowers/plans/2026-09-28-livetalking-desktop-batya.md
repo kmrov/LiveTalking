@@ -95,6 +95,6 @@
 
 - [x] Add Electron smoke case: select Batya→create conversation→connect→chat→streamed assistant→interrupt→reconnect→same history/ID→Stop; test failure and direct-mode recovery.
 - [x] Run complete Batya/Python/desktop suites and build/smoke; expect pass.
-- [ ] Verify actual existing PostgreSQL/Batya/API and local avatar flow; measure first TTS phrase before done, verify stored history, reconnect and app restart. Use only synthetic verification conversations/documents.
+- [x] Verify actual existing PostgreSQL/Batya/API and local avatar flow; measure first TTS phrase before done, verify stored history, reconnect and app restart. Use only synthetic verification conversations/documents.
 - [x] Document setup, streaming/tool-stage latency, credentials, compatibility, ownership and remaining improvements; commit.
-- [ ] Fresh final review for both repo ranges; fix Important/Critical findings in one RED→GREEN pass. Keep feature branches for local use.
+- [x] Fresh final review for both repo ranges; fix Important/Critical findings in one RED→GREEN pass. Keep feature branches for local use.

@@ -12,12 +12,19 @@ class Avatar:
         self.opt = SimpleNamespace(batya_conversation_id=conversation_id)
         self.talk_generation = 0
         self.events, self.speech = [], []
+        self.msgqueues = []
     def send_msg(self, value):
         self.events.append(json.loads(value))
+        for queue in self.msgqueues:
+            queue.put(value)
+    def add_msgqueue(self, queue):
+        self.msgqueues.append(queue)
     def put_msg_txt(self, text, data):
         self.speech.append(text)
     def flush_talk(self):
         self.talk_generation += 1
+        self.speech.clear()
+    def clear_speech(self):
         self.speech.clear()
 
 
@@ -41,6 +48,61 @@ class Transport:
 
 
 class BatyaBrainTest(unittest.IsolatedAsyncioTestCase):
+    async def test_reconnect_restores_pending_turn_and_receives_completion_without_speaking(self):
+        transport, original = Transport(), Avatar()
+        brain = BatyaBrain('http://127.0.0.1:8000', transport=transport)
+        await brain.submit(original, 'Привет', 'one')
+        await transport.started.wait()
+        original.flush_talk()
+        reconnected, events = Avatar(transport.id), []
+        unsubscribe = brain.subscribe(reconnected, lambda data: events.append(json.loads(data)))
+        snapshot = events[0]
+        self.assertEqual(snapshot['event'], 'snapshot')
+        self.assertEqual(snapshot['text'], 'Привет, сынок. ')
+        self.assertEqual(snapshot['user_text'], 'Привет')
+        self.assertEqual(snapshot['pending'], 1)
+        self.assertEqual(brain.pending(reconnected), 1)
+        transport.release.set()
+        await brain.wait_idle()
+        self.assertEqual([e['event'] for e in events], ['snapshot', 'delta', 'done', 'idle'])
+        self.assertEqual(events[-1]['pending'], 0)
+        self.assertEqual(reconnected.speech, [])
+        self.assertEqual(sum(e['event'] == 'done' for e in original.events), 1)
+        unsubscribe()
+        # Completion between history fetch and SSE subscription must also replay.
+        late = []
+        unsubscribe = brain.subscribe(reconnected, lambda data: late.append(json.loads(data)))
+        self.assertEqual(late[0]['status'], 'done')
+        self.assertEqual(late[0]['text'], 'Привет, сынок. Как дела?')
+        self.assertEqual(late[0]['pending'], 0)
+        unsubscribe()
+        self.assertEqual(len(brain.listeners), 0)
+        await brain.close()
+
+    async def test_error_cleanup_preserves_speech_of_a_queued_uninterrupted_turn(self):
+        class FailingFirst(Transport):
+            async def events(self, identifier, body):
+                self.calls.append((identifier, body.copy()))
+                if body['request_id'] == 'one':
+                    yield 'delta', {'text': 'Старое.'}
+                    self.started.set()
+                    await self.release.wait()
+                    yield 'error', {'code': 'generation_failed'}
+                else:
+                    yield 'delta', {'text': 'Следующее.'}
+                    yield 'done', {'text': 'Следующее.'}
+        transport, avatar = FailingFirst(), Avatar()
+        brain = BatyaBrain('http://127.0.0.1:8000', transport=transport)
+        await brain.submit(avatar, 'Первый', 'one')
+        await transport.started.wait()
+        await brain.submit(avatar, 'Второй', 'two')
+        transport.release.set()
+        await brain.wait_idle()
+        self.assertEqual(avatar.speech, ['Следующее.'])
+        done = next(e for e in avatar.events if e['event'] == 'done')
+        self.assertFalse(done['speech_suppressed'])
+        await brain.close()
+
     async def test_duplicate_network_retry_does_not_interrupt_original_turn(self):
         transport, avatar = Transport(), Avatar()
         brain = BatyaBrain('http://127.0.0.1:8000', transport=transport)

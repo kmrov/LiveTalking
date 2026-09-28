@@ -8,6 +8,7 @@ export async function startFixtureServer() {
   function send(event, fields = {}) {
     if (!control.pendingTurn) return;
     const turn = control.pendingTurn;
+    if (event === 'delta') turn.text += fields.text;
     const body = JSON.stringify({ brain: 'batya', event, conversation_id: turn.conversation, request_id: turn.request, ...fields });
     for (const stream of streams) stream.write(`data: ${body}\n\n`);
   }
@@ -27,7 +28,13 @@ export async function startFixtureServer() {
     if (request.url.startsWith('/sse?')) {
       response.setHeader('Content-Type', 'text/event-stream');
       response.write(': connected\n\n');
-      streams.add(response); response.once('close', () => streams.delete(response)); return;
+      streams.add(response); response.once('close', () => streams.delete(response));
+      if (control.pendingTurn) {
+        const turn = control.pendingTurn;
+        response.write(`data: ${JSON.stringify({ brain: 'batya', event: 'snapshot', conversation_id: turn.conversation, request_id: turn.request,
+          status: turn.text ? 'delta' : 'queued', text: turn.text, user_text: turn.userText, pending: 1 })}\n\n`);
+      }
+      return;
     }
     if (request.method === 'OPTIONS') { response.writeHead(204); response.end(); return; }
     const chunks = [];
@@ -54,7 +61,7 @@ export async function startFixtureServer() {
       const messages = history.get(control.currentConversation);
       if (!messages) { response.writeHead(400); response.end(JSON.stringify({code:-1,msg:'conversation not found'})); return; }
       if (!messages.some(item => item.role === 'user' && item.request_id === body.request_id)) messages.push({ id: randomUUID(), role: 'user', text: body.text, request_id: body.request_id });
-      control.pendingTurn = { conversation: control.currentConversation, request: body.request_id };
+      control.pendingTurn = { conversation: control.currentConversation, request: body.request_id, text: '', userText: body.text };
       result = { code: 0, data: { conversation_id: control.currentConversation, request_id: body.request_id } };
       setTimeout(() => {
         send('queued', { pending: 1 });

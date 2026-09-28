@@ -181,8 +181,9 @@ async def brain_session(request):
     avatar = get_session(request, request.query.get('sessionid', ''))
     if avatar is None:
         return json_error('session not found')
+    brain = request.app.get('batya_brain')
     return json_ok({'conversation_id': getattr(avatar.opt, 'batya_conversation_id', ''),
-                    'pending': getattr(avatar, 'batya_pending', 0)})
+                    'pending': brain.pending(avatar) if brain else 0})
 
 async def sse_handler(request):
     """SSE 事件流，推送服务器状态更新到客户端"""
@@ -206,6 +207,8 @@ async def sse_handler(request):
     import queue
     msgqueue = queue.Queue()
     avatar_session.add_msgqueue(msgqueue)
+    brain = request.app.get('batya_brain')
+    unsubscribe = brain.subscribe(avatar_session, msgqueue.put) if brain else lambda: None
 
     try:
         while True:
@@ -217,6 +220,7 @@ async def sse_handler(request):
     except (asyncio.CancelledError, ConnectionResetError):
         logger.info('SSE connection closed for session: %s', sessionid)
     finally:
+        unsubscribe()
         if msgqueue in avatar_session.msgqueues:
             avatar_session.msgqueues.remove(msgqueue)
 
