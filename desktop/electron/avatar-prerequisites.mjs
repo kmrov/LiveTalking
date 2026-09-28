@@ -4,12 +4,15 @@ import { mkdtemp, writeFile, readFile, lstat, rm } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { normalizeAvatarCreation } from '../src/avatar-contract.mjs';
 
-function executeCommand(executable,argv,{cwd,timeout=30000,maxBuffer=1024*1024}) {
+function executeCommand(executable,argv,{cwd,timeout=30000,maxBuffer=1024*1024,signal}) {
   return new Promise((resolve,reject)=>{
     const child=spawn(executable,argv,{cwd,detached:true,shell:false,stdio:['ignore','pipe','pipe']});
     let stdout='',stderr='',settled=false;
-    const finish=(error)=>{if(settled)return;settled=true;clearTimeout(timer);error?reject(error):resolve({stdout,stderr});};
+    const finish=(error)=>{if(settled)return;settled=true;clearTimeout(timer);signal?.removeEventListener('abort',abort);error?reject(error):resolve({stdout,stderr});};
     const stop=message=>{try{if(child.pid)process.kill(-child.pid,'SIGKILL');}catch{}finish(new Error(message));};
+    const abort=()=>stop('Проверка отменена.');
+    signal?.addEventListener('abort',abort,{once:true});
+    if(signal?.aborted) queueMicrotask(abort);
     const timer=setTimeout(()=>stop('Проверка подготовки превысила 30 секунд.'),timeout);
     child.stdout.on('data',chunk=>{stdout+=chunk.toString();if(Buffer.byteLength(stdout)>maxBuffer)stop('Слишком большой ответ подготовки.');});
     child.stderr.on('data',chunk=>{stderr+=chunk.toString();if(Buffer.byteLength(stderr)>maxBuffer)stop('Слишком большой журнал подготовки.');});
@@ -17,12 +20,12 @@ function executeCommand(executable,argv,{cwd,timeout=30000,maxBuffer=1024*1024})
     child.on('close',code=>finish(code===0?null:new Error(stderr.slice(-8192)||stdout.slice(-8192)||`Python завершился с кодом ${code}.`)));
   });
 }
-export async function runAvatarCommand(input,mode,{execute=executeCommand}={}) {
+export async function runAvatarCommand(input,mode,{execute=executeCommand,signal}={}) {
   if(!['probe','preview','publish'].includes(mode) || !path.isAbsolute(input.root) || !path.isAbsolute(input.python))throw new Error('Некорректная команда подготовки.');
   const temporary=await mkdtemp(path.join(os.tmpdir(),'studio-avatar-command-'));
   try {
     const file=path.join(temporary,'request.json');await writeFile(file,JSON.stringify(input),{mode:0o600});
-    const {stdout}=await execute(input.python,['-u',path.join(input.root,'scripts/prepare_desktop_avatar.py'),'--'+mode,file],{cwd:input.root,timeout:30000,maxBuffer:1024*1024});
+    const {stdout}=await execute(input.python,['-u',path.join(input.root,'scripts/prepare_desktop_avatar.py'),'--'+mode,file],{cwd:input.root,timeout:30000,maxBuffer:1024*1024,signal});
     const prefix=`LT_AVATAR_${mode.toUpperCase()} `;
     const lines=String(stdout).split('\n').filter(x=>x.startsWith(prefix));
     if(lines.length!==1 || lines[0].length>65536)throw new Error('Некорректный ответ Python-подготовки.');
@@ -36,9 +39,10 @@ export async function runAvatarCommand(input,mode,{execute=executeCommand}={}) {
     return value;
   } finally {await rm(temporary,{recursive:true,force:true});}
 }
-export async function inspectAvatarPrerequisites(input,{runProbe=request=>runAvatarCommand(request,'probe')}={}) {
+export async function inspectAvatarPrerequisites(input,{runProbe,signal}={}) {
   const creation=normalizeAvatarCreation({name:input.name,model:input.model,kind:input.sourceKind,parameters:input.parameters});
-  const result=await runProbe({...input,parameters:creation.parameters,name:creation.name});
+  const probe=runProbe??(request=>runAvatarCommand(request,'probe',{signal}));
+  const result=await probe({...input,parameters:creation.parameters,name:creation.name});
   if(!Array.isArray(result)||!result.length||result.some(x=>!x||typeof x.id!=='string'||!['ready','missing','blocked'].includes(x.state)||typeof x.detail!=='string'||typeof x.action!=='string'))throw new Error('Некорректный результат проверки подготовки.');
   return result;
 }
