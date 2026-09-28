@@ -65,11 +65,15 @@ function portOpen(port) {
   });
 }
 
-async function portStatus(port) {
+async function portStatus(port, profile) {
   try {
     const response = await fetch(`http://127.0.0.1:${port}/api/desktop/health`, { signal: AbortSignal.timeout(2000) });
     const payload = await response.json();
-    if (payload.code === 0 && payload.data?.service === 'livetalking' && payload.data?.api_version === 1) return 'livetalking';
+    if (payload.code === 0 && payload.data?.service === 'livetalking' && payload.data?.api_version === 1) {
+      const mode = payload.data.brain?.mode || 'direct';
+      if (profile && (mode !== profile.brain.mode || (mode === 'batya' && payload.data.brain.url?.replace(/\/$/, '') !== profile.brain.url))) return 'incompatible';
+      return 'livetalking';
+    }
   } catch { /* Check whether some other process owns the port. */ }
   return await portOpen(port) ? 'occupied' : 'free';
 }
@@ -154,8 +158,10 @@ export async function inspectPrerequisites(input, probes = defaultProbes) {
   results.push(await probes.gpu()
     ? item('gpu', 'ready', 'NVIDIA GPU для аватара доступна')
     : item('gpu', 'missing', 'NVIDIA GPU для аватара не обнаружена', 'Проверьте драйвер CUDA через nvidia-smi; локальному аватару GPU нужна и при внешних ASR/TTS серверах.'));
-  const port = await probes.port(lt.port);
-  results.push(port === 'occupied'
+  const port = await probes.port(lt.port, profile);
+  results.push(port === 'incompatible'
+    ? item('port', 'blocked', `LiveTalking на ${lt.port} запущен с другим мозгом`, 'Остановите прежний сервис или выберите другой порт; настройки мозга применяются при запуске.')
+    : port === 'occupied'
     ? item('port', 'blocked', `Порт ${lt.port} занят другим процессом`, 'Остановите конфликтующий процесс или выберите другой порт.')
     : item('port', 'ready', port === 'livetalking' ? `Совместимый LiveTalking уже работает на ${lt.port}` : `Порт ${lt.port} свободен`));
   return results;

@@ -4,11 +4,14 @@ import { normalizeProfile } from '../src/profile.mjs';
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-export async function desktopHealth(port) {
+export async function desktopHealth(port, profile) {
   try {
     const response = await fetch(`http://127.0.0.1:${port}/api/desktop/health`, { signal: AbortSignal.timeout(2000) });
     const payload = await response.json();
-    return response.ok && payload.code === 0 && payload.data?.service === 'livetalking' && payload.data?.api_version === 1;
+    const compatible = response.ok && payload.code === 0 && payload.data?.service === 'livetalking' && payload.data?.api_version === 1;
+    if (!compatible || !profile) return compatible;
+    const mode = payload.data.brain?.mode || 'direct';
+    return mode === profile.brain.mode && (mode !== 'batya' || payload.data.brain.url?.replace(/\/$/, '') === profile.brain.url);
   } catch { return false; }
 }
 
@@ -36,6 +39,7 @@ export function launcherArguments(input) {
   }
   if (profile.llm.promptFile) args.push('--llm-prompt-file', profile.llm.promptFile);
   args.push('--', '--transport', 'webrtc', '--listenhost', '127.0.0.1', '--listenport', String(lt.port), '--model', lt.model, '--avatar_id', lt.avatarId);
+  if (profile.brain.mode === 'batya') args.push('--llm_provider', 'batya', '--batya_url', profile.brain.url);
   return args;
 }
 
@@ -77,7 +81,7 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
     monitorTimer = schedule(async () => {
       monitorTimer = null;
       const checks = [
-        ['livetalking', () => health(port)],
+        ['livetalking', () => health(port, profile)],
         ['asr', () => checkModel(profile.speech.asrUrl || 'http://127.0.0.1:8092', 'Qwen/Qwen3-ASR-0.6B')],
         ['tts', () => checkModel(profile.speech.ttsUrl || 'http://127.0.0.1:8091', 'Qwen/Qwen3-TTS-12Hz-1.7B-Base')],
       ];
@@ -145,7 +149,7 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
     logs = [];
     publish();
     startPromise = (async () => {
-      if (await health(port)) {
+      if (await health(port, profile)) {
         if (token !== generation) return snapshot();
         adopted = true;
         state = 'ready';
@@ -175,7 +179,7 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
       const deadline = Date.now() + startupTimeoutMs;
       while (token === generation && Date.now() < deadline) {
         if (state === 'failed') throw new Error(snapshot().logExcerpt || 'LiveTalking launcher failed');
-        if (await health(port)) {
+        if (await health(port, profile)) {
           if (token !== generation) return snapshot();
           state = 'ready';
           stages.livetalking = 'ready';
