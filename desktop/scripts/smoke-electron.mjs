@@ -64,8 +64,73 @@ async function runCase(corrupt) {
 try {
   await runCase(false);
   await runCase(true);
+  await runBatyaCase();
   assert.equal(logs.some(line => line.includes('Renderer error')), false);
 } finally {
   await fixture.close();
   await writeFile(path.join(artifactDirectory, 'smoke.log'), logs.join('\n'));
+}
+
+async function runBatyaCase() {
+  fixture.control.brainMode = 'batya';
+  const userData = await mkdtemp(path.join(os.tmpdir(), 'livetalking-batya-smoke-'));
+  let application;
+  const launch = () => electron.launch({ executablePath, args: [root],
+    env: { ...process.env, LIVETALKING_DESKTOP_TEST_FIXTURE: '1', LIVETALKING_DESKTOP_TEST_PORT: String(fixture.port), LIVETALKING_DESKTOP_TEST_USER_DATA: userData }, timeout: 30000 });
+  try {
+    application = await launch();
+    const window = await application.firstWindow();
+    window.on('pageerror', error => logs.push(`Renderer error: ${error.stack}`));
+    await window.locator('#setup-results li').first().waitFor({ state: 'attached' });
+    await window.locator('#brain-mode').selectOption('batya');
+    await window.locator('#brain-service-mode').selectOption('external');
+    await window.locator('#brain-url').fill(`http://127.0.0.1:${fixture.port}`);
+    await window.locator('#start-profile').click();
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Работает');
+    await window.locator('#new-brain-conversation').click();
+    await window.waitForFunction(() => Boolean(document.querySelector('#brain-conversation').value));
+    const id = await window.locator('#brain-conversation').inputValue();
+    await window.locator('#connect-avatar').click();
+    await window.waitForFunction(() => document.querySelector('#brain-turn-state').dataset.stream === 'connected');
+    await window.locator('#message-text').fill('Привет из теста Бати');
+    await window.locator('#send-message').click();
+    await window.waitForFunction(() => document.querySelector('#conversation-list [data-role="assistant"]')?.textContent.includes('Привет, сынок.'));
+    assert.equal(await window.locator('#conversation-list [data-role="assistant"]').getAttribute('data-status'), 'delta');
+    await window.locator('#interrupt-avatar').click();
+    await window.waitForFunction(() => document.querySelector('#brain-turn-state').textContent.includes('завершает'));
+    assert.match(await window.locator('#brain-turn-state').textContent(), /завершает/);
+    fixture.finishTurn();
+    await window.waitForFunction(() => document.querySelector('#conversation-list [data-role="assistant"]')?.dataset.status === 'done');
+    await window.locator('#connect-avatar').click();
+    await window.locator('#connect-avatar').click();
+    await window.waitForFunction(() => document.querySelector('#brain-turn-state').dataset.stream === 'connected');
+    assert.equal(await window.locator('#brain-conversation').inputValue(), id);
+    assert.equal(await window.locator('#conversation-list [data-role="assistant"]').count(), 1);
+    fixture.control.failNextTurn = true;
+    await window.locator('#message-text').fill('Проверка повтора'); await window.locator('#send-message').click();
+    await window.locator('#retry-message').waitFor();
+    const request = fixture.commands.filter(c => c.path === '/human' && c.body.type === 'chat').at(-1).body.request_id;
+    await window.locator('#retry-message').click();
+    await window.waitForFunction(() => document.querySelectorAll('#conversation-list [data-status="delta"]').length > 0);
+    assert.equal(fixture.commands.filter(c => c.path === '/human').at(-1).body.request_id, request);
+    fixture.finishTurn();
+    await window.waitForFunction(() => [...document.querySelectorAll('#conversation-list [data-role="assistant"]')].at(-1)?.dataset.status === 'done');
+    assert.equal(await window.locator('#conversation-list [data-role="assistant"]').count(), 2);
+    await window.screenshot({ path: path.join(artifactDirectory, 'smoke-batya.png') });
+    await application.close(); application = await launch();
+    const reopened = await application.firstWindow();
+    await reopened.locator('#setup-results li').first().waitFor({ state: 'attached' });
+    await reopened.locator('#start-profile').click();
+    await reopened.waitForFunction(() => document.querySelectorAll('#conversation-list [data-role="assistant"]').length === 2);
+    assert.equal(await reopened.locator('#brain-conversation').inputValue(), id);
+    await reopened.locator('#stop-profile').click();
+    await reopened.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Не настроено');
+    fixture.control.brainMode = 'direct';
+    await reopened.locator('#setup-details').evaluate(details => { details.open = true; });
+    await reopened.locator('#brain-mode').selectOption('direct');
+    await reopened.locator('#start-profile').click();
+    await reopened.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Работает');
+    assert.equal(await reopened.locator('#brain-conversations').isHidden(), true);
+    console.log('Batya streaming → interrupt → reconnect/history → error/retry → restart → direct mode: passed');
+  } finally { await application?.close(); await rm(userData, { recursive: true, force: true }); fixture.control.brainMode = 'direct'; }
 }

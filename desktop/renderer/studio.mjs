@@ -94,6 +94,7 @@ function receiveTrack(event) {
 
 function disconnectAvatar() {
   brainSource?.close(); brainSource = null;
+  $('#brain-turn-state').dataset.stream = 'closed';
   webRtcClient?.disconnect();
   webRtcClient = null;
   conversationClient = null;
@@ -292,6 +293,7 @@ function connectBrainEvents() {
   brainSource?.close();
   if (currentProfile.brain.mode !== 'batya') return;
   brainSource = new EventSource(`http://127.0.0.1:${currentProfile.liveTalking.port}/sse?sessionid=${encodeURIComponent(webRtcClient.sessionId())}`);
+  brainSource.onopen = () => { $('#brain-turn-state').dataset.stream = 'connected'; };
   brainSource.onmessage = message => { try { receiveBrainEvent(JSON.parse(message.data)); } catch { /* Other LiveTalking events can share this stream. */ } };
   brainSource.onerror = () => { $('#brain-turn-state').textContent = 'Переподключаем поток ответов…'; };
 }

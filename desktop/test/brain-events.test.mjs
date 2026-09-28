@@ -17,4 +17,7 @@ test('brain response streams provisionally, resets, reconciles done and ignores 
   assert.equal(unchanged, state);
   state = reduceBrainEvent(state, { ...event('error'), message: 'Ошибка модели' });
   assert.equal(state.turns.one.error, 'Ошибка модели');
+  state = reduceBrainEvent(state, event('queued'));
+  assert.equal(state.turns.one.text, '');
+  assert.equal(state.turns.one.error, '');
 });

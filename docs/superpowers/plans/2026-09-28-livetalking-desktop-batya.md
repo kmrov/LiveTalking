@@ -36,11 +36,11 @@
 
 **Interfaces:** Produces POST messages `speech_stream: true`, streamed `delta`/`done` with no provisional reset; `/api/v1/capabilities` advertises `speech_stream: 1`. Existing endpoints and normal streaming retain their behavior.
 
-- [ ] Write tests proving memory-tool planning is silent, the first final delta arrives while the turn is pending, final text persists, and the request flag reaches the graph.
-- [ ] Run tests in a temporary copy; expect unsupported flag/signature or wrong deltas.
-- [ ] Add optional mode to schema/graph and capability endpoint. Resolve tools silently before a tools-disabled final stream; cap tool rounds and close generators on cancellation.
-- [ ] Run Batya tests without DB; expect all pass. Apply only those changes to the actual Batya checkout and verify there too.
-- [ ] Commit Batya integration files on its own feature branch; leave persona untouched.
+- [x] Write tests proving memory-tool planning is silent, the first final delta arrives while the turn is pending, final text persists, and the request flag reaches the graph.
+- [x] Run tests in a temporary copy; expect unsupported flag/signature or wrong deltas.
+- [x] Add optional mode to schema/graph and capability endpoint. Resolve tools silently before a tools-disabled final stream; cap tool rounds and close generators on cancellation.
+- [x] Run Batya tests without DB; expect all pass. Apply only those changes to the actual Batya checkout and verify there too.
+- [x] Commit Batya integration files on its own feature branch; leave persona untouched.
 
 ### Task 2: Ordered streaming brain adapter
 
@@ -48,11 +48,11 @@
 
 **Interfaces:** `BatyaBrain(base_url, transport=None).submit(avatar, text, request_id=None)` returns `{conversation_id, request_id}`; `.close()` finishes/cancels background work. `speech_stream` request consumes Task 1. Avatar emits JSON events `{brain:'batya', event, conversation_id, request_id, ...}` through `/sse`. WebRTC accepts `batya_conversation_id`; session status exposes it and pending state.
 
-- [ ] Write adapter tests for speech before done, final fragment once, interrupted old turn suppression, shared-conversation order, identical request retry, duplicate conflict, missing done and reset/error handling.
-- [ ] Run focused tests; expect missing adapter.
-- [ ] Implement aiohttp SSE parsing, phrase buffering (punctuation or bounded word boundary), conversation creation, serial task chaining, stable IDs and bounded deduplication. Retry interrupted transport with the same ID, suppressing delivered prefixes; fail on divergent replay.
-- [ ] Route all Batya chat through the adapter, validate text/IDs before interruption; retain echo/direct behavior. Propagate offer conversation ID, expose per-session brain status, register cleanup. Adopt only required existing generation/ASR-registration hunks for clean-checkout correctness.
-- [ ] Run Python suite; expect all pass. Commit adapter and scoped changes.
+- [x] Write adapter tests for speech before done, final fragment once, interrupted old turn suppression, shared-conversation order, identical request retry, duplicate conflict, missing done and reset/error handling.
+- [x] Run focused tests; expect missing adapter.
+- [x] Implement aiohttp SSE parsing, phrase buffering (punctuation or bounded word boundary), conversation creation, serial task chaining, stable IDs and bounded deduplication. Retry interrupted transport with the same ID, suppressing delivered prefixes; fail on divergent replay.
+- [x] Route all Batya chat through the adapter, validate text/IDs before interruption; retain echo/direct behavior. Propagate offer conversation ID, expose per-session brain status, register cleanup. Adopt only required existing generation/ASR-registration hunks for clean-checkout correctness.
+- [x] Run Python suite; expect all pass. Commit adapter and scoped changes.
 
 ### Task 3: Brain profiles, secrets and API bridge
 
@@ -60,10 +60,10 @@
 
 **Interfaces:** Profile `brain:{mode:'direct'|'batya', root, python, url, managed, databaseMode:'compose'|'external', folderId, conversationId}`; normalized missing brain defaults to direct. Named trusted IPC for list/create/history/memories/document input and secret set/status. Keys/database URL never returned to renderer.
 
-- [ ] Write tests for profile migration, invalid UUID/URL/path, narrow API operations and secret exclusion; run and observe failure.
-- [ ] Add validation, discover `~/batya` or adjacent checkout and Python, load known env files without shell evaluation, redact known secrets in diagnostics.
-- [ ] Implement bounded main-process Batya API operations and safeStorage-backed secret settings; persist selected conversation ID independently of session.
-- [ ] Run desktop tests; expect pass. Commit profile/bridge changes.
+- [x] Write tests for profile migration, invalid UUID/URL/path, narrow API operations and secret exclusion; run and observe failure.
+- [x] Add validation, discover `~/batya` or adjacent checkout and Python, load known env files without shell evaluation, redact known secrets in diagnostics.
+- [x] Implement bounded main-process Batya API operations and safeStorage-backed secret settings; persist selected conversation ID independently of session.
+- [x] Run desktop tests; expect pass. Commit profile/bridge changes.
 
 ### Task 4: Managed Batya/database lifecycle
 
@@ -71,10 +71,10 @@
 
 **Interfaces:** Batya supervisor `.start(profile, environment)`, `.stop()`, `.snapshot()` reports `batya` and `database` stages, ownership and safe logs. Task 3 supplies environment/profile. LiveTalking argv selects `--llm_provider batya --batya_url URL`; compatible health includes active brain provider.
 
-- [ ] Write ownership tests for existing API adoption, DB adoption, owned DB/API cleanup, Stop during startup and duplicate Start/Stop; run to RED.
-- [ ] Check Python 3.13/modules, compose/DB config and required credential presence or ready compatible API. Start only `db`, never delete volumes; spawn uvicorn on loopback via argv/env; monitor health/capability and stop owned resources in reverse order.
-- [ ] Integrate start/stop/quit and failure recovery with existing lifecycle; reject an existing LiveTalking whose brain mode/URL differs from the profile.
-- [ ] Run desktop tests; expect pass. Commit lifecycle changes.
+- [x] Write ownership tests for existing API adoption, DB adoption, owned DB/API cleanup, Stop during startup and duplicate Start/Stop; run to RED.
+- [x] Check Python 3.13/modules, compose/DB config and required credential presence or ready compatible API. Start only `db`, never delete volumes; spawn uvicorn on loopback via argv/env; monitor health/capability and stop owned resources in reverse order.
+- [x] Integrate start/stop/quit and failure recovery with existing lifecycle; reject an existing LiveTalking whose brain mode/URL differs from the profile.
+- [x] Run desktop tests; expect pass. Commit lifecycle changes.
 
 ### Task 5: Studio brain controls and persistent history
 
@@ -82,10 +82,10 @@
 
 **Interfaces:** Consumes Tasks 2–4. Select/create conversations through trusted bridge before connecting; offer sends persistent ID. SSE provisional rows track request ID; done reconciles authoritative text. On interrupt display that brain is finishing; queued turn remains ordered.
 
-- [ ] Write tests for offer ID propagation, SSE reducer delta/reset/done/error behavior and stale conversation events; run to RED.
-- [ ] Add brain/service settings, credential inputs with persistence status, conversations/history, memory viewer and explicit text-document upload. Display streamed assistant responses and brain states; clear event connections on disconnect and reload persisted history.
-- [ ] Add stable request IDs to chat commands; preserve IDs on explicit network retry. Save the selected conversation before reconnect; mark restart-only brain changes.
-- [ ] Run desktop tests/build; expect pass. Commit UI changes.
+- [x] Write tests for offer ID propagation, SSE reducer delta/reset/done/error behavior and stale conversation events; run to RED.
+- [x] Add brain/service settings, credential inputs with persistence status, conversations/history, memory viewer and explicit text-document upload. Display streamed assistant responses and brain states; clear event connections on disconnect and reload persisted history.
+- [x] Add stable request IDs to chat commands; preserve IDs on explicit network retry. Save the selected conversation before reconnect; mark restart-only brain changes.
+- [x] Run desktop tests/build; expect pass. Commit UI changes.
 
 ### Task 6: Integrated verification and operator guidance
 
@@ -93,8 +93,8 @@
 
 **Interfaces:** All prior tasks; test-only fixture supplies capability, persistent conversation/history and held-open speech stream.
 
-- [ ] Add Electron smoke case: select Batya→create conversation→connect→chat→streamed assistant→interrupt→reconnect→same history/ID→Stop; test failure and direct-mode recovery.
-- [ ] Run complete Batya/Python/desktop suites and build/smoke; expect pass.
+- [x] Add Electron smoke case: select Batya→create conversation→connect→chat→streamed assistant→interrupt→reconnect→same history/ID→Stop; test failure and direct-mode recovery.
+- [x] Run complete Batya/Python/desktop suites and build/smoke; expect pass.
 - [ ] Verify actual existing PostgreSQL/Batya/API and local avatar flow; measure first TTS phrase before done, verify stored history, reconnect and app restart. Use only synthetic verification conversations/documents.
-- [ ] Document setup, streaming/tool-stage latency, credentials, compatibility, ownership and remaining improvements; commit.
+- [x] Document setup, streaming/tool-stage latency, credentials, compatibility, ownership and remaining improvements; commit.
 - [ ] Fresh final review for both repo ranges; fix Important/Critical findings in one RED→GREEN pass. Keep feature branches for local use.
