@@ -18,6 +18,12 @@
     <main class="workspace">
       <aside class="left-panel" aria-label="Источник и профиль">
         <div class="panel-heading"><span>ПРОФИЛЬ</span><span class="index">01</span></div>
+        <section class="avatar-summary" aria-label="Выбранный аватар">
+          <div class="avatar-current"><img id="selected-avatar-image" alt="" hidden><div><strong id="selected-avatar-name">Выберите аватара</strong><small id="selected-avatar-model"></small></div></div>
+          <div class="avatar-actions"><button type="button" id="open-avatar-library">Выбрать</button><button type="button" id="open-avatar-create">Создать аватара</button></div>
+          <button type="button" id="open-avatar-job" class="text-button" hidden>Показать подготовку</button>
+          <p id="avatar-summary-message" role="status"></p>
+        </section>
         <div class="setup-card">
           <div class="setup-icon" aria-hidden="true">◇</div>
           <h1 id="setup-title">Проверим окружение</h1>
@@ -25,8 +31,7 @@
           <div class="detected-root"><span>КАТАЛОГ LIVETALKING</span><strong id="root-path">Поиск…</strong><button type="button" class="text-button" id="choose-root">Выбрать другой каталог</button></div>
           <details id="setup-details" class="setup-details" open><summary>Настройки окружения</summary><form id="setup-form">
             <label>Python LiveTalking<input id="python-path" autocomplete="off" spellcheck="false" placeholder="/путь/к/.venv/bin/python"></label>
-            <label>Модель аватара<select id="avatar-model"><option value="wav2lip">Wav2Lip</option><option value="musetalk">MuseTalk</option><option value="ultralight">Ultralight</option></select></label>
-            <label>Аватар<input id="avatar-id" autocomplete="off" spellcheck="false"></label>
+            <input id="avatar-model" type="hidden"><input id="avatar-id" type="hidden">
             <label>Порт LiveTalking<input id="server-port" type="number" min="1" max="65535"></label>
             <label>Режим моделей<select id="speech-mode"><option value="local">Запускать локально</option><option value="external">Внешние серверы</option></select></label>
             <div id="local-model-fields"><label>vLLM для ASR<input id="asr-vllm" autocomplete="off" spellcheck="false"></label><label>vLLM для TTS<input id="tts-vllm" autocomplete="off" spellcheck="false"></label></div>
@@ -122,6 +127,32 @@
 
     <footer class="statusbar"><div><span class="status-dot" aria-hidden="true"></span>Ожидание настройки</div><div class="statusbar-right"><span>Локальный режим</span><span class="statusbar-separator"></span><span id="app-version">v0.1</span></div></footer>
   </div>
+  <dialog id="avatar-library-dialog" class="avatar-dialog" aria-labelledby="avatar-library-title">
+    <div class="avatar-dialog-heading"><h2 id="avatar-library-title">Аватары</h2><button type="button" data-close-avatar="avatar-library-dialog" aria-label="Закрыть библиотеку">×</button></div>
+    <div class="avatar-actions"><label class="avatar-search">Поиск<input id="avatar-search" type="search" placeholder="Имя аватара"></label><button type="button" id="refresh-avatar-library">Обновить</button><button type="button" id="library-create-avatar">Создать аватара</button></div>
+    <div id="avatar-cards" class="avatar-cards"></div><p id="avatar-library-message" role="alert"></p>
+  </dialog>
+  <dialog id="avatar-create-dialog" class="avatar-dialog" aria-labelledby="avatar-create-title">
+    <div class="avatar-dialog-heading"><h2 id="avatar-create-title">Создать аватара</h2><button type="button" data-close-avatar="avatar-create-dialog" aria-label="Закрыть создание">×</button></div>
+    <p class="setting-hint">Выберите фото или короткое видео с хорошо видимым лицом одного человека. Голос настраивается отдельно в профиле.</p>
+    <form id="avatar-create-form">
+      <div class="avatar-source"><img id="avatar-source-preview" alt="Превью исходника" hidden><div><button type="button" id="choose-avatar-source">Выбрать фото или видео</button><p id="avatar-source-name">Файл не выбран</p></div></div>
+      <label>Название<input id="new-avatar-name" maxlength="120" required placeholder="Например, Батя"></label>
+      <label>Модель<select id="new-avatar-model"><option value="musetalk">MuseTalk · фото или видео</option><option value="wav2lip">Wav2Lip · видео</option></select></label>
+      <details class="setup-details"><summary>Дополнительные настройки</summary>
+        <div id="musetalk-avatar-options" class="avatar-option-grid"><label>Сдвиг лица<input id="new-avatar-bbox" type="number" min="-50" max="50" value="0"></label><label>Отступ<input id="new-avatar-margin" type="number" min="0" max="100" value="10"></label><label>Маска<select id="new-avatar-parsing"><option value="jaw">Челюсть</option><option value="neck">Шея</option><option value="raw">Исходная</option></select></label></div>
+        <div id="wav2lip-avatar-options" class="avatar-option-grid" hidden><label>Отступы: верх, низ, лево, право<input id="new-avatar-pads" value="0 10 0 0"></label><label>Пакет детектора<input id="new-avatar-batch" type="number" min="1" max="128" value="16"></label><label class="checkbox-label"><input id="new-avatar-nosmooth" type="checkbox">Без сглаживания</label></div>
+      </details>
+      <ul id="avatar-create-checks" class="avatar-checks"></ul>
+      <p id="avatar-create-message" role="alert"></p>
+      <div class="avatar-actions"><button type="button" id="check-avatar-create">Проверить</button><button type="submit" id="submit-avatar-create" class="primary-button">Создать</button></div>
+    </form>
+    <section id="avatar-job-panel" hidden aria-label="Последняя подготовка">
+      <p id="avatar-job-state" role="status" data-avatar-stage></p><progress id="avatar-job-progress" max="100" value="0" aria-label="Подготовка аватара"></progress>
+      <p id="avatar-job-error" role="alert"></p><p id="avatar-job-log" class="setting-hint"></p>
+      <div class="avatar-actions"><button type="button" id="cancel-avatar-job">Отменить</button><button type="button" id="retry-avatar-job" hidden>Повторить</button><button type="button" id="select-created-avatar" hidden>Выбрать</button></div>
+    </section>
+  </dialog>
   <script type="module" src="./studio.js"></script>
 </body>
 </html>

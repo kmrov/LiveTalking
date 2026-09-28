@@ -3,6 +3,7 @@ import { createConversationClient } from './conversation-client.mjs';
 import { createAsrClient } from './asr-client.mjs';
 import { FixturePeer } from './fixture-peer.mjs';
 import { reduceBrainEvent } from './brain-events.mjs';
+import { mountAvatarLibrary } from './avatar-library.mjs';
 
 const bridge = window.liveTalkingDesktop;
 if (bridge?.version) document.querySelector('#app-version').textContent = `v0.1 · API ${bridge.version}`;
@@ -18,6 +19,9 @@ const fields = {
   brainFolder: $('#brain-folder'), brainKey: $('#brain-key'), brainDatabaseUrl: $('#brain-database-url'),
 };
 let currentProfile;
+let avatarUI;
+let servicePhase = "not-configured";
+let sessionGeneration = 0;
 let knownVoices = [];
 let webRtcClient;
 let serviceReady = false;
@@ -50,6 +54,7 @@ function updateConversationControls() {
   $('#record-avatar').disabled = !active || recordingBusy;
   if (!active) recording = false;
   $('#record-avatar').textContent = recording ? 'Завершить запись' : 'Записать';
+  avatarUI?.applySnapshot();
 }
 
 function appendMessage(text, type, { role = 'user', requestId = '' } = {}) {
@@ -93,6 +98,7 @@ function receiveTrack(event) {
 }
 
 function disconnectAvatar() {
+  ++sessionGeneration;
   brainSource?.close(); brainSource = null;
   $('#brain-turn-state').dataset.stream = 'closed';
   webRtcClient?.disconnect();
@@ -109,6 +115,7 @@ const stageLabels = { stopped: 'Ожидает', starting: 'Запуск', ready
 function showSnapshot(snapshot) {
   const wasReady = serviceReady;
   const phase = snapshot.service.phase;
+  servicePhase = phase;
   serviceReady = phase === 'ready';
   $('#setup-title').textContent = serviceReady ? 'Профиль запущен' : 'Локальное окружение';
   if (serviceReady) { $('#setup-details').open = false; $('#check-details').open = false; }
@@ -126,6 +133,7 @@ function showSnapshot(snapshot) {
   for (const stage of ['batya', 'database']) $(`#${stage}-state`).textContent = stageLabels[snapshot.brain?.stages?.[stage] || 'stopped'] || 'Ожидает';
   $('#runtime-log').textContent = [snapshot.brain?.logExcerpt, snapshot.supervisor?.logExcerpt, snapshot.service.detail].filter(Boolean).join('\n') || 'Нет сообщений';
   if (serviceReady && !wasReady && currentProfile?.brain.mode === 'batya') void refreshConversations().catch(error => { $('#conversation-message').textContent = error.message; });
+  avatarUI?.applySnapshot();
   if (phase === 'failed') message(snapshot.service.detail || 'Сервис завершился с ошибкой');
 }
 
@@ -297,9 +305,11 @@ function connectBrainEvents() {
   brainSource?.close();
   if (currentProfile.brain.mode !== 'batya') return;
   brainSource = new EventSource(`http://127.0.0.1:${currentProfile.liveTalking.port}/sse?sessionid=${encodeURIComponent(webRtcClient.sessionId())}`);
-  brainSource.onopen = () => { $('#brain-turn-state').dataset.stream = 'connected'; };
-  brainSource.onmessage = message => { try { receiveBrainEvent(JSON.parse(message.data)); } catch { /* Other LiveTalking events can share this stream. */ } };
-  brainSource.onerror = () => { $('#brain-turn-state').textContent = 'Переподключаем поток ответов…'; };
+  const source = brainSource;
+  const token = sessionGeneration;
+  brainSource.onopen = () => { if (source !== brainSource || token !== sessionGeneration) return; $('#brain-turn-state').dataset.stream = 'connected'; };
+  brainSource.onmessage = message => { if (source !== brainSource || token !== sessionGeneration) return; try { receiveBrainEvent(JSON.parse(message.data)); } catch { /* Other LiveTalking events can share this stream. */ } };
+  brainSource.onerror = () => { if (source !== brainSource || token !== sessionGeneration) return; $('#brain-turn-state').textContent = 'Переподключаем поток ответов…'; };
 }
 
 function message(text) { $('#setup-message').textContent = text; }
@@ -396,6 +406,7 @@ $('#choose-root').addEventListener('click', async () => {
     fields.voice.value = voiceReferences[0].wav;
     fields.transcript.value = voiceReferences[0].text;
   }
+  await avatarUI?.refresh();
   await checkSetup();
 });
 $('#choose-voice').addEventListener('click', async () => {
@@ -476,6 +487,7 @@ $('#microphone-button').addEventListener('click', async () => {
 async function submitTurn(turn) {
   if (!conversationClient || sending) return;
   const { text, type, requestId } = turn;
+  const token = sessionGeneration;
   sending = true;
   updateConversationControls();
   submittedTurns.set(requestId, turn);
@@ -483,10 +495,11 @@ async function submitTurn(turn) {
   try {
     speechInterrupted = type === 'echo' && brainState.pending > 0;
     await conversationClient.sendText(text, { type, interrupt: true, requestId });
+    if (token !== sessionGeneration) return;
     failedTurn = null; $('#retry-message').hidden = true;
     $('#message-text').value = '';
     $('#conversation-message').textContent = 'Сообщение принято.';
-  } catch (error) { $('#conversation-message').textContent = error.message; failedTurn = turn; $('#retry-message').hidden = false; }
+  } catch (error) { if (token !== sessionGeneration) return; $('#conversation-message').textContent = error.message; failedTurn = turn; $('#retry-message').hidden = false; }
   finally { sending = false; updateConversationControls(); }
 }
 $('#conversation-form').addEventListener('submit', async event => {
@@ -534,11 +547,23 @@ window.addEventListener('beforeunload', () => { clearInterval(speakingTimer); as
 window.addEventListener('beforeunload', disconnectAvatar);
 
 if (bridge) {
+  avatarUI = mountAvatarLibrary({ document, bridge, getProfile: () => currentProfile ? formProfile() : null,
+    getSessionState: () => ({ serviceActive: ['checking', 'starting', 'ready', 'reconnecting', 'failed'].includes(servicePhase), servicePhase, recording, recordingBusy }),
+    prepareSessionChange: async () => {
+      if (recording || recordingBusy) throw new Error('Завершите запись перед сменой аватара или созданием.');
+      ++historyGeneration;
+      asrClient?.dispose(); asrClient = null;
+      disconnectAvatar();
+    },
+    onProfileSelected: profile => { showProfile(profile); void checkSetup(); },
+  });
+  window.addEventListener('beforeunload', () => avatarUI.dispose());
   bridge.onSnapshot(showSnapshot);
   bridge.getSnapshot().then(showSnapshot).catch(error => message(error.message));
-  bridge.getSetup().then(async ({ profile, voiceReferences, secrets, recoveryError, testFixture: fixture }) => {
+  bridge.getSetup().then(async ({ profile, voiceReferences, avatars, secrets, recoveryError, testFixture: fixture }) => {
     testFixture = fixture;
     showProfile(profile);
+    avatarUI.applySnapshot(avatars || {});
     showKnownVoices(voiceReferences);
     showSecretStatus(secrets);
     if (recoveryError) { $('#setup-recovery').textContent = recoveryError; $('#setup-recovery').hidden = false; }

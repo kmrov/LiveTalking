@@ -1,11 +1,9 @@
-import path from 'node:path';
-
 export function normalizeAvatarName(value) {
   if (typeof value !== 'string' || /[\u0000-\u001f\u007f]/u.test(value) || !value.trim() || [...value.trim()].length > 120) throw new Error('Название должно содержать от 1 до 120 символов без управляющих символов.');
   return value.trim();
 }
 export function mediaKind(fileName) {
-  const extension = path.extname(fileName).toLowerCase();
+  const extension = String(fileName).match(/\.[^./\\]+$/)?.[0].toLowerCase() || '';
   if (['.png','.jpg','.jpeg'].includes(extension)) return 'image';
   if (['.mp4','.mov','.mkv','.avi'].includes(extension)) return 'video';
   throw new Error('Выберите PNG/JPEG или видео MP4/MOV/MKV/AVI.');
