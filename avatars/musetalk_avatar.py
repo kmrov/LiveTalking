@@ -29,6 +29,7 @@ import torch.nn.functional as F
 import cv2
 import glob
 import pickle
+import json
 
 import queue
 from queue import Queue
@@ -37,6 +38,8 @@ import torch.multiprocessing as mp
 
 from avatars.musetalk.utils.utils import get_file_type,get_video_fps,datagen
 from avatars.musetalk.myutil import get_image_blending
+from avatars.musetalk.textured_blending import TexturedMouthBlender
+from avatars.musetalk.texture_expression import TextureExpressionAnimator
 from avatars.musetalk.utils.utils import load_all_model
 from avatars.musetalk.whisper.audio2feature import Audio2Feature
 
@@ -123,6 +126,27 @@ class MuseReal(BaseAvatar):
 
         self.frame_list_cycle,self.mask_list_cycle,self.coord_list_cycle,self.mask_coords_list_cycle, self.input_latent_list_cycle = avatar
 
+        self.textured_mouth_blender = None
+        self.texture_expression_animator = None
+        render_config_path = f"./data/avatars/{opt.avatar_id}/render_config.json"
+        if os.path.exists(render_config_path):
+            with open(render_config_path, encoding="utf-8") as config_file:
+                render_config = json.load(config_file)
+            mouth_settings = render_config.get("textured_mouth")
+            if mouth_settings and len(self.frame_list_cycle) == 1:
+                self.textured_mouth_blender = TexturedMouthBlender(
+                    self.frame_list_cycle[0], self.coord_list_cycle[0], mouth_settings
+                )
+            elif mouth_settings:
+                logger.warning("Textured mouth blending requires a single-frame avatar")
+            expression_settings = render_config.get("texture_expression")
+            if expression_settings and len(self.frame_list_cycle) == 1:
+                self.texture_expression_animator = TextureExpressionAnimator(
+                    self.frame_list_cycle[0].shape, expression_settings
+                )
+            elif expression_settings:
+                logger.warning("Texture expression requires a single-frame avatar")
+
         self.asr = WhisperASR(opt,self,self.audio_processor)
         self.asr.warm_up()
     
@@ -158,9 +182,16 @@ class MuseReal(BaseAvatar):
         x1, y1, x2, y2 = bbox
 
         res_frame = cv2.resize(pred_frame.astype(np.uint8),(x2-x1,y2-y1))
+        if self.textured_mouth_blender is not None:
+            return self.textured_mouth_blender.blend(res_frame)
         mask = self.mask_list_cycle[idx]
         mask_crop_box = self.mask_coords_list_cycle[idx]
 
         combine_frame = get_image_blending(ori_frame,res_frame,bbox,mask,mask_crop_box)
         return combine_frame
+
+    def postprocess_video_frame(self, frame, speaking):
+        if self.texture_expression_animator is None:
+            return frame
+        return self.texture_expression_animator.animate(frame, speaking)
             

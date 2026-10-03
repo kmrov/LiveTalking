@@ -18,13 +18,21 @@ customvideo_config: ''
 
 # -------- TTS ----------------------------------------------------------
 tts: piper                     # offline Russian speech synthesis
-REF_FILE: models/ru_RU-irina-medium.onnx
-REF_TEXT: ''                   # reference text for voice cloning (English or Chinese)
+REF_FILE: models/ru_RU-dmitri-medium.onnx
+REF_TEXT: ''                   # exact transcript of the reference WAV for voice cloning
 TTS_SERVER: ''                 # TTS server URL, no trailing slash
 
+# -------- Microphone ASR -------------------------------------------------
+ASR_BACKEND: qwen3asr
+ASR_SERVER: http://127.0.0.1:8092
+ASR_MODEL: Qwen/Qwen3-ASR-0.6B
+
 # -------- LLM ----------------------------------------------------------
-llm_provider: dashscope        # dashscope / orcarouter
-llm_model: ''                  # model override, empty = provider default (qwen-plus / orcarouter/auto)
+# Set YANDEX_AISTUDIO_KEY in the process environment or .env before using chat.
+llm_provider: yandex           # dashscope / orcarouter / yandex
+llm_model: ''                  # use the selected provider's default model
+llm_project: b1gnot6t4gp0jj7a56du
+llm_system_prompt_file: ''    # optional UTF-8 file with role, style and speaking rules
 
 # -------- Transport ----------------------------------------------------------
 transport: webrtc              # rtcpush / webrtc / rtmp / virtualcam

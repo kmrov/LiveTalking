@@ -1,5 +1,6 @@
 import unittest
 import warnings
+from uuid import uuid4
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -44,7 +45,8 @@ class WhipControlRoutesTest(unittest.IsolatedAsyncioTestCase):
         await self.client.start_server()
 
         self.fake_pc = patch.object(rtc_manager, "RTCPeerConnection", FakePeerConnection)
-        self.fake_sessions = patch.object(rtc_manager, "session_manager", FakeSessions())
+        self.sessions = FakeSessions()
+        self.fake_sessions = patch.object(rtc_manager, "session_manager", self.sessions)
         self.fake_player = patch("server.webrtc.HumanPlayer", return_value=SimpleNamespace(audio=object(), video=object()))
         self.fake_pc.start()
         self.fake_sessions.start()
@@ -62,14 +64,14 @@ class WhipControlRoutesTest(unittest.IsolatedAsyncioTestCase):
         url = str(self.receiver.make_url("/whip"))
         response = await self.client.post("/api/whip/connect", json={"url": url, "token": "secret-for-test"})
         self.assertEqual(response.status, 200)
-        self.assertEqual((await response.json())["data"], {"state": "connected", "url": url})
+        self.assertEqual((await response.json())["data"], {"state": "connected", "url": url, "sessionid": "0"})
 
         response = await self.client.post("/api/whip/connect", json={"url": url, "token": "secret-for-test"})
         self.assertEqual(response.status, 409)
 
         response = await self.client.get("/api/whip/status")
         self.assertEqual(response.status, 200)
-        self.assertEqual((await response.json())["data"], {"state": "connected", "url": url})
+        self.assertEqual((await response.json())["data"], {"state": "connected", "url": url, "sessionid": "0"})
         self.assertNotIn("secret-for-test", await response.text())
 
         response = await self.client.post("/api/whip/disconnect")
@@ -102,11 +104,48 @@ class WhipControlRoutesTest(unittest.IsolatedAsyncioTestCase):
         url = str(self.receiver.make_url("/whip"))
         response = await self.client.post("/api/whip/connect", json={"url": url, "token": "same-port-secret"})
         self.assertEqual(response.status, 200)
-        self.assertEqual((await response.json())["data"], {"state": "connected", "url": url})
+        self.assertEqual((await response.json())["data"], {"state": "connected", "url": url, "sessionid": "0"})
         response = await self.client.post("/api/whip/disconnect")
         self.assertEqual(response.status, 200)
         self.assertEqual(self.requests, [("POST", "Bearer same-port-secret"),
                                          ("DELETE", "Bearer same-port-secret")])
+
+    async def test_connect_uses_selected_avatar_voice_and_batya_conversation(self):
+        self.opt.transport = "webrtc"
+        url = str(self.receiver.make_url("/whip"))
+        params = {
+            "url": url, "token": "secret-for-test", "avatar": "batya_wrap_details_v4",
+            "refaudio": "/voices/example.wav", "reftext": "Привет",
+            "batya_conversation_id": "c0166cbc-a705-4d29-a34b-5be696608315",
+        }
+        response = await self.client.post("/api/whip/connect", json=params)
+        self.assertEqual(response.status, 200)
+        body = await response.json()
+        self.assertEqual(body["data"]["sessionid"], "0")
+        self.assertNotIn("secret-for-test", str(body))
+        self.assertEqual(self.sessions.created, [("0", {
+            key: params[key] for key in ("avatar", "refaudio", "reftext", "batya_conversation_id")
+        })])
+
+    async def test_stale_lease_cannot_disconnect_a_replacement_stream(self):
+        self.opt.transport = "webrtc"
+        url = str(self.receiver.make_url("/whip"))
+        sessionid, lease = str(uuid4()), str(uuid4())
+        response = await self.client.post("/api/whip/connect", json={
+            "url": url, "token": "secret", "sessionid": sessionid, "lease": lease,
+        })
+        self.assertEqual(response.status, 200)
+        self.assertEqual((await response.json())["data"]["lease"], lease)
+        status = await self.client.get(f"/api/whip/status?sessionid={sessionid}")
+        self.assertEqual((await status.json())["data"]["sessionid"], sessionid)
+        stale = await self.client.post("/api/whip/disconnect", json={
+            "sessionid": sessionid, "lease": str(uuid4()),
+        })
+        self.assertEqual(stale.status, 409)
+        self.assertIn(sessionid, self.sessions.active)
+        current = await self.client.post("/api/whip/disconnect", json={"sessionid": sessionid, "lease": lease})
+        self.assertEqual(current.status, 200)
+        self.assertNotIn(sessionid, self.sessions.active)
 
 
 if __name__ == "__main__":

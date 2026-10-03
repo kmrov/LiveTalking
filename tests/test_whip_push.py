@@ -42,11 +42,13 @@ class FakePeerConnection:
 class FakeSessions:
     def __init__(self):
         self.active = set()
+        self.created = []
 
     async def create_session(self, _params, _sessionid):
         if _sessionid in self.active:
             raise RuntimeError("session already exists")
         self.active.add(_sessionid)
+        self.created.append((_sessionid, _params))
         return "0"
 
     def get_session(self, _sessionid):
@@ -144,7 +146,7 @@ class WhipPushTest(unittest.IsolatedAsyncioTestCase):
                  patch("server.webrtc.HumanPlayer", return_value=SimpleNamespace(audio=object(), video=object())):
                 url = str(server.make_url("/whip"))
                 await manager.connect_whip(url, "first-secret", "0")
-                self.assertEqual(manager.whip_status("0"), {"state": "connected", "url": url})
+                self.assertEqual(manager.whip_status("0"), {"state": "connected", "url": url, "sessionid": "0"})
                 old_pc = manager._whip_connections["0"]
                 await manager.disconnect_whip("0")
                 self.assertEqual(manager.whip_status("0"), {"state": "disconnected", "url": ""})
@@ -152,7 +154,7 @@ class WhipPushTest(unittest.IsolatedAsyncioTestCase):
                 old_pc.connectionState = "closed"
                 await old_pc.handlers["connectionstatechange"]()
                 self.assertIn("0", sessions.active)
-                self.assertEqual(manager.whip_status("0"), {"state": "connected", "url": url})
+                self.assertEqual(manager.whip_status("0"), {"state": "connected", "url": url, "sessionid": "0"})
                 await manager.disconnect_whip("0")
         finally:
             await manager.shutdown()

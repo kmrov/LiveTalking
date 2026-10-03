@@ -92,6 +92,12 @@ Linux CUDA 环境搭建参考: <https://zhuanlan.zhihu.com/p/674972886>
 
 ### 2.2 启动服务
 
+俄语自定义声音：参见 [Qwen3-TTS Base 接入说明](docs/qwen3-tts.md)。
+
+Русский голосовой диалог через Qwen3-ASR и Qwen3-TTS: [инструкция по запуску](docs/qwen3-voice-avatar.md).
+
+Единый запуск серверов моделей и аватара: `python scripts/start_qwen_avatar.py --help`.
+
 ```bash
 python app.py --transport webrtc --model wav2lip --avatar_id wav2lip256_avatar1
 ```

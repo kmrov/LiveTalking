@@ -103,6 +103,13 @@
           <div class="stage-corner stage-corner-br" aria-hidden="true"></div>
         </div>
         <div class="stage-footer"><span class="muted">WebRTC</span><span id="webrtc-state">Нет подключения</span></div>
+        <section class="projection-panel" aria-label="Проекция Head in Jar">
+          <div class="projection-heading"><strong>Head in Jar</strong><span id="projection-state" role="status">Нет подключения</span></div>
+          <label>WHIP URL<input id="projection-url" type="url" placeholder="http://127.0.0.1:19840/whip" autocomplete="off"></label>
+          <label>Bearer token<input id="projection-token" type="password" autocomplete="off"></label>
+          <button id="connect-projection" type="button" disabled>Подключить проекцию</button>
+          <p>Сначала запустите сервер подключения в Head in Jar. Проектор включается там отдельно.</p>
+        </section>
       </section>
 
       <aside class="right-panel" aria-label="Диалог">
@@ -116,6 +123,8 @@
         <ol id="conversation-list" aria-label="История разговора" hidden></ol>
         <div class="conversation-tools"><span id="speaking-state">Ожидает</span><button type="button" id="interrupt-avatar" disabled>Прервать</button><button type="button" id="record-avatar" disabled>Записать</button></div>
         <div class="microphone-tools"><button id="microphone-button" type="button" disabled>Микрофон</button><span id="microphone-state">Нажмите, чтобы говорить</span></div>
+        <div class="handsfree-tools"><button id="handsfree-button" type="button" disabled>Автодиалог</button><label><input id="handsfree-barge-in" type="checkbox">Разрешить перебивание</label></div>
+        <p id="handsfree-state" role="status" data-state="idle">Автодиалог выключен</p>
         <form id="conversation-form">
           <label class="sr-only" for="message-text">Сообщение аватару</label>
           <textarea id="message-text" rows="3" placeholder="Сообщение аватару"></textarea>

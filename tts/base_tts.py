@@ -28,7 +28,8 @@ class BaseTTS:
         self.state = State.RUNNING
 
     def flush_talk(self):
-        self.msgqueue.queue.clear()
+        with self.msgqueue.mutex:
+            self.msgqueue.queue.clear()
         self.state = State.PAUSE
 
     def put_msg_txt(self, msg: str, datainfo: dict = {}): 

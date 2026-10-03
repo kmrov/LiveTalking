@@ -454,6 +454,7 @@ class BaseAvatar:
                 else:
                     combine_frame = current_frame
 
+            combine_frame = self.postprocess_video_frame(combine_frame, self.speaking)
             cv2.putText(combine_frame, "LiveTalking", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (128,128,128), 1)
             
             # 使用统一输出接口推送视频帧
@@ -473,6 +474,9 @@ class BaseAvatar:
 
         self.output.stop()
         logger.info('baseavatar process_frames thread stop') 
+
+    def postprocess_video_frame(self, frame, speaking):
+        return frame
 
     def render(self,quit_event):
         self.quit_event = quit_event

@@ -49,6 +49,86 @@ async function runCase(corrupt) {
     await window.locator('#interrupt-avatar').click();
     await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Озвучивание прервано.');
     assert.equal(fixture.commands.some(command => command.path === '/interrupt_talk'), true);
+    assert.equal(await window.locator('#handsfree-button').count(), 1);
+    await window.evaluate(() => {
+      window.__autoMicStops = 0;
+      navigator.mediaDevices.getUserMedia = async () => ({ getTracks: () => [{ stop: () => window.__autoMicStops++ }] });
+      window.AudioContext = class {
+        constructor() { this.sampleRate = 16000; this.destination = {}; this.audioWorklet = { addModule: async () => {} }; }
+        resume() { return Promise.resolve(); }
+        close() { return Promise.resolve(); }
+        createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+      };
+      window.AudioWorkletNode = class {
+        constructor() { this.port = {}; window.__autoVoiceWorklet = this; }
+        connect() {}
+        disconnect() {}
+      };
+      window.WebSocket = class {
+        constructor() { queueMicrotask(() => this.onopen?.()); }
+        send(payload) {
+          if (typeof payload === 'string' && JSON.parse(payload).is_speaking === false) {
+            queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ text: 'Вопрос без кнопок', is_final: true }) }));
+          }
+        }
+        close() {}
+      };
+    });
+    await window.locator('#handsfree-button').click();
+    await window.waitForFunction(() => document.querySelector('#handsfree-state').dataset.state === 'listening');
+    await window.evaluate(() => {
+      const feed = (amplitude, count) => {
+        for (let i = 0; i < count; i++) window.__autoVoiceWorklet.port.onmessage({ data: new Float32Array(160).fill(amplitude) });
+      };
+      feed(0.12, 45); feed(0, 91);
+    });
+    await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Сообщение принято.');
+    assert.equal(fixture.commands.findLast(command => command.path === '/human').body.text, 'Вопрос без кнопок');
+    assert.equal(fixture.commands.findLast(command => command.path === '/human').body.type, 'chat');
+    await window.locator('#handsfree-button').click();
+    await window.waitForFunction(() => document.querySelector('#handsfree-state').dataset.state === 'idle');
+    assert.equal(await window.evaluate(() => window.__autoMicStops), 1);
+    await window.locator('#handsfree-button').click();
+    await window.waitForFunction(() => document.querySelector('#handsfree-state').dataset.state === 'listening');
+    await window.locator('#connect-avatar').click();
+    await window.waitForFunction(() => document.querySelector('#handsfree-state').dataset.state === 'idle');
+    assert.equal(await window.evaluate(() => window.__autoMicStops), 2);
+    await window.locator('#projection-url').fill('http://127.0.0.1:19840/whip');
+    await window.locator('#projection-token').fill('fixture-secret');
+    fixture.control.delayOfferMs = 300;
+    await window.locator('#connect-avatar').click();
+    await window.waitForFunction(() => document.querySelector('#connect-projection').disabled);
+    await window.locator('#connect-projection').evaluate(button => button.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await window.waitForFunction(() => document.querySelector('#webrtc-state').dataset.sessionId === 'fixture-session');
+    assert.equal(fixture.commands.filter(command => command.path === '/api/whip/connect').length, 0);
+    await window.locator('#connect-avatar').click();
+    fixture.control.delayOfferMs = 0;
+    fixture.control.delayWhipMs = 300;
+    await window.locator('#connect-projection').click();
+    await window.waitForFunction(() => document.querySelector('#connect-projection').disabled);
+    await window.locator('#connect-projection').evaluate(button => button.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await window.waitForFunction(() => Boolean(document.querySelector('#projection-state').dataset.sessionId));
+    assert.equal(fixture.commands.filter(command => command.path === '/api/whip/connect').length, 1);
+    fixture.control.delayWhipMs = 0;
+    const projectionId = await window.locator('#projection-state').getAttribute('data-session-id');
+    assert.match(projectionId, /^[0-9a-f-]{36}$/);
+    await window.locator('#message-text').fill('Привет проекции');
+    await window.locator('#send-message').click();
+    await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Сообщение принято.');
+    assert.equal(fixture.commands.findLast(command => command.path === '/human').body.sessionid, projectionId);
+    assert.equal(fixture.commands.find(command => command.path === '/api/whip/connect').body.token, 'fixture-secret');
+    await window.locator('#interrupt-avatar').click();
+    await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Озвучивание прервано.');
+    assert.equal(fixture.commands.findLast(command => command.path === '/interrupt_talk').body.sessionid, projectionId);
+    fixture.control.whip = null;
+    await window.waitForFunction(() => document.querySelector('#projection-state').dataset.sessionId === '', null, { timeout: 7000 });
+    assert.equal(await window.locator('#send-message').isDisabled(), true);
+    await window.locator('#projection-token').fill('fixture-secret-retry');
+    await window.locator('#connect-projection').click();
+    await window.waitForFunction(() => Boolean(document.querySelector('#projection-state').dataset.sessionId));
+    await window.locator('#connect-projection').click();
+    await window.waitForFunction(() => document.querySelector('#projection-state').dataset.sessionId === '');
+    assert.equal(await window.locator('#send-message').isDisabled(), true);
     await window.screenshot({ path: path.join(artifactDirectory, 'smoke-studio.png') });
     await window.locator('#stop-profile').click();
     await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Не настроено');
@@ -339,12 +419,25 @@ async function runBatyaCase() {
     fixture.finishTurn();
     await window.waitForFunction(() => [...document.querySelectorAll('#conversation-list [data-role="assistant"]')].at(-1)?.dataset.status === 'done');
     assert.equal(await window.locator('#conversation-list [data-role="assistant"]').count(), 2);
+    await window.locator('#connect-avatar').click();
+    await window.locator('#projection-url').fill('http://127.0.0.1:19840/whip');
+    await window.locator('#projection-token').fill('batya-fixture-secret');
+    await window.locator('#connect-projection').click();
+    await window.waitForFunction(() => Boolean(document.querySelector('#projection-state').dataset.sessionId));
+    const batyaProjectionId = await window.locator('#projection-state').getAttribute('data-session-id');
+    assert.equal(fixture.commands.findLast(c => c.path === '/api/whip/connect').body.batya_conversation_id, id);
+    await window.locator('#message-text').fill('Батя на проекции'); await window.locator('#send-message').click();
+    await window.waitForFunction(() => [...document.querySelectorAll('#conversation-list [data-role="assistant"]')].at(-1)?.dataset.status === 'delta');
+    assert.equal(fixture.commands.findLast(c => c.path === '/human').body.sessionid, batyaProjectionId);
+    fixture.finishTurn();
+    await window.waitForFunction(() => [...document.querySelectorAll('#conversation-list [data-role="assistant"]')].at(-1)?.dataset.status === 'done');
+    await window.locator('#connect-projection').click();
     await window.screenshot({ path: path.join(artifactDirectory, 'smoke-batya.png') });
     await application.close(); application = await launch();
     const reopened = await application.firstWindow();
     await reopened.locator('#setup-results li').first().waitFor({ state: 'attached' });
     await reopened.locator('#start-profile').click();
-    await reopened.waitForFunction(() => document.querySelectorAll('#conversation-list [data-role="assistant"]').length === 2);
+    await reopened.waitForFunction(() => document.querySelectorAll('#conversation-list [data-role="assistant"]').length === 3);
     assert.equal(await reopened.locator('#brain-conversation').inputValue(), id);
     await reopened.locator('#stop-profile').click();
     await reopened.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Не настроено');

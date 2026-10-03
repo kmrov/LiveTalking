@@ -6,7 +6,8 @@ export async function startFixtureServer() {
   const commands = [];
   const conversations = [], history = new Map(), streams = new Set();
   const control = { brainMode: 'direct', currentConversation: '', pendingTurn: null, failNextTurn: false,
-    avatarModel:'wav2lip',avatarRoot:fileURLToPath(new URL('../..',import.meta.url)).replace(/\/$/,'') };
+    avatarModel:'wav2lip',avatarRoot:fileURLToPath(new URL('../..',import.meta.url)).replace(/\/$/,''), whip: null,
+    delayOfferMs: 0, delayWhipMs: 0 };
   function send(event, fields = {}) {
     if (!control.pendingTurn) return;
     const turn = control.pendingTurn;
@@ -59,7 +60,30 @@ export async function startFixtureServer() {
     else if (request.url === '/api/v1/memories') result = [{ text: 'Тестовая память' }];
     else if (request.url === '/api/v1/documents') result = { id: randomUUID(), title: body.title };
     else if (request.url === '/v1/models') result = { data: [{ id: 'Qwen/Qwen3-ASR-0.6B' }, { id: 'Qwen/Qwen3-TTS-12Hz-1.7B-Base' }] };
-    else if (request.url === '/offer') { control.currentConversation = body.batya_conversation_id || ''; result = { type: 'answer', sdp: 'fixture-answer', sessionid: 'fixture-session' }; }
+    else if (request.url === '/api/whip/connect' && request.method === 'POST') {
+      if (control.delayWhipMs) await new Promise(resolve => setTimeout(resolve, control.delayWhipMs));
+      control.whip = { state: 'connected', url: body.url, sessionid: body.sessionid, lease: body.lease };
+      control.currentConversation = body.batya_conversation_id || '';
+      result = { code: 0, data: control.whip };
+    }
+    else if (request.url.startsWith('/api/whip/status?')) {
+      const sessionid = new URL(request.url, 'http://localhost').searchParams.get('sessionid');
+      result = { code: 0, data: control.whip?.sessionid === sessionid ? control.whip : { state: 'disconnected', url: '' } };
+    }
+    else if (request.url === '/api/whip/disconnect' && request.method === 'POST') {
+      if (control.whip && (control.whip.sessionid !== body.sessionid || control.whip.lease !== body.lease)) {
+        response.writeHead(409);
+        result = { code: -1, msg: 'WHIP session lease changed' };
+      } else {
+        control.whip = null;
+        result = { code: 0, data: { state: 'disconnected', url: '' } };
+      }
+    }
+    else if (request.url === '/offer') {
+      if (control.delayOfferMs) await new Promise(resolve => setTimeout(resolve, control.delayOfferMs));
+      control.currentConversation = body.batya_conversation_id || '';
+      result = { type: 'answer', sdp: 'fixture-answer', sessionid: 'fixture-session' };
+    }
     else if (request.url === '/human' && body.type === 'chat' && control.brainMode === 'batya') {
       const messages = history.get(control.currentConversation);
       if (!messages) { response.writeHead(400); response.end(JSON.stringify({code:-1,msg:'conversation not found'})); return; }

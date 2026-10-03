@@ -88,10 +88,11 @@ def parse_args():
     parser.add_argument('--batya_url', type=str, default='http://127.0.0.1:8000',
                         help='Batya API URL when llm_provider is batya')
     parser.add_argument('--llm_provider', type=str, default='dashscope',
-                        help="llm provider: dashscope/orcarouter")
+                        help="llm provider: dashscope/orcarouter/yandex")
     parser.add_argument('--llm_model', type=str, default='',
-                        help="llm model override, empty = provider default (qwen-plus / orcarouter/auto)")
-
+                        help="llm model override, empty = provider default")
+    parser.add_argument('--llm_project', type=str, default='',
+                        help="Yandex AI Studio project (folder) ID")
     parser.add_argument('--llm_system_prompt', type=str, default='',
                         help="avatar role and speaking style; defaults to a brief helpful assistant")
     parser.add_argument('--llm_system_prompt_file', type=str, default='',

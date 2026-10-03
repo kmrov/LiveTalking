@@ -30,6 +30,9 @@ from server.session_manager import MaxSessionError
 class WhipAlreadyActiveError(RuntimeError):
     pass
 
+class WhipLeaseMismatch(RuntimeError):
+    pass
+
 class RTCManager:
     """
     WebRTC 连接管理器。
@@ -47,32 +50,47 @@ class RTCManager:
         self._whip_sessions: dict = {}
         self._whip_connections: dict = {}
         self._whip_targets: dict = {}
+        self._whip_leases: dict = {}
         self._whip_connecting: set = set()
         self._whip_lock = asyncio.Lock()
 
     def whip_status(self, sessionid: str = "0"):
         pc = self._whip_connections.get(sessionid)
         if pc is not None:
-            return {"state": pc.connectionState, "url": self._whip_targets[sessionid]}
+            status = {"state": pc.connectionState, "url": self._whip_targets[sessionid], "sessionid": sessionid}
+            if sessionid in self._whip_leases:
+                status["lease"] = self._whip_leases[sessionid]
+            return status
         if sessionid in self._whip_connecting:
-            return {"state": "connecting", "url": ""}
+            status = {"state": "connecting", "url": "", "sessionid": sessionid}
+            if sessionid in self._whip_leases:
+                status["lease"] = self._whip_leases[sessionid]
+            return status
         return {"state": "disconnected", "url": ""}
 
-    async def connect_whip(self, push_url: str, token: str, sessionid: str = "0"):
+    async def connect_whip(self, push_url: str, token: str, sessionid: str = "0", params: Optional[dict] = None, lease: Optional[str] = None):
         async with self._whip_lock:
             if sessionid in self._whip_connections or sessionid in self._whip_connecting:
                 raise WhipAlreadyActiveError("WHIP session is already active")
             self._whip_connecting.add(sessionid)
+            if lease is not None:
+                self._whip_leases[sessionid] = lease
             try:
-                await self.handle_rtcpush(push_url, sessionid, token=token)
+                await self.handle_rtcpush(push_url, sessionid, token=token, params=params)
+            except Exception:
+                self._whip_leases.pop(sessionid, None)
+                raise
             finally:
                 self._whip_connecting.discard(sessionid)
             return self.whip_status(sessionid)
 
-    async def disconnect_whip(self, sessionid: str = "0"):
+    async def disconnect_whip(self, sessionid: str = "0", lease: Optional[str] = None, force: bool = False):
         async with self._whip_lock:
+            if not force and sessionid in self._whip_leases and self._whip_leases[sessionid] != lease:
+                raise WhipLeaseMismatch("WHIP session lease changed")
             pc = self._whip_connections.pop(sessionid, None)
             self._whip_targets.pop(sessionid, None)
+            self._whip_leases.pop(sessionid, None)
             if pc is None:
                 return self.whip_status(sessionid)
             await self._delete_whip_session(pc)
@@ -184,9 +202,9 @@ class RTCManager:
             headers={"X-Session-ID": sessionid},
         )
 
-    async def handle_rtcpush(self, push_url, sessionid: str, token: Optional[str] = None):
+    async def handle_rtcpush(self, push_url, sessionid: str, token: Optional[str] = None, params: Optional[dict] = None):
         """RTCPush 模式：主动推流"""
-        await session_manager.create_session({}, sessionid)
+        await session_manager.create_session(params or {}, sessionid)
         avatar_session = session_manager.get_session(sessionid)
 
         pc = RTCPeerConnection()
@@ -205,6 +223,7 @@ class RTCManager:
                 if self._whip_connections.get(sessionid) is pc:
                     self._whip_connections.pop(sessionid, None)
                     self._whip_targets.pop(sessionid, None)
+                    self._whip_leases.pop(sessionid, None)
                     session_manager.remove_session(sessionid)
 
         from server.webrtc import HumanPlayer
@@ -239,6 +258,7 @@ class RTCManager:
             if self._whip_connections.get(sessionid) is pc:
                 self._whip_connections.pop(sessionid, None)
                 self._whip_targets.pop(sessionid, None)
+                self._whip_leases.pop(sessionid, None)
             session_manager.remove_session(sessionid)
             raise
 
@@ -259,7 +279,7 @@ class RTCManager:
     async def shutdown(self):
         """关闭所有 PeerConnection"""
         for sessionid in list(self._whip_connections):
-            await self.disconnect_whip(sessionid)
+            await self.disconnect_whip(sessionid, force=True)
         await asyncio.gather(*(self._delete_whip_session(pc) for pc in list(self._whip_sessions)))
         coros = [pc.close() for pc in self.pcs]
         await asyncio.gather(*coros)

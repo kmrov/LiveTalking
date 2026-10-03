@@ -1,6 +1,9 @@
 import { createWebRtcClient } from './webrtc-client.mjs';
+import { createProjectionClient } from './projection-client.mjs';
 import { createConversationClient } from './conversation-client.mjs';
 import { createAsrClient } from './asr-client.mjs';
+import { createContinuousVoiceClient } from './continuous-voice-client.mjs';
+import { waitForAvatarReply, waitForSendSlot } from './auto-turn.mjs';
 import { FixturePeer } from './fixture-peer.mjs';
 import { reduceBrainEvent } from './brain-events.mjs';
 import { mountAvatarLibrary } from './avatar-library.mjs';
@@ -24,6 +27,12 @@ let servicePhase = "not-configured";
 let sessionGeneration = 0;
 let knownVoices = [];
 let webRtcClient;
+let projectionClient;
+let projectionBusy = false;
+let previewBusy = false;
+let connectionGeneration = 0;
+let webRtcState = 'disconnected';
+let activeTarget = 'none';
 let serviceReady = false;
 let testFixture = false;
 let conversationClient;
@@ -32,6 +41,7 @@ let recordingBusy = false;
 let sending = false;
 let asrClient;
 let microphoneState = 'idle';
+let continuousVoiceClient;
 let brainSource;
 let brainState = { conversationId: '', turns: {}, pending: 0 };
 let historyGeneration = 0;
@@ -39,16 +49,55 @@ let speechInterrupted = false;
 let failedTurn;
 const submittedTurns = new Map();
 
+function activeSessionId() {
+  return activeTarget === 'projection' ? projectionClient?.sessionId() : activeTarget === 'preview' ? webRtcClient?.sessionId() : null;
+}
+
+function selectConversationTarget(target) {
+  if (activeTarget !== target && continuousVoiceClient) void stopContinuousVoice();
+  ++sessionGeneration;
+  brainSource?.close(); brainSource = null;
+  $('#brain-turn-state').dataset.stream = 'closed';
+  activeTarget = target;
+  const sessionId = activeSessionId();
+  conversationClient = sessionId ? createConversationClient({
+    fetch: window.fetch.bind(window), idempotentChat: currentProfile.brain.mode === 'batya',
+    baseUrl: `http://127.0.0.1:${currentProfile.liveTalking.port}`,
+    getSessionId: activeSessionId,
+  }) : null;
+  if (sessionId) connectBrainEvents();
+  updateConversationControls();
+}
+
 function showMicrophoneState(state, detail = '') {
   microphoneState = state;
   const labels = { idle: 'Нажмите, чтобы говорить', starting: 'Открываем микрофон…', capturing: 'Говорите; затем нажмите Стоп', transcribing: 'Распознавание…', ready: 'Текст готов к отправке', empty: 'Речь не распознана', failed: 'Ошибка микрофона / ASR' };
   $('#microphone-state').textContent = detail || labels[state] || state;
   $('#microphone-button').textContent = state === 'capturing' ? 'Стоп' : 'Микрофон';
-  $('#microphone-button').disabled = !serviceReady || ['starting', 'transcribing'].includes(state);
+  $('#microphone-button').disabled = !serviceReady || Boolean(continuousVoiceClient) || ['starting', 'transcribing'].includes(state);
+}
+
+function showContinuousVoiceState(state, detail = '') {
+  const labels = { idle: 'Автодиалог выключен', starting: 'Открываем микрофон и ASR…', listening: 'Слушаем: говорите свободно',
+    capturing: 'Слышу фразу; отправлю после паузы', transcribing: 'Распознаём фразу…', waiting: 'Ждём ответ аватара', failed: 'Ошибка автодиалога' };
+  $('#handsfree-state').dataset.state = state;
+  $('#handsfree-state').textContent = detail || labels[state] || state;
+  $('#handsfree-button').textContent = continuousVoiceClient && state !== 'failed' ? 'Остановить автодиалог' : 'Автодиалог';
+  $('#handsfree-barge-in').disabled = Boolean(continuousVoiceClient);
+  updateConversationControls();
+  showMicrophoneState(microphoneState);
+}
+
+async function stopContinuousVoice() {
+  const client = continuousVoiceClient;
+  continuousVoiceClient = null;
+  if (client) await client.stop();
+  showContinuousVoiceState('idle');
 }
 
 function updateConversationControls() {
-  const active = Boolean(webRtcClient?.sessionId());
+  const active = Boolean(activeSessionId());
+  $('#handsfree-button').disabled = !continuousVoiceClient && (!serviceReady || !active);
   $('#send-message').disabled = !active || sending || !$('#message-text').value.trim();
   $('#interrupt-avatar').disabled = !active;
   $('#record-avatar').disabled = !active || recordingBusy;
@@ -74,13 +123,16 @@ function appendMessage(text, type, { role = 'user', requestId = '' } = {}) {
 }
 
 function showWebRtcState(state) {
+  webRtcState = state;
   const labels = { disconnected: 'Нет подключения', connecting: 'Подключение…', negotiating: 'Согласование потока…', connected: 'Поток подключён', reconnecting: 'Переподключение…', failed: 'Ошибка WebRTC', closed: 'Соединение закрыто' };
   $('#webrtc-state').textContent = labels[state] || state;
   $('#webrtc-state').dataset.sessionId = webRtcClient?.sessionId() || '';
-  $('#connect-avatar').disabled = !serviceReady || ['connecting', 'negotiating'].includes(state);
+  $('#connect-avatar').disabled = !serviceReady || previewBusy || projectionBusy || Boolean(projectionClient?.sessionId());
+  $('#connect-projection').disabled = !serviceReady || previewBusy || projectionBusy || Boolean(webRtcClient?.sessionId());
   const connected = Boolean(webRtcClient?.sessionId());
   $('#connect-avatar').textContent = connected ? 'Отключить' : 'Подключить WebRTC';
   if (['disconnected', 'failed', 'closed'].includes(state)) {
+    if (activeTarget === 'preview') selectConversationTarget('none');
     $('#avatar-video').srcObject = null;
     $('#avatar-audio').srcObject = null;
     $('.stage-empty').hidden = false;
@@ -98,13 +150,33 @@ function receiveTrack(event) {
 }
 
 function disconnectAvatar() {
-  ++sessionGeneration;
-  brainSource?.close(); brainSource = null;
-  $('#brain-turn-state').dataset.stream = 'closed';
+  ++connectionGeneration;
+  previewBusy = false;
+  if (activeTarget === 'preview') selectConversationTarget('none');
   webRtcClient?.disconnect();
   webRtcClient = null;
-  conversationClient = null;
   showWebRtcState('disconnected');
+}
+
+function showProjectionState(state) {
+  const labels = { disconnected: 'Нет подключения', connecting: 'Подключаем…', connected: 'Поток подключён', failed: 'Ошибка', closed: 'Соединение закрыто' };
+  $('#projection-state').textContent = labels[state] || state;
+  $('#projection-state').dataset.sessionId = projectionClient?.sessionId() || '';
+  $('#connect-projection').textContent = projectionClient?.sessionId() ? 'Отключить проекцию' : 'Подключить проекцию';
+  $('#connect-projection').disabled = !serviceReady || projectionBusy || previewBusy || Boolean(webRtcClient?.sessionId());
+  $('#connect-avatar').disabled = !serviceReady || projectionBusy || previewBusy || Boolean(projectionClient?.sessionId());
+  if (activeTarget === 'projection' && !projectionClient?.sessionId()) selectConversationTarget('none');
+  updateConversationControls();
+}
+
+async function disconnectProjection() {
+  ++connectionGeneration;
+  projectionBusy = false;
+  if (activeTarget === 'projection') selectConversationTarget('none');
+  const client = projectionClient;
+  projectionClient = null;
+  showProjectionState('disconnected');
+  if (client) await client.disconnect();
 }
 const phaseLabels = {
   'not-configured': 'Не настроено', checking: 'Проверка', starting: 'Запуск',
@@ -119,8 +191,11 @@ function showSnapshot(snapshot) {
   serviceReady = phase === 'ready';
   $('#setup-title').textContent = serviceReady ? 'Профиль запущен' : 'Локальное окружение';
   if (serviceReady) { $('#setup-details').open = false; $('#check-details').open = false; }
-  $('#connect-avatar').disabled = !serviceReady;
+  showWebRtcState(webRtcState);
+  showProjectionState(projectionClient?.sessionId() ? 'connected' : 'disconnected');
   if (!serviceReady && webRtcClient) disconnectAvatar();
+  if (!serviceReady && projectionClient) void disconnectProjection().catch(error => { $('#projection-state').textContent = error.message; });
+  if (!serviceReady && continuousVoiceClient) void stopContinuousVoice();
   if (!serviceReady && asrClient) { asrClient.dispose(); asrClient = null; }
   showMicrophoneState(microphoneState);
   const downloading = phase === 'checking' && ['checking', 'downloading'].includes(snapshot.downloads?.state);
@@ -275,8 +350,12 @@ async function refreshConversations() {
   await loadHistory(currentProfile.brain.conversationId);
 }
 
-async function newConversation() {
-  disconnectAvatar();
+async function newConversation({ keepConnectionAttempt = false } = {}) {
+  if (recording || recordingBusy) throw new Error('Завершите запись перед сменой разговора.');
+  if (!keepConnectionAttempt) {
+    await disconnectProjection();
+    disconnectAvatar();
+  }
   const conversation = await bridge.createBrainConversation(currentProfile.id);
   currentProfile.brain.conversationId = conversation.id;
   await refreshConversations();
@@ -309,7 +388,7 @@ function receiveBrainEvent(event) {
 function connectBrainEvents() {
   brainSource?.close();
   if (currentProfile.brain.mode !== 'batya') return;
-  brainSource = new EventSource(`http://127.0.0.1:${currentProfile.liveTalking.port}/sse?sessionid=${encodeURIComponent(webRtcClient.sessionId())}`);
+  brainSource = new EventSource(`http://127.0.0.1:${currentProfile.liveTalking.port}/sse?sessionid=${encodeURIComponent(activeSessionId())}`);
   const source = brainSource;
   const token = sessionGeneration;
   brainSource.onopen = () => { if (source !== brainSource || token !== sessionGeneration) return; $('#brain-turn-state').dataset.stream = 'connected'; };
@@ -361,6 +440,8 @@ $('#new-brain-conversation').addEventListener('click', () => { void newConversat
 $('#refresh-brain-conversations').addEventListener('click', () => { void refreshConversations().catch(error => { $('#conversation-message').textContent = error.message; }); });
 $('#brain-conversation').addEventListener('change', async () => {
   try {
+    if (recording || recordingBusy) throw new Error('Завершите запись перед сменой разговора.');
+    await disconnectProjection();
     disconnectAvatar();
     currentProfile.brain.conversationId = $('#brain-conversation').value;
     await bridge.saveProfile(currentProfile);
@@ -433,46 +514,98 @@ $('#start-profile').addEventListener('click', async () => {
   } catch (error) { message(error.message); }
 });
 $('#stop-profile').addEventListener('click', async () => {
+  try { await disconnectProjection(); } catch (error) { $('#projection-state').textContent = error.message; }
   try { await bridge.stopProfile(); } catch (error) { message(error.message); }
 });
 $('#connect-avatar').addEventListener('click', async () => {
   if (webRtcClient?.sessionId()) { disconnectAvatar(); return; }
-  if (!serviceReady || !currentProfile) return;
-  if (currentProfile.brain.mode === 'batya') {
-    try {
-      if (!currentProfile.brain.conversationId) await newConversation();
-      else await loadHistory(currentProfile.brain.conversationId);
-    } catch (error) { $('#conversation-message').textContent = error.message; return; }
-  }
-  webRtcClient = createWebRtcClient({
-    RTCPeerConnection: testFixture ? FixturePeer : window.RTCPeerConnection,
-    fetch: window.fetch.bind(window),
-    baseUrl: `http://127.0.0.1:${currentProfile.liveTalking.port}`,
-    onState: showWebRtcState,
-    onTrack: receiveTrack,
-  });
-  conversationClient = createConversationClient({
-    fetch: window.fetch.bind(window),
-    idempotentChat: currentProfile.brain.mode === 'batya',
-    baseUrl: `http://127.0.0.1:${currentProfile.liveTalking.port}`,
-    getSessionId: () => webRtcClient?.sessionId(),
-  });
+  if (!serviceReady || !currentProfile || projectionClient || projectionBusy || previewBusy) return;
+  previewBusy = true;
+  const attempt = ++connectionGeneration;
+  showWebRtcState('connecting');
+  let client;
   try {
-    await webRtcClient.connect({
+    if (currentProfile.brain.mode === 'batya') {
+      if (!currentProfile.brain.conversationId) await newConversation({ keepConnectionAttempt: true });
+      else await loadHistory(currentProfile.brain.conversationId);
+    }
+    if (attempt !== connectionGeneration || !serviceReady) return;
+    client = createWebRtcClient({
+      RTCPeerConnection: testFixture ? FixturePeer : window.RTCPeerConnection,
+      fetch: window.fetch.bind(window),
+      baseUrl: `http://127.0.0.1:${currentProfile.liveTalking.port}`,
+      onState: showWebRtcState,
+      onTrack: receiveTrack,
+    });
+    webRtcClient = client;
+    await client.connect({
       avatarId: currentProfile.liveTalking.avatarId,
       referenceWav: currentProfile.speech.referenceWav,
       referenceText: currentProfile.speech.referenceText,
       conversationId: currentProfile.brain.mode === 'batya' ? currentProfile.brain.conversationId : '',
     });
-    connectBrainEvents();
-  } catch (error) { $('#webrtc-state').textContent = `WebRTC: ${error.message}`; }
+    if (attempt !== connectionGeneration || client !== webRtcClient) return;
+    selectConversationTarget('preview');
+  } catch (error) {
+    if (attempt === connectionGeneration) $('#webrtc-state').textContent = `WebRTC: ${error.message}`;
+  } finally {
+    if (attempt === connectionGeneration) {
+      if (client && !client.sessionId() && webRtcClient === client) webRtcClient = null;
+      previewBusy = false;
+      showWebRtcState(webRtcClient?.sessionId() ? 'connected' : 'disconnected');
+    }
+  }
+});
+$('#connect-projection').addEventListener('click', async () => {
+  if (projectionClient?.sessionId()) {
+    if (recording || recordingBusy) { $('#conversation-message').textContent = 'Завершите запись перед отключением проекции.'; return; }
+    try { await disconnectProjection(); } catch (error) { $('#projection-state').textContent = error.message; }
+    return;
+  }
+  if (!serviceReady || !currentProfile || projectionBusy || previewBusy || webRtcClient) return;
+  const url = $('#projection-url').value.trim();
+  const token = $('#projection-token').value.trim();
+  if (!url) { $('#projection-state').textContent = 'Введите WHIP URL из Head in Jar'; return; }
+  projectionBusy = true;
+  const attempt = ++connectionGeneration;
+  showProjectionState('connecting');
+  let client;
+  let failure = '';
+  try {
+    if (currentProfile.brain.mode === 'batya') {
+      if (!currentProfile.brain.conversationId) await newConversation({ keepConnectionAttempt: true });
+      else await loadHistory(currentProfile.brain.conversationId);
+    }
+    if (attempt !== connectionGeneration || !serviceReady) return;
+    client = createProjectionClient({
+      send: (action, input) => bridge.projectionRequest(currentProfile.id, action, input),
+      onState: showProjectionState,
+    });
+    projectionClient = client;
+    await client.connect({ url, token, avatarId: currentProfile.liveTalking.avatarId,
+      referenceWav: currentProfile.speech.referenceWav, referenceText: currentProfile.speech.referenceText,
+      conversationId: currentProfile.brain.mode === 'batya' ? currentProfile.brain.conversationId : '' });
+    if (attempt !== connectionGeneration || client !== projectionClient) return;
+    selectConversationTarget('projection');
+    showProjectionState('connected');
+  } catch (error) { if (attempt === connectionGeneration) failure = `Ошибка: ${error.message}`; }
+  finally {
+    if (attempt === connectionGeneration) {
+      if (client && !client.sessionId() && projectionClient === client) projectionClient = null;
+      projectionBusy = false;
+      $('#projection-token').value = '';
+      showProjectionState(projectionClient?.sessionId() ? 'connected' : 'disconnected');
+      if (failure) $('#projection-state').textContent = failure;
+    }
+  }
 });
 $('#message-text').addEventListener('input', updateConversationControls);
 $('#microphone-button').addEventListener('click', async () => {
   try {
+    if (continuousVoiceClient) return;
     if (microphoneState === 'capturing') { await asrClient.stop(); return; }
     if (!serviceReady || !currentProfile) return;
-    if (conversationClient && webRtcClient?.sessionId()) await conversationClient.interrupt();
+    if (conversationClient && activeSessionId()) await conversationClient.interrupt();
     asrClient?.dispose();
     asrClient = createAsrClient({
       getUserMedia: navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices),
@@ -490,8 +623,53 @@ $('#microphone-button').addEventListener('click', async () => {
     await asrClient.start();
   } catch (error) { showMicrophoneState('failed', error.message); }
 });
+$('#handsfree-button').addEventListener('click', async () => {
+  if (continuousVoiceClient) {
+    const restart = $('#handsfree-state').dataset.state === 'failed';
+    await stopContinuousVoice();
+    if (!restart) return;
+  }
+  if (!serviceReady || !activeSessionId() || !conversationClient) return;
+  asrClient?.dispose(); asrClient = null;
+  showMicrophoneState('idle');
+  const targetSession = activeSessionId();
+  const targetClient = conversationClient;
+  let client;
+  client = createContinuousVoiceClient({
+    getUserMedia: navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices),
+    AudioContext: window.AudioContext, AudioWorkletNode: window.AudioWorkletNode,
+    WebSocket: window.WebSocket,
+    baseUrl: `http://127.0.0.1:${currentProfile.liveTalking.port}`,
+    allowBargeIn: $('#handsfree-barge-in').checked,
+    onState: (state, detail) => { if (continuousVoiceClient === client) showContinuousVoiceState(state, detail); },
+    onBargeIn: async () => {
+      if (activeSessionId() !== targetSession) return;
+      await targetClient.interrupt();
+      speechInterrupted = true;
+    },
+    onTurn: async (text, { signal }) => {
+      if (signal.aborted || activeSessionId() !== targetSession || continuousVoiceClient !== client) return;
+      const canSend = await waitForSendSlot({ busy: () => sending, signal });
+      if (!canSend) {
+        if (!signal.aborted) throw new Error('Предыдущая реплика ещё отправляется');
+        return;
+      }
+      if (signal.aborted || activeSessionId() !== targetSession || continuousVoiceClient !== client) return;
+      $('#message-text').value = text;
+      updateConversationControls();
+      const accepted = await submitTurn({ text, type: 'chat', requestId: crypto.randomUUID() });
+      if (!accepted || signal.aborted || activeSessionId() !== targetSession) return;
+      await waitForAvatarReply({ speaking: () => targetClient.speaking(),
+        pending: () => currentProfile.brain.mode === 'batya' && brainState.pending > 0, signal });
+    },
+  });
+  continuousVoiceClient = client;
+  showContinuousVoiceState('starting');
+  try { await client.start(); }
+  catch (error) { if (continuousVoiceClient === client) showContinuousVoiceState('failed', error.message); }
+});
 async function submitTurn(turn) {
-  if (!conversationClient || sending) return;
+  if (!conversationClient || sending) return false;
   const { text, type, requestId } = turn;
   const token = sessionGeneration;
   sending = true;
@@ -505,7 +683,8 @@ async function submitTurn(turn) {
     failedTurn = null; $('#retry-message').hidden = true;
     $('#message-text').value = '';
     $('#conversation-message').textContent = 'Сообщение принято.';
-  } catch (error) { if (token !== sessionGeneration) return; $('#conversation-message').textContent = error.message; failedTurn = turn; $('#retry-message').hidden = false; }
+    return true;
+  } catch (error) { if (token !== sessionGeneration) return false; $('#conversation-message').textContent = error.message; failedTurn = turn; $('#retry-message').hidden = false; return false; }
   finally { sending = false; updateConversationControls(); }
 }
 $('#conversation-form').addEventListener('submit', async event => {
@@ -531,7 +710,7 @@ $('#record-avatar').addEventListener('click', async () => {
       recording = true;
       $('#conversation-message').textContent = 'Запись идёт…';
     } else {
-      const sessionId = webRtcClient.sessionId();
+      const sessionId = activeSessionId();
       await conversationClient.stopRecording();
       recording = false;
       updateConversationControls();
@@ -543,13 +722,28 @@ $('#record-avatar').addEventListener('click', async () => {
 });
 let speakingPollBusy = false;
 const speakingTimer = setInterval(async () => {
-  if (!conversationClient || !webRtcClient?.sessionId() || speakingPollBusy) return;
+  if (!conversationClient || !activeSessionId() || speakingPollBusy) return;
   speakingPollBusy = true;
   try { $('#speaking-state').textContent = await conversationClient.speaking() ? 'Говорит' : 'Слушает'; }
   catch { $('#speaking-state').textContent = 'Нет статуса'; }
   finally { speakingPollBusy = false; }
 }, 1000);
-window.addEventListener('beforeunload', () => { clearInterval(speakingTimer); asrClient?.dispose(); });
+window.addEventListener('beforeunload', () => { clearInterval(speakingTimer); asrClient?.dispose(); void stopContinuousVoice(); });
+const projectionTimer = setInterval(async () => {
+  const client = projectionClient;
+  if (!client?.sessionId()) return;
+  try {
+    const status = await client.status();
+    if (client !== projectionClient) return;
+    if (status.state !== 'connected') await disconnectProjection();
+  }
+  catch {
+    if (client !== projectionClient) return;
+    void disconnectProjection().catch(() => {});
+    showProjectionState('failed');
+  }
+}, 2000);
+window.addEventListener('beforeunload', () => { clearInterval(projectionTimer); void disconnectProjection(); });
 window.addEventListener('beforeunload', disconnectAvatar);
 
 if (bridge) {
@@ -559,6 +753,7 @@ if (bridge) {
       if (recording || recordingBusy) throw new Error('Завершите запись перед сменой аватара или созданием.');
       ++historyGeneration;
       asrClient?.dispose(); asrClient = null;
+      await disconnectProjection();
       disconnectAvatar();
     },
     onProfileSelected: profile => { showProfile(profile); void checkSetup(); },

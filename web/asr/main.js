@@ -18,7 +18,8 @@ var rec = Recorder({
 	type:"pcm",
 	bitRate:16,
 	sampleRate:16000,
-	onProcess:recProcess
+	onProcess:recProcess,
+	audioTrackSet:{echoCancellation:true, noiseSuppression:true, autoGainControl:true}
 });
 
  
@@ -354,91 +355,37 @@ function handleWithTimestamp(tmptext,tmptime)
 
 }
 
-const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay))
-async function is_speaking() {
-	const response = await fetch('/is_speaking', {
-		body: JSON.stringify({
-			sessionid: String(parent.document.getElementById('sessionid').value),
-		}),
-		headers: {
-			'Content-Type': 'application/json'
-		},
-		method: 'POST'
-	  });
-	const data = await response.json();
-	console.log('is_speaking res:',data)
-	return data.data
-}
-
-async function waitSpeakingEnd() {
-	rec.stop() //关闭录音
-	for(let i=0;i<10;i++) {  //等待数字人开始讲话，最长等待10s
-		bspeak = await is_speaking()
-		if(bspeak) {
-			break
-		}
-		await sleep(1000)
-	}
-
-	while(true) {  //等待数字人讲话结束
-		bspeak = await is_speaking()
-		if(!bspeak) {
-			break
-		}
-		await sleep(1000)
-	}
-	await sleep(2000)
-	rec.start() 
-}
 // 语音识别结果; 对jsonMsg数据解析,将识别结果附加到编辑框中
-function getJsonMessage( jsonMsg ) {
-	//console.log(jsonMsg);
-	console.log( "message: " + JSON.parse(jsonMsg.data)['text'] );
-	var rectxt=""+JSON.parse(jsonMsg.data)['text'];
-	var asrmodel=JSON.parse(jsonMsg.data)['mode'];
-	var is_final=JSON.parse(jsonMsg.data)['is_final'];
-	var timestamp=JSON.parse(jsonMsg.data)['timestamp'];
-	if(asrmodel=="2pass-offline" || asrmodel=="offline")
-	{
-		offline_text=offline_text+rectxt.replace(/ +/g,"")+'\n'; //handleWithTimestamp(rectxt,timestamp); //rectxt; //.replace(/ +/g,"");
-		rec_text=offline_text;
-		fetch('/human', {
-            body: JSON.stringify({
-                text: rectxt.replace(/ +/g,""),
-                type: 'chat',
-				sessionid: String(parent.document.getElementById('sessionid').value),
-            }),
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            method: 'POST'
-      	});
-
-		waitSpeakingEnd();
-	}
-	else
-	{
-		rec_text=rec_text+rectxt; //.replace(/ +/g,"");
-	}
-	var varArea=document.getElementById('varArea');
-	
-	varArea.value=rec_text;
-	console.log( "offline_text: " + asrmodel+","+offline_text);
-	console.log( "rec_text: " + rec_text);
-	if (isfilemode==true && is_final==true){
-		console.log("call stop ws!");
-		play_file();
-		wsconnecter.wsStop();
-        
-		info_div.innerHTML=asrText("请点击连接", "Click Connect");
- 
-		btnStart.disabled = true;
-		btnStop.disabled = true;
-		btnConnect.disabled=false;
-	}
-	
-	 
- 
+function getJsonMessage(jsonMsg) {
+    var message = JSON.parse(jsonMsg.data);
+    if (message.error) {
+        info_div.textContent = asrText("识别错误: ", "ASR error: ") + message.error;
+    } else {
+        var text = (message.text || "").trim();
+        if (text && message.is_final) {
+            offline_text += text + "\n";
+            rec_text = offline_text;
+            document.getElementById('varArea').value = rec_text;
+            fetch('/human', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    text: text,
+                    type: 'chat',
+                    interrupt: true,
+                    sessionid: String(parent.document.getElementById('sessionid').value)
+                })
+            }).catch(function(error) { info_div.textContent = String(error); });
+        }
+    }
+    if (message.is_final) {
+        if (isfilemode) play_file();
+        wsconnecter.wsStop();
+        btnStart.disabled = true;
+        btnStop.disabled = true;
+        btnConnect.disabled = false;
+        if (!message.error) info_div.textContent = asrText("请点击连接", "Click Connect");
+    }
 }
 
 // 连接状态响应
@@ -475,7 +422,13 @@ function getConnState( connState ) {
 
 function record()
 {
- 
+         if (!isfilemode) {
+             fetch('/interrupt_talk', {
+                 method: 'POST',
+                 headers: {'Content-Type': 'application/json'},
+                 body: JSON.stringify({sessionid: String(parent.document.getElementById('sessionid').value)})
+             }).catch(function(error) { console.error(error); });
+         }
 		 rec.open( function(){
 		 rec.start();
 		 console.log(asrText("开始", "Start"));
@@ -551,15 +504,6 @@ function stop() {
 	    btnStop.disabled = true;
 		btnStart.disabled = true;
 		btnConnect.disabled=true;
-		//wait 3s for asr result
-	  setTimeout(function(){
-		console.log("call stop ws!");
-		wsconnecter.wsStop();
-		btnConnect.disabled=false;
-		info_div.innerHTML=asrText("请点击连接", "Click Connect");}, 3000 );
- 
- 
-	   
 	rec.stop(function(blob,duration){
   
 		console.log(blob);

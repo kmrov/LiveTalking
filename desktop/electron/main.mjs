@@ -23,6 +23,7 @@ import { createAvatarSources } from './avatar-sources.mjs';
 import { inspectAvatarPrerequisites, runAvatarCommand } from './avatar-prerequisites.mjs';
 import { createAvatarRuntime } from './avatar-runtime.mjs';
 import { createModelDownloads, prepareProfileModels } from './model-downloads.mjs';
+import { createProjectionApi } from './projection-api.mjs';
 
 const studioFile = fileURLToPath(new URL('../dist/studio.html', import.meta.url));
 const studioUrl = pathToFileURL(studioFile).href;
@@ -41,6 +42,7 @@ let avatarJobs;
 let avatarLibrary;
 let avatarFixture;
 let modelDownloads;
+let projectionApi;
 let thumbnailQueue=Promise.resolve();
 let serviceState = initialServiceState();
 let startJob;
@@ -99,6 +101,7 @@ async function startProfile(id) {
 
 async function stopProfile() {
   ++runGeneration;
+  await projectionApi?.release().catch(() => {});
   await modelDownloads?.stop();
   await supervisor.stop();
   await batyaSupervisor.stop();
@@ -163,6 +166,7 @@ function brainApi(id) {
 }
 
 function registerSetupIpc() {
+  projectionApi = createProjectionApi({ getProfile: id => profileStore.get(id), getServiceState: () => serviceState });
   ipcMain.handle('desktop:get-setup', trusted(async () => {
     const profile = discoverBrain(initialProfile());
     const voiceReferences = findVoiceReferences(profile.liveTalking.root);
@@ -213,6 +217,7 @@ function registerSetupIpc() {
   }));
   ipcMain.handle('desktop:start-profile', trusted(id => avatarRuntime.runLifecycle(() => startProfile(id))));
   ipcMain.handle('desktop:stop-profile', trusted(stopProfile));
+  ipcMain.handle('desktop:projection-request', trusted((id, action, input) => projectionApi.request(id, action, input)));
   ipcMain.handle('desktop:avatar-library', trusted(profile => avatarRuntime.list(profile)));
   ipcMain.handle('desktop:avatar-source', trusted(profile => avatarRuntime.chooseSource(profile)));
   ipcMain.handle('desktop:avatar-check', trusted(input => avatarRuntime.checkCreation(input)));

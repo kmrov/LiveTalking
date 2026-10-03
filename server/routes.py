@@ -48,7 +48,8 @@ async def desktop_health(request):
 
 from server.session_manager import session_manager
 from server.avatar_routes import setup_avatar_routes
-from server.rtc_manager import WhipAlreadyActiveError
+from server.rtc_manager import WhipAlreadyActiveError, WhipLeaseMismatch
+from uuid import UUID
 
 def get_session(request, sessionid: str):
     """从 app 中获取 session 实例"""
@@ -295,11 +296,28 @@ def _whip_json(status, data=None, message=None):
         body["data"] = data
     return web.json_response(body, status=status)
 
+def _whip_session_id(value):
+    if value == "0":
+        return value
+    if not isinstance(value, str) or str(UUID(value)) != value:
+        raise ValueError("Invalid WHIP session ID")
+    return value
+
+
+def _whip_lease(value):
+    if not isinstance(value, str) or str(UUID(value)) != value:
+        raise ValueError("Invalid WHIP lease")
+    return value
+
 
 async def whip_status(request):
     if not _whip_control_allowed(request):
         return _whip_json(403, message="Local access only")
-    return _whip_json(200, request.app["rtc_manager"].whip_status())
+    try:
+        sessionid = _whip_session_id(request.query.get("sessionid", "0"))
+    except ValueError:
+        return _whip_json(400, message="Invalid WHIP session ID")
+    return _whip_json(200, request.app["rtc_manager"].whip_status(sessionid))
 
 
 async def whip_connect(request):
@@ -326,7 +344,24 @@ async def whip_connect(request):
     if not valid_url:
         return _whip_json(400, message="Enter a valid HTTP(S) WHIP URL without credentials or fragment")
     try:
-        status = await request.app["rtc_manager"].connect_whip(url, token)
+        sessionid = _whip_session_id(params.get("sessionid", "0"))
+        lease = _whip_lease(params["lease"]) if "lease" in params else None
+        if (sessionid == "0") != (lease is None):
+            raise ValueError("WHIP session ID and lease must be supplied together")
+    except ValueError as exc:
+        return _whip_json(400, message=str(exc))
+    limits = {"avatar": 255, "refaudio": 4096, "reftext": 20_000, "batya_conversation_id": 36}
+    session_params = {key: params[key] for key in limits if key in params}
+    if any(not isinstance(value, str) or len(value) > limits[key] for key, value in session_params.items()):
+        return _whip_json(400, message="Invalid avatar, voice, or conversation parameter")
+    if session_params.get("batya_conversation_id"):
+        try:
+            from server.batya_brain import conversation_id
+            session_params["batya_conversation_id"] = conversation_id(session_params["batya_conversation_id"])
+        except ValueError:
+            return _whip_json(400, message="Invalid conversation ID")
+    try:
+        status = await request.app["rtc_manager"].connect_whip(url, token, sessionid=sessionid, params=session_params, lease=lease)
     except WhipAlreadyActiveError as exc:
         return _whip_json(409, message=str(exc))
     except Exception as exc:
@@ -338,7 +373,20 @@ async def whip_connect(request):
 async def whip_disconnect(request):
     if not _whip_control_allowed(request):
         return _whip_json(403, message="Local access only")
-    status = await request.app["rtc_manager"].disconnect_whip()
+    try:
+        params = await request.json() if request.can_read_body else {}
+        if not isinstance(params, dict):
+            raise ValueError("Invalid request")
+        sessionid = _whip_session_id(params.get("sessionid", "0"))
+        lease = _whip_lease(params["lease"]) if "lease" in params else None
+        if (sessionid == "0") != (lease is None):
+            raise ValueError("WHIP session ID and lease must be supplied together")
+    except (ValueError, web.HTTPBadRequest) as exc:
+        return _whip_json(400, message=str(exc))
+    try:
+        status = await request.app["rtc_manager"].disconnect_whip(sessionid, lease=lease)
+    except WhipLeaseMismatch as exc:
+        return _whip_json(409, message=str(exc))
     return _whip_json(200, status)
 
 
