@@ -17,7 +17,7 @@
     <div id="startup-progress" class="startup-progress" hidden><span class="startup-spinner" aria-hidden="true"></span><span id="startup-progress-text">Подготавливаем сервисы…</span></div>
 
     <main class="workspace">
-      <aside class="left-panel" aria-label="Источник и профиль">
+      <aside id="profile-panel" class="left-panel" aria-label="Источник и профиль">
         <div class="panel-heading"><span>ПРОФИЛЬ</span><span class="index">01</span></div>
         <section class="avatar-summary" aria-label="Выбранный аватар">
           <div class="avatar-current"><img id="selected-avatar-image" alt="" hidden><div><strong id="selected-avatar-name">Выберите аватара</strong><small id="selected-avatar-model"></small></div></div>
@@ -88,6 +88,8 @@
         </details>
       </aside>
 
+      <div id="left-panel-resizer" class="panel-resizer" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Ширина панели профиля" aria-controls="profile-panel"></div>
+
       <section class="stage" aria-label="Превью аватара">
         <div id="model-download-panel" hidden><p id="model-download-state" role="status"></p><progress id="model-download-progress" max="100" value="0" aria-label="Загрузка моделей"></progress></div>
         <div class="stage-toolbar"><span>Аватар</span><span class="stage-tag">ПРЕВЬЮ</span><button type="button" id="connect-avatar" disabled>Включить превью</button></div>
@@ -115,7 +117,9 @@
         </section>
       </section>
 
-      <aside class="right-panel" aria-label="Диалог">
+      <div id="right-panel-resizer" class="panel-resizer" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Ширина панели диалога" aria-controls="conversation-panel"></div>
+
+      <aside id="conversation-panel" class="right-panel" aria-label="Диалог">
         <div class="panel-heading"><span>ДИАЛОГ</span><span class="index">03</span></div>
         <div id="brain-conversations" hidden>
           <label>Разговор с Батей<select id="brain-conversation"><option value="">Новый разговор</option></select></label>

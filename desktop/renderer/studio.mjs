@@ -7,11 +7,16 @@ import { waitForAvatarReply, waitForSendSlot } from './auto-turn.mjs';
 import { FixturePeer } from './fixture-peer.mjs';
 import { reduceBrainEvent } from './brain-events.mjs';
 import { mountAvatarLibrary } from './avatar-library.mjs';
+import { mountPanelResizers } from './panel-resize.mjs';
 
 const bridge = window.liveTalkingDesktop;
 if (bridge?.version) document.querySelector('#app-version').textContent = `v0.1 · API ${bridge.version}`;
 
 const $ = selector => document.querySelector(selector);
+mountPanelResizers({
+  workspace: $('.workspace'), leftPanel: $('.left-panel'), rightPanel: $('.right-panel'),
+  leftHandle: $('#left-panel-resizer'), rightHandle: $('#right-panel-resizer'),
+});
 const fields = {
   python: $('#python-path'), model: $('#avatar-model'), avatarId: $('#avatar-id'), port: $('#server-port'),
   mode: $('#speech-mode'), asrVllm: $('#asr-vllm'), ttsVllm: $('#tts-vllm'),

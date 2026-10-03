@@ -28,7 +28,12 @@ body { overflow: hidden; }
 .startup-spinner, .service-row [data-state="starting"]::before { display: inline-block; width: 12px; height: 12px; flex: none; border: 2px solid #486b56; border-top-color: #b4e5bd; border-radius: 50%; animation: startup-spin .85s linear infinite; content: ""; }
 @keyframes startup-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .startup-spinner, .service-row [data-state="starting"]::before, .topbar-state:has(#runtime-state[data-phase="starting"]) .status-dot, .topbar-state:has(#runtime-state[data-phase="checking"]) .status-dot { animation: none; border-color: #b4e5bd; } }
-.workspace { display: grid; grid-template-columns: minmax(235px, 260px) minmax(400px, 1fr) minmax(280px, 320px); min-height: 0; flex: 1; }
+.workspace { --left-panel-width: 260px; --right-panel-width: 320px; display: grid; grid-template-columns: var(--left-panel-width) 8px minmax(320px, 1fr) 8px var(--right-panel-width); min-height: 0; flex: 1; }
+.panel-resizer { position: relative; z-index: 1; min-width: 8px; background: #111719; cursor: col-resize; touch-action: none; }
+.panel-resizer::after { position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: #2a3633; content: ""; }
+.panel-resizer:hover::after, .panel-resizer:focus-visible::after, .panel-resizer.is-dragging::after { background: #a9cfc4; }
+.panel-resizer:focus-visible { outline: 2px solid #aadab7; outline-offset: -2px; }
+body.is-resizing-panels, body.is-resizing-panels * { cursor: col-resize !important; user-select: none !important; }
 .left-panel, .right-panel { display: flex; flex-direction: column; min-height: 0; padding: 28px 24px; background: #161a1d; }
 .left-panel { overflow-x: hidden; overflow-y: auto; border-right: 1px solid #2a3033; }
 .right-panel { overflow-x: hidden; overflow-y: auto; border-left: 1px solid #2a3033; }
@@ -156,7 +161,7 @@ body { overflow: hidden; }
 :where(button, input, select, textarea, summary, a[href], .text-button):focus-visible { outline: 2px solid #aadab7; outline-offset: 3px; }
 #setup-form input:focus-visible, #setup-form select:focus-visible, #setup-form textarea:focus-visible { outline: 2px solid #aadab7; outline-offset: 2px; }
 @media (max-width: 1120px) {
-  .workspace { grid-template-columns: 210px minmax(320px, 1fr) 300px; }
+  .workspace { --left-panel-width: 210px; --right-panel-width: 300px; }
   .left-panel, .right-panel { padding: 23px 18px; }
   .brand { min-width: 195px; }
 }

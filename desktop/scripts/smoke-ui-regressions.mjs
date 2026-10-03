@@ -22,6 +22,55 @@ try {
   } });
   const window = await application.firstWindow();
   await window.locator('#setup-results li').first().waitFor({ state: 'attached' });
+  assert.equal(await window.locator('.panel-resizer').count(), 2,
+    'both side panels must have resize handles');
+  const panelWidths = () => window.evaluate(() => ({
+    left: document.querySelector('.left-panel').getBoundingClientRect().width,
+    right: document.querySelector('.right-panel').getBoundingClientRect().width,
+    stage: document.querySelector('.stage').getBoundingClientRect().width,
+  }));
+  const initialWidths = await panelWidths();
+  const leftHandle = await window.locator('#left-panel-resizer').boundingBox();
+  await window.mouse.move(leftHandle.x + leftHandle.width / 2, leftHandle.y + 50);
+  await window.mouse.down();
+  await window.mouse.move(leftHandle.x + leftHandle.width / 2 + 90, leftHandle.y + 50, { steps: 5 });
+  await window.mouse.up();
+  await window.waitForFunction(initial => document.querySelector('.left-panel').getBoundingClientRect().width > initial + 80, initialWidths.left, { timeout: 5000 });
+  const afterLeftDrag = await panelWidths();
+  assert.ok(afterLeftDrag.left > initialWidths.left + 80, 'dragging the left divider widens the profile panel');
+  assert.ok(afterLeftDrag.stage < initialWidths.stage - 80, 'the stage gives space to the profile panel');
+  const rightHandle = await window.locator('#right-panel-resizer').boundingBox();
+  await window.mouse.move(rightHandle.x + rightHandle.width / 2, rightHandle.y + 50);
+  await window.mouse.down();
+  await window.mouse.move(rightHandle.x + rightHandle.width / 2 - 70, rightHandle.y + 50, { steps: 5 });
+  await window.mouse.up();
+  await window.waitForFunction(initial => document.querySelector('.right-panel').getBoundingClientRect().width > initial + 60, initialWidths.right, { timeout: 5000 });
+  const afterRightDrag = await panelWidths();
+  assert.ok(afterRightDrag.right > initialWidths.right + 60, 'dragging the right divider widens the conversation panel');
+  await window.locator('#right-panel-resizer').focus();
+  await window.keyboard.press('ArrowRight');
+  const afterKeyboard = await panelWidths();
+  assert.ok(afterKeyboard.right < afterRightDrag.right, 'the right divider can be adjusted with the keyboard');
+  await window.reload();
+  await window.locator('#setup-results li').first().waitFor({ state: 'attached' });
+  const restoredWidths = await panelWidths();
+  assert.ok(Math.abs(restoredWidths.left - afterKeyboard.left) < 1, 'the left panel width survives reload');
+  assert.ok(Math.abs(restoredWidths.right - afterKeyboard.right) < 1, 'the right panel width survives reload');
+  await window.setViewportSize({ width: 960, height: 680 });
+  await window.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
+  const compactWidths = await panelWidths();
+  assert.ok(compactWidths.stage >= 319.5, `resizing the window keeps the stage usable: ${JSON.stringify(compactWidths)}`);
+  assert.equal(await window.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true,
+    'saved panel widths must not overflow a compact window');
+  await window.setViewportSize({ width: 1440, height: 900 });
+  await window.waitForFunction(({ left, right }) => {
+    const leftWidth = document.querySelector('.left-panel').getBoundingClientRect().width;
+    const rightWidth = document.querySelector('.right-panel').getBoundingClientRect().width;
+    return Math.abs(leftWidth - left) < 1 && Math.abs(rightWidth - right) < 1;
+  }, restoredWidths);
+  const expandedWidths = await panelWidths();
+  assert.ok(Math.abs(expandedWidths.left - restoredWidths.left) < 1, 'the preferred left width returns after expanding the window');
+  assert.ok(Math.abs(expandedWidths.right - restoredWidths.right) < 1, 'the preferred right width returns after expanding the window');
   await window.locator('#brain-mode').selectOption('batya');
   await window.locator('#brain-service-mode').selectOption('external');
   await window.locator('#brain-url').fill(`http://127.0.0.1:${fixture.port}`);
@@ -142,6 +191,21 @@ try {
   await window.waitForFunction(() => !document.querySelector('#send-message').disabled);
   assert.equal(await window.locator('#message-text').inputValue(), 'Новый черновик',
     'completed send must retain a newer draft');
+  await window.setViewportSize({ width: 1440, height: 900 });
+  const wideHandle = await window.locator('#left-panel-resizer').boundingBox();
+  await window.mouse.move(wideHandle.x + wideHandle.width / 2, wideHandle.y + 50);
+  await window.mouse.down();
+  await window.mouse.move(wideHandle.x + wideHandle.width / 2 - 220, wideHandle.y + 50, { steps: 5 });
+  await window.mouse.up();
+  const dialogHandle = await window.locator('#right-panel-resizer').boundingBox();
+  await window.mouse.move(dialogHandle.x + dialogHandle.width / 2, dialogHandle.y + 50);
+  await window.mouse.down();
+  await window.mouse.move(dialogHandle.x + dialogHandle.width / 2 + 220, dialogHandle.y + 50, { steps: 5 });
+  await window.mouse.up();
+  const narrowWidths = await panelWidths();
+  assert.ok(narrowWidths.left <= initialWidths.left - 50, 'the profile panel can be made narrower');
+  assert.ok(narrowWidths.right <= initialWidths.right - 70, 'the conversation panel can be made narrower');
+  assert.ok(narrowWidths.stage >= 320, 'the stage remains usable with narrow side panels');
   fixture.finishTurn();
   console.log('UI regressions: passed');
 } finally {
