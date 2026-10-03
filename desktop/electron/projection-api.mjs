@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
+import { discoverHeadinjar } from './headinjar-discovery.mjs';
 
 const disconnected = { state: 'disconnected', url: '' };
 
-export function createProjectionApi({ fetch = globalThis.fetch, getProfile, getServiceState, makeId = randomUUID }) {
+export function createProjectionApi({ fetch = globalThis.fetch, getProfile, getServiceState, makeId = randomUUID, discover = discoverHeadinjar }) {
   let owner = null;
   let releasePending = null;
+  let discoveredUrls = new Map();
 
   async function call(port, action, input = {}, sessionid = '') {
     const url = new URL(`http://127.0.0.1:${port}/api/whip/${action}`);
@@ -33,7 +35,12 @@ export function createProjectionApi({ fetch = globalThis.fetch, getProfile, getS
   }
 
   async function request(profileId, action, input = {}) {
-    if (!['connect', 'status', 'disconnect'].includes(action)) throw new Error('Invalid action');
+    if (!['connect', 'status', 'disconnect', 'discover'].includes(action)) throw new Error('Invalid action');
+    if (action === 'discover') {
+      const found = await discover();
+      discoveredUrls = new Map(found.filter(item => ['local', 'bearer'].includes(item.auth)).map(item => [item.url, { auth: item.auth, expires: Date.now() + 30000 }]));
+      return found;
+    }
     const state = getServiceState();
     const profile = getProfile(profileId);
     if (!profile || state.profileId !== profileId || (action !== 'disconnect' && state.phase !== 'ready')) throw new Error('Projection requires the active profile');
@@ -53,9 +60,16 @@ export function createProjectionApi({ fetch = globalThis.fetch, getProfile, getS
     if (owner || releasePending) throw new Error('Projection is already connecting, connected, or disconnecting');
     let destination;
     try { destination = new URL(input.url); } catch { throw new Error('Enter the local Head in Jar WHIP URL'); }
-    if (!['http:', 'https:'].includes(destination.protocol) || destination.hostname !== '127.0.0.1'
-        || destination.port !== '19840' || destination.pathname !== '/whip'
-        || destination.username || destination.password || destination.search || destination.hash) {
+    const oldLoopback = destination.hostname === '127.0.0.1' && destination.port === '19840';
+    const discovered = discoveredUrls.get(destination.toString());
+    const currentDiscovery = discovered?.expires > Date.now() ? discovered : null;
+    if (currentDiscovery?.auth === 'bearer' && (typeof input.token !== 'string' || !input.token.trim())) {
+      throw new Error('This Head in Jar requires a Bearer token');
+    }
+    const discoveredAllowed = currentDiscovery?.auth === 'bearer' || (currentDiscovery?.auth === 'local' && !input.token);
+    if (!['http:', 'https:'].includes(destination.protocol) || (!oldLoopback && !discoveredAllowed)
+        || destination.pathname !== '/whip' || destination.username || destination.password
+        || destination.search || destination.hash) {
       throw new Error('Enter the local Head in Jar WHIP URL');
     }
     const current = { profileId, port, sessionid: makeId(), lease: makeId() };

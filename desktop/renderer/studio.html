@@ -105,10 +105,11 @@
         <div class="stage-footer"><span class="muted">WebRTC</span><span id="webrtc-state">Нет подключения</span></div>
         <section class="projection-panel" aria-label="Проекция Head in Jar">
           <div class="projection-heading"><strong>Head in Jar</strong><span id="projection-state" role="status">Нет подключения</span></div>
+          <label>Head in Jar в локальной сети<select id="projection-discovered"><option value="">Поиск устройств…</option></select></label>
           <label>WHIP URL<input id="projection-url" type="url" placeholder="http://127.0.0.1:19840/whip" autocomplete="off"></label>
           <label>Bearer token<input id="projection-token" type="password" autocomplete="off"></label>
           <button id="connect-projection" type="button" disabled>Подключить проекцию</button>
-          <p>Сначала запустите сервер подключения в Head in Jar. Проектор включается там отдельно.</p>
+          <p id="projection-hint">Сначала запустите сервер подключения в Head in Jar. Проектор включается там отдельно.</p>
         </section>
       </section>
 

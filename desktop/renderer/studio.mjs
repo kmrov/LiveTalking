@@ -29,6 +29,7 @@ let knownVoices = [];
 let webRtcClient;
 let projectionClient;
 let projectionBusy = false;
+let discoveryPending = false;
 let previewBusy = false;
 let connectionGeneration = 0;
 let webRtcState = 'disconnected';
@@ -129,6 +130,7 @@ function showWebRtcState(state) {
   $('#webrtc-state').dataset.sessionId = webRtcClient?.sessionId() || '';
   $('#connect-avatar').disabled = !serviceReady || previewBusy || projectionBusy || Boolean(projectionClient?.sessionId());
   $('#connect-projection').disabled = !serviceReady || previewBusy || projectionBusy || Boolean(webRtcClient?.sessionId());
+  updateProjectionHint();
   const connected = Boolean(webRtcClient?.sessionId());
   $('#connect-avatar').textContent = connected ? 'Отключить' : 'Подключить WebRTC';
   if (['disconnected', 'failed', 'closed'].includes(state)) {
@@ -165,8 +167,68 @@ function showProjectionState(state) {
   $('#connect-projection').textContent = projectionClient?.sessionId() ? 'Отключить проекцию' : 'Подключить проекцию';
   $('#connect-projection').disabled = !serviceReady || projectionBusy || previewBusy || Boolean(webRtcClient?.sessionId());
   $('#connect-avatar').disabled = !serviceReady || projectionBusy || previewBusy || Boolean(projectionClient?.sessionId());
+  updateProjectionHint();
   if (activeTarget === 'projection' && !projectionClient?.sessionId()) selectConversationTarget('none');
   updateConversationControls();
+}
+async function refreshHeadinjarDiscovery() {
+  if (!bridge || discoveryPending) return;
+  discoveryPending = true;
+  const profileId = currentProfile?.id;
+  const select = $('#projection-discovered');
+  try {
+    const found = await bridge.projectionRequest(profileId, 'discover');
+    if (currentProfile?.id !== profileId) return;
+    const selected = select.value;
+    select.replaceChildren();
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = found.length ? 'Выберите найденный Head in Jar' : 'Head in Jar в сети не найден';
+    select.append(placeholder);
+    for (const receiver of found) {
+      const option = document.createElement('option');
+      option.value = receiver.url;
+      option.dataset.auth = receiver.auth;
+      option.textContent = `${receiver.name} · ${new URL(receiver.url).host}${receiver.auth === 'bearer' ? ' · нужен токен' : ''}`;
+      select.append(option);
+    }
+    select.value = found.some(receiver => receiver.url === selected) ? selected : '';
+    updateProjectionHint();
+  } catch (error) {
+    if (currentProfile?.id === profileId) {
+      select.replaceChildren();
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = `Поиск недоступен: ${error.message}`;
+      select.append(option);
+    }
+  } finally { discoveryPending = false; }
+}
+
+$('#projection-discovered').addEventListener('change', () => {
+  const url = $('#projection-discovered').value;
+  if (url) { $('#projection-url').value = url; $('#projection-token').value = ''; }
+  updateProjectionHint();
+});
+$('#projection-url').addEventListener('input', () => {
+  if ($('#projection-url').value !== $('#projection-discovered').value) $('#projection-discovered').value = '';
+  updateProjectionHint();
+});
+
+function updateProjectionHint() {
+  const selected = $('#projection-discovered').selectedOptions[0];
+  let hint = $('#projection-discovered').value
+    ? selected?.dataset.auth === 'bearer'
+      ? 'Этот Head in Jar требует Bearer token. Скопируйте его в Head in Jar и вставьте здесь.'
+      : 'Найденный Head in Jar: подключение без токена. Проектор включается там отдельно.'
+    : 'Выберите Head in Jar в списке или вставьте WHIP URL вручную. Токен необязателен.';
+  if (!serviceReady) hint = servicePhase === 'failed' ? 'Профиль не запущен: проверьте журнал запуска.'
+    : servicePhase === 'starting' || servicePhase === 'checking' ? 'Дождитесь запуска сервисов: подключение станет доступно при состоянии «Работает».'
+      : 'Сначала запустите профиль Studio.';
+  else if (webRtcClient?.sessionId()) hint = 'Сначала отключите WebRTC предпросмотр, затем подключите проекцию.';
+  else if (projectionBusy || previewBusy) hint = 'Дождитесь завершения текущего подключения.';
+  else if (projectionClient?.sessionId()) hint = 'Поток подключён. Включите проектор в Head in Jar.';
+  $('#projection-hint').textContent = hint;
 }
 
 async function disconnectProjection() {
@@ -189,6 +251,7 @@ function showSnapshot(snapshot) {
   const phase = snapshot.service.phase;
   servicePhase = phase;
   serviceReady = phase === 'ready';
+  if (serviceReady && !wasReady) void refreshHeadinjarDiscovery();
   $('#setup-title').textContent = serviceReady ? 'Профиль запущен' : 'Локальное окружение';
   if (serviceReady) { $('#setup-details').open = false; $('#check-details').open = false; }
   showWebRtcState(webRtcState);
@@ -253,6 +316,7 @@ function showSecretStatus(status) {
 
 function showProfile(profile) {
   currentProfile = profile;
+  void refreshHeadinjarDiscovery();
   $('#profile-name').textContent = profile.name;
   $('#root-path').textContent = profile.liveTalking.root || 'Не найден рядом с приложением';
   fields.python.value = profile.liveTalking.python;
@@ -566,6 +630,9 @@ $('#connect-projection').addEventListener('click', async () => {
   const url = $('#projection-url').value.trim();
   const token = $('#projection-token').value.trim();
   if (!url) { $('#projection-state').textContent = 'Введите WHIP URL из Head in Jar'; return; }
+  if ($('#projection-discovered').selectedOptions[0]?.dataset.auth === 'bearer' && !token) {
+    $('#projection-state').textContent = 'Этот Head in Jar требует Bearer token'; return;
+  }
   projectionBusy = true;
   const attempt = ++connectionGeneration;
   showProjectionState('connecting');
@@ -729,6 +796,8 @@ const speakingTimer = setInterval(async () => {
   finally { speakingPollBusy = false; }
 }, 1000);
 window.addEventListener('beforeunload', () => { clearInterval(speakingTimer); asrClient?.dispose(); void stopContinuousVoice(); });
+const discoveryTimer = setInterval(() => { void refreshHeadinjarDiscovery(); }, 15000);
+window.addEventListener('beforeunload', () => clearInterval(discoveryTimer));
 const projectionTimer = setInterval(async () => {
   const client = projectionClient;
   if (!client?.sessionId()) return;

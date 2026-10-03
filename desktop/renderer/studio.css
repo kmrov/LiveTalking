@@ -93,7 +93,7 @@ body { overflow: hidden; }
 .projection-heading { display: flex; justify-content: space-between; gap: 12px; color: #cfe2d4; }
 .projection-heading span { color: #9ab5a2; text-align: right; }
 .projection-panel label { display: grid; gap: 4px; color: #9ab5a2; }
-.projection-panel input { width: 100%; padding: 7px; border: 1px solid #40574c; border-radius: 5px; background: #101817; color: #ecf0ed; font: inherit; }
+.projection-panel input, .projection-panel select { width: 100%; padding: 7px; border: 1px solid #40574c; border-radius: 5px; background: #101817; color: #ecf0ed; font: inherit; }
 .projection-panel button { padding: 8px; border: 1px solid #557362; border-radius: 5px; background: #263b2f; color: #d4e7dc; font: inherit; cursor: pointer; }
 .projection-panel button:disabled { opacity: .4; cursor: default; }
 .projection-panel p { margin: 0; color: #8ca496; line-height: 1.4; }
