@@ -51,7 +51,7 @@ export function mountPanelResizers({ workspace, leftPanel, rightPanel, leftHandl
       document.body.classList.add('is-resizing-panels');
       event.preventDefault();
     });
-    handle.addEventListener('pointermove', event => {
+    window.addEventListener('pointermove', event => {
       if (!drag || event.pointerId !== drag.pointerId) return;
       preferred[side] = drag.startWidth + (event.clientX - drag.startX) * (side === 'left' ? 1 : -1);
       render();
@@ -64,9 +64,9 @@ export function mountPanelResizers({ workspace, leftPanel, rightPanel, leftHandl
       document.body.classList.remove('is-resizing-panels');
       save();
     };
-    handle.addEventListener('pointerup', finishDrag);
-    handle.addEventListener('pointercancel', finishDrag);
-    handle.addEventListener('lostpointercapture', finishDrag);
+    window.addEventListener('pointerup', finishDrag);
+    window.addEventListener('pointercancel', finishDrag);
+    window.addEventListener('blur', () => { if (drag) finishDrag({ pointerId: drag.pointerId }); });
     handle.addEventListener('keydown', event => {
       if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
       const direction = event.key === 'ArrowRight' ? 1 : -1;
