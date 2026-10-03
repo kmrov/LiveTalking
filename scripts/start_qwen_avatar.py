@@ -35,6 +35,13 @@ def child_environment():
     return env
 
 
+def model_environment(env, name):
+    model_env = env.copy()
+    base = env.get("FLASHINFER_WORKSPACE_BASE") or env.get("XDG_CACHE_HOME") or Path.home() / ".cache"
+    model_env["FLASHINFER_WORKSPACE_BASE"] = str(Path(base).expanduser() / "livetalking-studio" / name.lower())
+    return model_env
+
+
 def parse_args(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     extra = []
@@ -176,16 +183,42 @@ def avatar_command(args, python, ref_file, ref_text):
     return command + args.app_args
 
 
-def wait_for_model(server, expected, process, timeout, log_path):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if model_status(server, expected) == "ready":
-            return
-        if process is not None and process.poll() is not None:
-            tail = "\n".join(log_path.read_text(errors="replace").splitlines()[-20:])
-            raise RuntimeError(f"{expected} exited with code {process.returncode}. Log: {log_path}\n{tail}")
-        time.sleep(2)
-    raise TimeoutError(f"Timed out waiting for {expected} at {server}; see {log_path}")
+class ModelStartupError(RuntimeError):
+    def __init__(self, stage, detail):
+        super().__init__(detail)
+        self.stage = stage
+
+
+def wait_for_models(args, pending):
+    """Wait for the current model server and report its failing stage."""
+    deadline = time.monotonic() + args.timeout
+    while pending:
+        for item in pending[:]:
+            name, server, model, process, log_path = item
+            stage = name.lower()
+            if process is not None and process.poll() is not None:
+                lines = log_path.read_text(errors="replace").splitlines()
+                memory_failure = next((line for line in reversed(lines)
+                                       if "No available memory for the cache blocks" in line
+                                       or "CUDA out of memory" in line), "")
+                tail = "\n".join(lines[-20:])
+                detail = f"{model} exited with code {process.returncode}. Log: {log_path}"
+                if memory_failure:
+                    detail += f"\nGPU memory error: {memory_failure.strip()}"
+                raise ModelStartupError(stage, f"{detail}\n{tail}")
+            try:
+                status = model_status(server, model)
+            except RuntimeError as error:
+                raise ModelStartupError(stage, str(error)) from error
+            if status == "ready":
+                print(f"{name} ready: {server}", flush=True)
+                emit_status(args, stage, "ready", server)
+                pending.remove(item)
+        if pending:
+            if time.monotonic() >= deadline:
+                name, server, model, _, log_path = pending[0]
+                raise ModelStartupError(name.lower(), f"Timed out waiting for {model} at {server}; see {log_path}")
+            time.sleep(2)
 
 
 @contextmanager
@@ -205,11 +238,12 @@ def stop_processes(processes):
 
 def _stop_processes(processes):
     for process in reversed(processes):
-        if process.poll() is None:
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
+        try:
+            # The API leader may have exited while its vLLM engine is still in
+            # the process group. We own the entire new session, not just Popen.
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
     for process in reversed(processes):
         try:
             process.wait(timeout=10)
@@ -219,6 +253,16 @@ def _stop_processes(processes):
             except ProcessLookupError:
                 pass
             process.wait()
+            continue
+        try:
+            os.killpg(process.pid, 0)
+        except ProcessLookupError:
+            continue
+        time.sleep(1)
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
 
 def wait_for_services(args, app, owned_models):
@@ -290,7 +334,7 @@ def main(argv=None):
                 log = log_path.open("w")
                 try:
                     process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
-                                               start_new_session=True, env=env)
+                                               start_new_session=True, env=model_environment(env, name))
                 finally:
                     log.close()
                 processes.append(process)
@@ -298,9 +342,7 @@ def main(argv=None):
                 owned_models.append((stage, process))
             else:
                 print(f"Waiting for external {name}: {server}", flush=True)
-            wait_for_model(server, model, process, args.timeout, log_path)
-            print(f"{name} ready: {server}", flush=True)
-            emit_status(args, stage, "ready", server)
+            wait_for_models(args, [(name, server, model, process, log_path)])
         stage = "livetalking"
         emit_status(args, stage, "starting", "launching avatar server")
         print("Starting LiveTalking. Press Ctrl+C to stop.", flush=True)
@@ -311,7 +353,7 @@ def main(argv=None):
     except KeyboardInterrupt:
         return 130
     except (OSError, ValueError, RuntimeError, TimeoutError) as error:
-        emit_status(args, stage, "failed", str(error))
+        emit_status(args, getattr(error, "stage", stage), "failed", str(error))
         raise
     finally:
         stop_processes(processes)

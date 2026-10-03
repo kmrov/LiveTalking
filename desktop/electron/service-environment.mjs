@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { readFileSync } from 'node:fs';
 
-const keys = new Set(['YANDEX_AISTUDIO_KEY', 'YANDEX_FOLDER_ID', 'BATYA_DATABASE_URL', 'COMPOSE_PROJECT_NAME']);
+const keys = new Set(['YANDEX_AISTUDIO_KEY', 'YANDEX_FOLDER_ID', 'BATYA_DATABASE_URL', 'BATYA_SPEECH_MODEL', 'COMPOSE_PROJECT_NAME']);
 
 export function parseEnv(text) {
   const result = {};

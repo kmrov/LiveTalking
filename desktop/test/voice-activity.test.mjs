@@ -30,3 +30,21 @@ test('brief noise never starts an ASR request', () => {
   for (let i = 0; i < 110; i++) detector.feed(chunk(0));
   assert.equal(starts, 0);
 });
+
+test('quiet speech above a steady background starts and finishes a phrase', () => {
+  const events = [];
+  const detector = createVoiceActivityDetector({
+    onStart: () => events.push('start'), onEnd: accepted => events.push(`end:${accepted}`),
+  });
+  for (let i = 0; i < 100; i++) detector.feed(chunk(0.002));
+  for (let i = 0; i < 50; i++) detector.feed(chunk(0.012));
+  for (let i = 0; i < 100; i++) detector.feed(chunk(0.002));
+  assert.deepEqual(events, ['start', 'end:true']);
+});
+
+test('steady low background alone does not begin a phrase', () => {
+  let starts = 0;
+  const detector = createVoiceActivityDetector({ onStart: () => starts++ });
+  for (let i = 0; i < 200; i++) detector.feed(chunk(0.005));
+  assert.equal(starts, 0);
+});

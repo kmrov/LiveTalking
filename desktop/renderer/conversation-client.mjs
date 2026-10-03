@@ -25,6 +25,7 @@ export function createConversationClient({ fetch, baseUrl, getSessionId, idempot
       return command('/human', { text: text.trim(), type, interrupt: Boolean(interrupt), ...(request_id ? { request_id } : {}) }, type === 'chat' && idempotentChat);
     },
     interrupt: () => command('/interrupt_talk'),
+    setConversation: conversationId => command('/api/brain/session', { conversation_id: conversationId }),
     startRecording: () => command('/record', { type: 'start_record' }),
     stopRecording: () => command('/record', { type: 'end_record' }),
     speaking: () => command('/is_speaking'),

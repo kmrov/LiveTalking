@@ -14,6 +14,7 @@
       <div class="topbar-context"><span class="section-label">СТУДИЯ</span><span class="context-divider"></span><span id="profile-name">Новый профиль</span></div>
       <div class="topbar-state"><button id="start-profile" type="button">Запустить</button><button id="stop-profile" type="button" disabled>Остановить</button><span class="status-dot" aria-hidden="true"></span><span id="runtime-state">Не настроено</span></div>
     </header>
+    <div id="startup-progress" class="startup-progress" hidden><span class="startup-spinner" aria-hidden="true"></span><span id="startup-progress-text">Подготавливаем сервисы…</span></div>
 
     <main class="workspace">
       <aside class="left-panel" aria-label="Источник и профиль">
@@ -25,17 +26,18 @@
           <p id="avatar-summary-message" role="status"></p>
         </section>
         <div class="setup-card">
-          <div class="setup-icon" aria-hidden="true">◇</div>
           <h1 id="setup-title">Проверим окружение</h1>
-          <p>LiveTalking ищется рядом с приложением. Проверьте зависимости и сохраните профиль — дальше сервисы будут запускаться сами.</p>
+          <p id="setup-description">Пути сервисов и параметры голоса можно изменить в настройках окружения.</p>
           <div class="detected-root"><span>КАТАЛОГ LIVETALKING</span><strong id="root-path">Поиск…</strong><button type="button" class="text-button" id="choose-root">Выбрать другой каталог</button></div>
           <details id="setup-details" class="setup-details" open><summary>Настройки окружения</summary><form id="setup-form">
+            <h2 class="setup-form-heading">Сервисы и подключение</h2>
             <label>Python LiveTalking<input id="python-path" autocomplete="off" spellcheck="false" placeholder="/путь/к/.venv/bin/python"></label>
             <input id="avatar-model" type="hidden"><input id="avatar-id" type="hidden">
             <label>Порт LiveTalking<input id="server-port" type="number" min="1" max="65535"></label>
             <label>Режим моделей<select id="speech-mode"><option value="local">Запускать локально</option><option value="external">Внешние серверы</option></select></label>
             <div id="local-model-fields"><label>vLLM для ASR<input id="asr-vllm" autocomplete="off" spellcheck="false"></label><label>vLLM для TTS<input id="tts-vllm" autocomplete="off" spellcheck="false"></label></div>
             <div id="external-model-fields" hidden><label>URL ASR<input id="asr-url" type="url" placeholder="http://127.0.0.1:8092"></label><label>URL TTS<input id="tts-url" type="url" placeholder="http://127.0.0.1:8091"></label></div>
+            <h2 class="setup-form-heading">Голос аватара</h2>
             <label id="known-voices-label" hidden>Найденные образцы<select id="known-voices"></select></label>
             <label>Образец голоса WAV<input id="voice-wav" autocomplete="off" spellcheck="false" placeholder="/путь/к/voice.wav"></label>
             <button type="button" class="text-button" id="choose-voice">Выбрать WAV</button>
@@ -88,7 +90,7 @@
 
       <section class="stage" aria-label="Превью аватара">
         <div id="model-download-panel" hidden><p id="model-download-state" role="status"></p><progress id="model-download-progress" max="100" value="0" aria-label="Загрузка моделей"></progress></div>
-        <div class="stage-toolbar"><span>Аватар</span><span class="stage-tag">ПРЕВЬЮ</span><button type="button" id="connect-avatar" disabled>Подключить WebRTC</button></div>
+        <div class="stage-toolbar"><span>Аватар</span><span class="stage-tag">ПРЕВЬЮ</span><button type="button" id="connect-avatar" disabled>Включить превью</button></div>
         <div class="stage-screen">
           <video id="avatar-video" autoplay playsinline muted hidden></video>
           <audio id="avatar-audio" autoplay hidden></audio>
@@ -107,7 +109,7 @@
           <div class="projection-heading"><strong>Head in Jar</strong><span id="projection-state" role="status">Нет подключения</span></div>
           <label>Head in Jar в локальной сети<select id="projection-discovered"><option value="">Поиск устройств…</option></select></label>
           <label>WHIP URL<input id="projection-url" type="url" placeholder="http://127.0.0.1:19840/whip" autocomplete="off"></label>
-          <label>Bearer token<input id="projection-token" type="password" autocomplete="off"></label>
+          <details id="projection-advanced" class="projection-token-details"><summary>Дополнительно · токен</summary><label>Bearer token · необязательно<input id="projection-token" type="password" autocomplete="off"></label><p>Токен нужен только если сервер Head in Jar его запрашивает.</p></details>
           <button id="connect-projection" type="button" disabled>Подключить проекцию</button>
           <p id="projection-hint">Сначала запустите сервер подключения в Head in Jar. Проектор включается там отдельно.</p>
         </section>
@@ -122,21 +124,23 @@
         </div>
         <div class="conversation-empty"><div class="conversation-glyph" aria-hidden="true">↗</div><p>Подключите аватара и начните разговор.</p></div>
         <ol id="conversation-list" aria-label="История разговора" hidden></ol>
-        <div class="conversation-tools"><span id="speaking-state">Ожидает</span><button type="button" id="interrupt-avatar" disabled>Прервать</button><button type="button" id="record-avatar" disabled>Записать</button></div>
+        <div class="conversation-tools"><span id="speaking-state">Ожидает</span><button type="button" id="interrupt-avatar" disabled>Прервать</button><button type="button" id="record-avatar" disabled>Записать MP4</button></div>
         <div class="microphone-tools"><button id="microphone-button" type="button" disabled>Микрофон</button><span id="microphone-state">Нажмите, чтобы говорить</span></div>
         <div class="handsfree-tools"><button id="handsfree-button" type="button" disabled>Автодиалог</button><label><input id="handsfree-barge-in" type="checkbox">Разрешить перебивание</label></div>
         <p id="handsfree-state" role="status" data-state="idle">Автодиалог выключен</p>
+        <p id="handsfree-level" class="handsfree-level" hidden>Вход: ожидаем сигнал</p>
+        <p class="voice-mode-hint">Микрофон — запись фразы, автодиалог — разговор без кнопок.</p>
         <form id="conversation-form">
           <label class="sr-only" for="message-text">Сообщение аватару</label>
           <textarea id="message-text" rows="3" placeholder="Сообщение аватару"></textarea>
-          <div class="composer-actions"><label><span class="sr-only">Режим разговора</span><select id="conversation-mode"><option value="chat">Чат с LLM</option><option value="echo">Озвучить текст</option></select></label><button id="send-message" type="submit" disabled>Отправить</button></div>
+          <div class="composer-actions"><label class="composer-mode"><span>Режим ответа</span><select id="conversation-mode"><option value="chat">Чат с LLM</option><option value="echo">Озвучить текст</option></select></label><button id="send-message" type="submit" disabled>Отправить</button></div>
         </form>
         <p id="conversation-message" role="status"></p>
         <button type="button" id="retry-message" class="text-button" hidden>Повторить сообщение</button>
       </aside>
     </main>
 
-    <footer class="statusbar"><div><span class="status-dot" aria-hidden="true"></span>Ожидание настройки</div><div class="statusbar-right"><span>Локальный режим</span><span class="statusbar-separator"></span><span id="app-version">v0.1</span></div></footer>
+    <footer class="statusbar"><div><span class="status-dot" aria-hidden="true"></span><span id="workflow-hint">Профиль готов к запуску</span></div><div class="statusbar-right"><span id="runtime-mode">Локальный режим</span><span class="statusbar-separator"></span><span id="app-version">v0.1</span></div></footer>
   </div>
   <dialog id="avatar-library-dialog" class="avatar-dialog" aria-labelledby="avatar-library-title">
     <div class="avatar-dialog-heading"><h2 id="avatar-library-title">Аватары</h2><button type="button" data-close-avatar="avatar-library-dialog" aria-label="Закрыть библиотеку">×</button></div>

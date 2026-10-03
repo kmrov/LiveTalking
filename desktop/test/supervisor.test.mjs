@@ -33,6 +33,43 @@ test('supervisor starts once with a loopback host and one Unicode WAV argument',
   assert.equal(supervisor.snapshot().state, 'ready');
 });
 
+test('supervisor distinguishes queued model stages from active loading', async () => {
+  const child = fakeChild();
+  let finishHealth;
+  let checks = 0;
+  const supervisor = createSupervisor({
+    spawn: () => child,
+    health: async () => ++checks === 1 ? false : new Promise(resolve => { finishHealth = resolve; }),
+    sleep: async () => {}, emit: () => {},
+  });
+  const start = supervisor.start(profile);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(supervisor.snapshot().stages, { asr: 'waiting', tts: 'waiting', livetalking: 'waiting' });
+  child.stdout.emit('data', 'LT_STATUS {"stage":"asr","state":"starting"}\n');
+  assert.equal(supervisor.snapshot().stages.asr, 'starting');
+  assert.ok(supervisor.snapshot().stageStartedAt.asr > 0);
+  assert.equal(supervisor.snapshot().stageStartedAt.tts, null);
+  child.stdout.emit('data', 'LT_STATUS {"stage":"asr","state":"ready"}\n');
+  assert.equal(supervisor.snapshot().stageStartedAt.asr, null);
+  finishHealth(true);
+  await start;
+});
+
+test('launcher failure clears stage loading indicators', async () => {
+  const child = fakeChild();
+  const supervisor = createSupervisor({
+    spawn: () => child, health: async () => false,
+    sleep: async () => {
+      child.stdout.emit('data', 'LT_STATUS {"stage":"tts","state":"starting"}\n');
+      child.emit('exit', 1);
+    }, emit: () => {},
+  });
+  await assert.rejects(supervisor.start(profile), /launcher exited/);
+  assert.equal(supervisor.snapshot().state, 'failed');
+  assert.equal(Object.values(supervisor.snapshot().stages).includes('starting'), false);
+  assert.deepEqual(supervisor.snapshot().stageStartedAt, { asr: null, tts: null, livetalking: null });
+});
+
 test('supervisor maps external models to the existing Python launcher', async () => {
   const calls = [];
   const child = fakeChild();

@@ -22,7 +22,8 @@ export function createBatyaSupervisor({ spawn = nodeSpawn, run = execute, kill =
   let generation = 0, startJob = null, stopJob = null, monitorTimer = null;
   let profile, environment = {}, logs = [];
   let stages = { batya: 'stopped', database: 'stopped' };
-  const snapshot = () => ({ state, adopted, ownedDatabase, stages: { ...stages }, logExcerpt: logs.slice(-20).join('\n') });
+  let stageStartedAt = { batya: null, database: null };
+  const snapshot = () => ({ state, adopted, ownedDatabase, stages: { ...stages }, stageStartedAt: { ...stageStartedAt }, logExcerpt: logs.slice(-20).join('\n') });
   const publish = () => emit(snapshot());
   const log = value => { logs.push(redactServiceText(value, environment)); logs = logs.slice(-60); publish(); };
   function cancelMonitor() { if (monitorTimer !== null) cancelSchedule(monitorTimer); monitorTimer = null; }
@@ -33,7 +34,7 @@ export function createBatyaSupervisor({ spawn = nodeSpawn, run = execute, kill =
       if (token !== generation || state !== 'ready') return;
       const ready = await health(profile.brain.url);
       if (token !== generation || state !== 'ready') return;
-      if (!ready) { state = 'failed'; stages.batya = 'failed'; log('Батя или его база недоступны. Проверьте сервис и повторите запуск.'); }
+      if (!ready) { state = 'failed'; stages.batya = 'failed'; stageStartedAt.batya = null; log('Батя или его база недоступны. Проверьте сервис и повторите запуск.'); }
       else monitor(token);
     }, 5000);
     monitorTimer?.unref?.();
@@ -55,7 +56,8 @@ export function createBatyaSupervisor({ spawn = nodeSpawn, run = execute, kill =
     environment = { ...env, PYTHONUNBUFFERED: '1' };
     const token = ++generation;
     state = 'starting'; adopted = false; logs = [];
-    stages = { batya: 'starting', database: 'starting' };
+    stages = { batya: 'waiting', database: 'starting' };
+    stageStartedAt = { batya: null, database: Date.now() };
     publish();
     startJob = (async () => {
       try {
@@ -63,6 +65,7 @@ export function createBatyaSupervisor({ spawn = nodeSpawn, run = execute, kill =
         if (token !== generation) return snapshot();
         if (ready) {
           adopted = true; state = 'ready'; stages = { batya: 'ready', database: 'ready' };
+          stageStartedAt = { batya: null, database: null };
           publish(); monitor(token); return snapshot();
         }
         if (!profile.brain.managed) throw new Error('Внешний Батя недоступен или не поддерживает speech_stream. Обновите сервис и проверьте URL.');
@@ -75,7 +78,8 @@ export function createBatyaSupervisor({ spawn = nodeSpawn, run = execute, kill =
           }
           if (token !== generation) return snapshot();
         }
-        stages.database = 'ready'; publish();
+        stages.database = 'ready'; stageStartedAt.database = null;
+        stages.batya = 'starting'; stageStartedAt.batya = Date.now(); publish();
         const url = new URL(profile.brain.url);
         child = spawn(profile.brain.python, ['-m', 'uvicorn', 'batya.main:app', '--host', url.hostname.replace(/[\[\]]/g, ''), '--port', url.port || '80'], {
           cwd: profile.brain.root, env: environment, detached: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'],
@@ -89,17 +93,17 @@ export function createBatyaSupervisor({ spawn = nodeSpawn, run = execute, kill =
           });
           stream?.on('end', () => { if (pending) log(pending); });
         }
-        child.on('error', error => { if (token === generation && state !== 'stopping') { state = 'failed'; stages.batya = 'failed'; log(error.message); } });
+        child.on('error', error => { if (token === generation && state !== 'stopping') { state = 'failed'; stages.batya = 'failed'; stageStartedAt.batya = null; log(error.message); } });
         child.on('exit', code => {
           child = null;
-          if (token === generation && !['stopping', 'stopped'].includes(state)) { state = 'failed'; stages.batya = 'failed'; log(`Батя завершился: ${code}`); }
+          if (token === generation && !['stopping', 'stopped'].includes(state)) { state = 'failed'; stages.batya = 'failed'; stageStartedAt.batya = null; log(`Батя завершился: ${code}`); }
         });
         const deadline = Date.now() + startupTimeoutMs;
         while (token === generation && Date.now() < deadline) {
           if (state === 'failed') throw new Error(snapshot().logExcerpt || 'Батя не запустился');
           if (await health(profile.brain.url)) {
             if (token !== generation) return snapshot();
-            state = 'ready'; stages.batya = 'ready'; publish(); monitor(token); return snapshot();
+            state = 'ready'; stages.batya = 'ready'; stageStartedAt.batya = null; publish(); monitor(token); return snapshot();
           }
           await sleep(500);
         }
@@ -107,7 +111,8 @@ export function createBatyaSupervisor({ spawn = nodeSpawn, run = execute, kill =
         return snapshot();
       } catch (error) {
         if (token !== generation) return snapshot();
-        state = 'failed'; stages.batya = 'failed'; log(error.message);
+        if (stages.database === 'starting') { stages.database = 'failed'; stageStartedAt.database = null; }
+        state = 'failed'; stages.batya = 'failed'; stageStartedAt.batya = null; log(error.message);
         throw new Error(redactServiceText(error.message, environment));
       }
     })().finally(() => { startJob = null; });
@@ -139,7 +144,8 @@ export function createBatyaSupervisor({ spawn = nodeSpawn, run = execute, kill =
       if (child && !adopted) await terminate(child);
       child = null;
       if (ownedDatabase) { await compose(['stop', 'db']); ownedDatabase = false; }
-      adopted = false; state = 'stopped'; stages = { batya: 'stopped', database: 'stopped' }; publish();
+      adopted = false; state = 'stopped'; stages = { batya: 'stopped', database: 'stopped' };
+      stageStartedAt = { batya: null, database: null }; publish();
       return snapshot();
     })().finally(() => { stopJob = null; });
     return stopJob;

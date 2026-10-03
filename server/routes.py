@@ -188,6 +188,33 @@ async def brain_session(request):
     return json_ok({'conversation_id': getattr(avatar.opt, 'batya_conversation_id', ''),
                     'pending': brain.pending(avatar) if brain else 0})
 
+
+async def set_brain_session(request):
+    try:
+        params = await request.json()
+        avatar = get_session(request, params.get('sessionid', ''))
+        brain = request.app.get('batya_brain')
+        if avatar is None:
+            return json_error('session not found')
+        if brain is None:
+            return json_error('Batya is not active')
+        from server.batya_brain import conversation_id
+        identifier = conversation_id(params.get('conversation_id'))
+        if not identifier:
+            return json_error('conversation_id is required')
+        if not hasattr(avatar, '_batya_lock'):
+            avatar._batya_lock = asyncio.Lock()
+        async with avatar._batya_lock:
+            if getattr(avatar.opt, 'batya_conversation_id', '') != identifier:
+                avatar.flush_talk()
+                avatar.opt.batya_conversation_id = identifier
+            pending = brain.pending(avatar)
+            avatar.batya_pending = pending
+        return json_ok({'conversation_id': identifier, 'pending': pending})
+    except Exception as error:
+        logger.exception('set_brain_session exception:')
+        return json_error(str(error))
+
 async def sse_handler(request):
     """SSE 事件流，推送服务器状态更新到客户端"""
     sessionid = request.query.get('sessionid', '')
@@ -422,6 +449,7 @@ def setup_routes(app):
     app.router.add_get("/api/desktop/health", desktop_health)
     app.router.add_get("/api/admin/sessions", admin_sessions)
     app.router.add_get('/api/brain/session', brain_session)
+    app.router.add_post('/api/brain/session', set_brain_session)
     app.router.add_get("/api/whip/status", whip_status)
     app.router.add_post("/api/whip/connect", whip_connect)
     app.router.add_post("/api/whip/disconnect", whip_disconnect)

@@ -79,6 +79,14 @@ export async function startFixtureServer() {
         result = { code: 0, data: { state: 'disconnected', url: '' } };
       }
     }
+    else if (request.url === '/api/brain/session' && request.method === 'POST') {
+      if (!history.has(body.conversation_id)) {
+        response.writeHead(400); result = { code: -1, msg: 'conversation not found' };
+      } else {
+        control.currentConversation = body.conversation_id;
+        result = { code: 0, data: { conversation_id: body.conversation_id, pending: 0 } };
+      }
+    }
     else if (request.url === '/offer') {
       if (control.delayOfferMs) await new Promise(resolve => setTimeout(resolve, control.delayOfferMs));
       control.currentConversation = body.batya_conversation_id || '';

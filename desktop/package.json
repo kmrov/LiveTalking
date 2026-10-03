@@ -8,7 +8,8 @@
     "build": "node scripts/build.mjs",
     "start": "npm run build && electron .",
     "test": "node --test test/*.test.mjs",
-    "smoke": "npm run build && node scripts/smoke-electron.mjs"
+    "smoke": "npm run build && node scripts/smoke-electron.mjs",
+    "smoke:ui": "npm run build && node scripts/smoke-ui-regressions.mjs"
   },
   "engines": {
     "node": ">=22"

@@ -18,6 +18,40 @@ class Request:
 
 
 class BatyaRoutesTest(unittest.IsolatedAsyncioTestCase):
+    async def test_switch_conversation_preserves_avatar_session_and_stops_old_speech(self):
+        old_id, new_id = str(uuid4()), str(uuid4())
+        avatar = Avatar(old_id)
+        transport = Transport()
+        brain = BatyaBrain('http://127.0.0.1:8000', transport=transport)
+        await brain.submit(avatar, 'Старый разговор', 'old-turn')
+        await transport.started.wait()
+        self.assertEqual(avatar.speech, ['Привет, сынок.'])
+        request = Request({'sessionid': 'projection', 'conversation_id': new_id},
+                          {'batya_brain': brain})
+        with patch('server.routes.get_session', return_value=avatar):
+            response = await routes.set_brain_session(request)
+        self.assertEqual(json.loads(response.text)['data']['conversation_id'], new_id)
+        self.assertEqual(avatar.opt.batya_conversation_id, new_id)
+        self.assertEqual(avatar.talk_generation, 1)
+        self.assertEqual(avatar.speech, [])
+        transport.release.set()
+        await brain.wait_idle()
+        self.assertEqual(avatar.speech, [])
+        self.assertTrue(any(event['event'] == 'done' and event['conversation_id'] == old_id
+                            for event in avatar.events))
+        await brain.close()
+
+    async def test_switch_conversation_rejects_invalid_id_without_interrupting(self):
+        avatar = Avatar(str(uuid4()))
+        original = avatar.opt.batya_conversation_id
+        request = Request({'sessionid': 'projection', 'conversation_id': 'invalid'},
+                          {'batya_brain': object()})
+        with patch('server.routes.get_session', return_value=avatar):
+            response = await routes.set_brain_session(request)
+        self.assertNotEqual(json.loads(response.text)['code'], 0)
+        self.assertEqual(avatar.opt.batya_conversation_id, original)
+        self.assertEqual(avatar.talk_generation, 0)
+
     async def test_sse_reconnect_subscribes_to_pending_conversation_and_cleans_up(self):
         from aiohttp import web
         from aiohttp.test_utils import TestClient, TestServer

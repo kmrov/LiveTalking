@@ -12,6 +12,11 @@ from scripts import start_qwen_avatar
 
 
 class StartQwenAvatarTest(unittest.TestCase):
+    @staticmethod
+    def empty_group(_pid, sig):
+        if sig == 0:
+            raise ProcessLookupError
+
     def test_repeated_termination_is_ignored_during_owned_cleanup(self):
         class Process:
             pid = 123
@@ -21,7 +26,7 @@ class StartQwenAvatarTest(unittest.TestCase):
                 self.assertEqual(signal.getsignal(signal.SIGTERM), signal.SIG_IGN)
                 self.assertEqual(signal.getsignal(signal.SIGINT), signal.SIG_IGN)
         previous = signal.getsignal(signal.SIGTERM)
-        with patch('scripts.start_qwen_avatar.os.killpg'):
+        with patch('scripts.start_qwen_avatar.os.killpg', side_effect=self.empty_group):
             start_qwen_avatar.stop_processes([Process()])
         self.assertEqual(signal.getsignal(signal.SIGTERM), previous)
 
@@ -75,13 +80,133 @@ class StartQwenAvatarTest(unittest.TestCase):
             with patch("scripts.start_qwen_avatar.model_status", side_effect=["unavailable", "unavailable", "ready", "ready"]), patch(
                 "scripts.start_qwen_avatar.subprocess.Popen", side_effect=processes
             ) as popen, patch("scripts.start_qwen_avatar.tempfile.mkdtemp", return_value=str(logs)), patch(
-                "scripts.start_qwen_avatar.os.killpg"
+                "scripts.start_qwen_avatar.os.killpg", side_effect=self.empty_group
             ) as killpg, redirect_stdout(io.StringIO()):
                 result = start_qwen_avatar.main(args)
             self.assertEqual(result, 0)
             self.assertEqual(popen.call_count, 3)
-            self.assertEqual(killpg.call_count, 3)
-            self.assertEqual([call.args[0] for call in killpg.call_args_list], [103, 102, 101])
+            self.assertEqual([call.args[0] for call in killpg.call_args_list if call.args[1] == signal.SIGTERM], [103, 102, 101])
+
+    def test_model_processes_use_separate_persistent_flashinfer_workspaces(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            reference = root / "voice.wav"
+            with wave.open(str(reference), "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(16000)
+                wav.writeframes(b"\0\0" * 1600)
+            deploy = root / "qwen3_tts.yaml"
+            deploy.write_text("stages: []", encoding="utf-8")
+            logs = root / "logs"
+            logs.mkdir()
+
+            class FakeProcess:
+                pid = 123
+                def poll(self):
+                    return None
+                def wait(self, timeout=None):
+                    return 0
+
+            args = ["--ref-file", str(reference), "--ref-text", "Образец.",
+                    "--asr-vllm", sys.executable, "--tts-vllm", sys.executable,
+                    "--tts-deploy-config", str(deploy)]
+            base = root / "flashinfer"
+            with patch.dict("os.environ", {"FLASHINFER_WORKSPACE_BASE": str(base)}), patch(
+                "scripts.start_qwen_avatar.model_status", side_effect=["unavailable", "unavailable", "ready", "ready"]
+            ), patch("scripts.start_qwen_avatar.subprocess.Popen", return_value=FakeProcess()) as popen, patch(
+                "scripts.start_qwen_avatar.tempfile.mkdtemp", return_value=str(logs)
+            ), patch("scripts.start_qwen_avatar.os.killpg", side_effect=self.empty_group), redirect_stdout(io.StringIO()):
+                self.assertEqual(start_qwen_avatar.main(args), 0)
+
+            asr_env, tts_env, avatar_env = [call.kwargs["env"] for call in popen.call_args_list]
+            self.assertEqual(asr_env["FLASHINFER_WORKSPACE_BASE"], str(base / "livetalking-studio" / "asr"))
+            self.assertEqual(tts_env["FLASHINFER_WORKSPACE_BASE"], str(base / "livetalking-studio" / "tts"))
+            self.assertEqual(avatar_env["FLASHINFER_WORKSPACE_BASE"], str(base))
+
+    def test_waits_for_asr_before_starting_tts_to_avoid_gpu_contention(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            reference = root / "voice.wav"
+            with wave.open(str(reference), "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(16000)
+                wav.writeframes(b"\0\0" * 1600)
+            deploy = root / "qwen3_tts.yaml"
+            deploy.write_text("stages: []", encoding="utf-8")
+            logs = root / "logs"
+            logs.mkdir()
+
+            class FakeProcess:
+                def __init__(self, pid):
+                    self.pid = pid
+                def poll(self):
+                    return None
+                def wait(self, timeout=None):
+                    return 0
+
+            processes = [FakeProcess(101), FakeProcess(102), FakeProcess(103)]
+            checks = 0
+            def status(_server, _model):
+                nonlocal checks
+                checks += 1
+                if checks > 2:
+                    expected = 1 if _server.endswith(":8092") else 2
+                    self.assertEqual(popen.call_count, expected)
+                    return "ready"
+                return "unavailable"
+
+            args = ["--ref-file", str(reference), "--ref-text", "Образец.",
+                    "--asr-vllm", sys.executable, "--tts-vllm", sys.executable,
+                    "--tts-deploy-config", str(deploy)]
+            with patch("scripts.start_qwen_avatar.model_status", side_effect=status), patch(
+                "scripts.start_qwen_avatar.subprocess.Popen", side_effect=processes
+            ) as popen, patch("scripts.start_qwen_avatar.tempfile.mkdtemp", return_value=str(logs)), patch(
+                "scripts.start_qwen_avatar.os.killpg", side_effect=self.empty_group
+            ), redirect_stdout(io.StringIO()):
+                self.assertEqual(start_qwen_avatar.main(args), 0)
+            self.assertEqual(popen.call_count, 3)
+
+    def test_model_checks_report_the_failing_stage(self):
+        args = start_qwen_avatar.parse_args(["--json-status", "--timeout", "1"])
+        pending = [("ASR", "http://127.0.0.1:8092", "Qwen/Qwen3-ASR-0.6B", None, Path("/tmp/asr.log"))]
+        with patch("scripts.start_qwen_avatar.model_status", side_effect=RuntimeError("wrong model")):
+            with self.assertRaises(start_qwen_avatar.ModelStartupError) as failure:
+                start_qwen_avatar.wait_for_models(args, pending)
+        self.assertEqual(failure.exception.stage, "asr")
+
+    def test_model_checks_include_gpu_memory_failure_outside_log_tail(self):
+        class Process:
+            def __init__(self, code):
+                self.returncode = code
+            def poll(self):
+                return self.returncode
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "asr.log"
+            log.write_text("ValueError: No available memory for the cache blocks\n" + "trace\n" * 30, encoding="utf-8")
+            pending = [("ASR", "http://127.0.0.1:8092", "ASR", Process(7), log)]
+            with patch("scripts.start_qwen_avatar.model_status", return_value="unavailable"):
+                with self.assertRaises(start_qwen_avatar.ModelStartupError) as failure:
+                    start_qwen_avatar.wait_for_models(start_qwen_avatar.parse_args(["--timeout", "1"]), pending)
+            self.assertEqual(failure.exception.stage, "asr")
+            self.assertIn("No available memory for the cache blocks", str(failure.exception))
+
+    def test_stop_processes_kills_lingering_engine_after_api_leader_has_exited(self):
+        class Process:
+            pid = 123
+            def poll(self):
+                return 1
+            def wait(self, timeout=None):
+                return 1
+
+        signals = []
+        def killpg(pgid, sig):
+            signals.append(sig)
+
+        with patch("scripts.start_qwen_avatar.os.killpg", side_effect=killpg), patch("scripts.start_qwen_avatar.time.sleep"):
+            start_qwen_avatar.stop_processes([Process()])
+        self.assertEqual(signals, [signal.SIGTERM, 0, signal.SIGKILL])
 
     def test_json_status_emits_machine_readable_lifecycle_without_changing_human_output(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -105,7 +230,7 @@ class StartQwenAvatarTest(unittest.TestCase):
             args = ["--json-status", "--external-models", "--ref-file", str(reference), "--ref-text", "Привет"]
             with patch("scripts.start_qwen_avatar.model_status", return_value="ready"), patch(
                 "scripts.start_qwen_avatar.subprocess.Popen", return_value=FakeProcess()
-            ), patch("scripts.start_qwen_avatar.os.killpg"), redirect_stdout(output):
+            ), patch("scripts.start_qwen_avatar.os.killpg", side_effect=self.empty_group), redirect_stdout(output):
                 self.assertEqual(start_qwen_avatar.main(args), 0)
             lines = output.getvalue().splitlines()
             events = [line.removeprefix("LT_STATUS ") for line in lines if line.startswith("LT_STATUS ")]

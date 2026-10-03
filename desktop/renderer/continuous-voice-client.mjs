@@ -4,7 +4,7 @@ import { createVoiceActivityDetector } from './voice-activity.mjs';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 export function createContinuousVoiceClient({ getUserMedia, AudioContext, AudioWorkletNode = globalThis.AudioWorkletNode,
-  WebSocket, baseUrl, onState = () => {}, onTurn = async () => {}, onBargeIn = () => {},
+  WebSocket, baseUrl, onState = () => {}, onLevel = () => {}, onTurn = async () => {}, onBargeIn = () => {},
   allowBargeIn = false, pause = delay, transcriptionTimeoutMs = 130000,
   workletUrl = new URL('./pcm-worklet.js', import.meta.url).href }) {
   let stream;
@@ -22,6 +22,8 @@ export function createContinuousVoiceClient({ getUserMedia, AudioContext, AudioW
   let finalTimer;
   let discardFinal = false;
   let bargeInPending = Promise.resolve();
+  let levelDuration = 0;
+  let peakLevel = 0;
 
   const setState = (next, detail = '') => { state = next; onState(next, detail); };
   function sendAudio(pcm) {
@@ -31,6 +33,7 @@ export function createContinuousVoiceClient({ getUserMedia, AudioContext, AudioW
 
   async function release() {
     clearTimeout(finalTimer); finalTimer = null;
+    levelDuration = peakLevel = 0;
     socketOpenReject?.(new Error('Microphone capture cancelled'));
     socketOpenReject = null;
     source?.disconnect(); source = null;
@@ -77,6 +80,7 @@ export function createContinuousVoiceClient({ getUserMedia, AudioContext, AudioW
   async function start() {
     if (!['idle', 'failed'].includes(state)) return;
     const token = ++generation;
+    levelDuration = peakLevel = 0;
     setState('starting');
     try {
       const acquired = await getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
@@ -111,6 +115,14 @@ export function createContinuousVoiceClient({ getUserMedia, AudioContext, AudioW
       if (token !== generation) throw new Error('Microphone capture cancelled');
       resampler = createPcmResampler(context.sampleRate);
       detector = createVoiceActivityDetector({
+        onLevel: (level, duration) => {
+          levelDuration += duration;
+          peakLevel = Math.max(peakLevel, level);
+          if (levelDuration >= 200) {
+            onLevel(peakLevel);
+            levelDuration = peakLevel = 0;
+          }
+        },
         onStart: buffered => {
           if (state === 'waiting' && allowBargeIn) {
             ++turnGeneration;

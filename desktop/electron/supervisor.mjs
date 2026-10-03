@@ -59,18 +59,27 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
   let adopted = false;
   let port = null;
   let stages = { asr: 'stopped', tts: 'stopped', livetalking: 'stopped' };
+  let stageStartedAt = { asr: null, tts: null, livetalking: null };
   let logs = [];
 
-  function snapshot() { return { state, adopted, port, stages: { ...stages }, logExcerpt: logs.slice(-30).join('\n') }; }
+  function snapshot() { return { state, adopted, port, stages: { ...stages }, stageStartedAt: { ...stageStartedAt }, logExcerpt: logs.slice(-30).join('\n') }; }
   function publish() { emit(snapshot()); }
+  function failActiveStages() {
+    for (const stage of Object.keys(stages)) {
+      if (['waiting', 'starting'].includes(stages[stage])) stages[stage] = 'failed';
+      stageStartedAt[stage] = null;
+    }
+  }
   function appendLine(line) {
     if (!line) return;
     if (line.startsWith('LT_STATUS ')) {
       try {
         const event = JSON.parse(line.slice('LT_STATUS '.length));
         if (Object.hasOwn(stages, event.stage) && ['starting', 'ready', 'failed', 'stopped'].includes(event.state)) {
+          if (event.state === 'starting' && stages[event.stage] !== 'starting') stageStartedAt[event.stage] = Date.now();
+          else if (event.state !== 'starting') stageStartedAt[event.stage] = null;
           stages[event.stage] = event.state;
-          if (event.state === 'failed') { state = 'failed'; if (event.detail) logs.push(event.detail); }
+          if (event.state === 'failed') { state = 'failed'; failActiveStages(); if (event.detail) logs.push(event.detail); }
           publish();
         }
       } catch { logs.push('Invalid launcher status'); }
@@ -151,7 +160,8 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
     port = profile.liveTalking.port;
     state = 'starting';
     adopted = false;
-    stages = { asr: 'starting', tts: 'starting', livetalking: 'starting' };
+    stages = { asr: 'waiting', tts: 'waiting', livetalking: 'waiting' };
+    stageStartedAt = { asr: null, tts: null, livetalking: null };
     logs = [];
     publish();
     startPromise = (async () => {
@@ -160,6 +170,7 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
         adopted = true;
         state = 'ready';
         stages = { asr: 'ready', tts: 'ready', livetalking: 'ready' };
+        stageStartedAt = { asr: null, tts: null, livetalking: null };
         publish();
         monitor(profile, token);
         return snapshot();
@@ -174,11 +185,12 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
       });
       readLines(child.stdout);
       readLines(child.stderr);
-      child.on('error', error => { if (token === generation && state !== 'stopping') { state = 'failed'; appendLine(error.message); publish(); } });
+      child.on('error', error => { if (token === generation && state !== 'stopping') { state = 'failed'; failActiveStages(); appendLine(error.message); publish(); } });
       child.on('exit', code => {
         child = null;
         if (token === generation && !['stopping', 'stopped'].includes(state)) {
           state = 'failed';
+          failActiveStages();
           appendLine(`LiveTalking launcher exited: ${code}`);
           publish();
         }
@@ -189,7 +201,8 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
         if (await health(port, profile)) {
           if (token !== generation) return snapshot();
           state = 'ready';
-          stages.livetalking = 'ready';
+          stages = { asr: 'ready', tts: 'ready', livetalking: 'ready' };
+          stageStartedAt = { asr: null, tts: null, livetalking: null };
           publish();
           monitor(profile, token);
           return snapshot();
@@ -198,6 +211,7 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
       }
       if (token !== generation) return snapshot();
       state = 'failed';
+      failActiveStages();
       appendLine('Timed out waiting for LiveTalking health');
       publish();
       if (child) await terminateOwned(child);
@@ -222,6 +236,7 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
       adopted = false;
       state = 'stopped';
       stages = { asr: 'stopped', tts: 'stopped', livetalking: 'stopped' };
+      stageStartedAt = { asr: null, tts: null, livetalking: null };
       publish();
       return snapshot();
     })().finally(() => { stopPromise = null; });

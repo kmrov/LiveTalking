@@ -24,6 +24,7 @@ const fields = {
 let currentProfile;
 let avatarUI;
 let servicePhase = "not-configured";
+let latestRuntimeSnapshot;
 let sessionGeneration = 0;
 let knownVoices = [];
 let webRtcClient;
@@ -40,11 +41,14 @@ let conversationClient;
 let recording = false;
 let recordingBusy = false;
 let sending = false;
+let conversationChangeBusy = false;
 let asrClient;
 let microphoneState = 'idle';
+let microphoneGeneration = 0;
 let continuousVoiceClient;
 let brainSource;
 let brainState = { conversationId: '', turns: {}, pending: 0 };
+let brainEventVersion = 0;
 let historyGeneration = 0;
 let speechInterrupted = false;
 let failedTurn;
@@ -75,7 +79,7 @@ function showMicrophoneState(state, detail = '') {
   const labels = { idle: 'Нажмите, чтобы говорить', starting: 'Открываем микрофон…', capturing: 'Говорите; затем нажмите Стоп', transcribing: 'Распознавание…', ready: 'Текст готов к отправке', empty: 'Речь не распознана', failed: 'Ошибка микрофона / ASR' };
   $('#microphone-state').textContent = detail || labels[state] || state;
   $('#microphone-button').textContent = state === 'capturing' ? 'Стоп' : 'Микрофон';
-  $('#microphone-button').disabled = !serviceReady || Boolean(continuousVoiceClient) || ['starting', 'transcribing'].includes(state);
+  $('#microphone-button').disabled = !serviceReady || conversationChangeBusy || Boolean(continuousVoiceClient) || ['starting', 'transcribing'].includes(state);
 }
 
 function showContinuousVoiceState(state, detail = '') {
@@ -83,6 +87,9 @@ function showContinuousVoiceState(state, detail = '') {
     capturing: 'Слышу фразу; отправлю после паузы', transcribing: 'Распознаём фразу…', waiting: 'Ждём ответ аватара', failed: 'Ошибка автодиалога' };
   $('#handsfree-state').dataset.state = state;
   $('#handsfree-state').textContent = detail || labels[state] || state;
+  const level = $('#handsfree-level');
+  level.hidden = !['listening', 'capturing'].includes(state) && !(state === 'waiting' && $('#handsfree-barge-in').checked);
+  if (state === 'listening') level.textContent = 'Вход: ожидаем сигнал';
   $('#handsfree-button').textContent = continuousVoiceClient && state !== 'failed' ? 'Остановить автодиалог' : 'Автодиалог';
   $('#handsfree-barge-in').disabled = Boolean(continuousVoiceClient);
   updateConversationControls();
@@ -98,12 +105,12 @@ async function stopContinuousVoice() {
 
 function updateConversationControls() {
   const active = Boolean(activeSessionId());
-  $('#handsfree-button').disabled = !continuousVoiceClient && (!serviceReady || !active);
-  $('#send-message').disabled = !active || sending || !$('#message-text').value.trim();
+  $('#handsfree-button').disabled = conversationChangeBusy || (!continuousVoiceClient && (!serviceReady || !active));
+  $('#send-message').disabled = conversationChangeBusy || !active || sending || !$('#message-text').value.trim();
   $('#interrupt-avatar').disabled = !active;
-  $('#record-avatar').disabled = !active || recordingBusy;
-  if (!active) recording = false;
-  $('#record-avatar').textContent = recording ? 'Завершить запись' : 'Записать';
+  $('#record-avatar').disabled = !active || recordingBusy || conversationChangeBusy;
+  if (!active) { recording = false; $('#speaking-state').textContent = 'Нет подключения'; }
+  $('#record-avatar').textContent = recording ? 'Завершить запись' : 'Записать MP4';
   avatarUI?.applySnapshot();
 }
 
@@ -132,7 +139,7 @@ function showWebRtcState(state) {
   $('#connect-projection').disabled = !serviceReady || previewBusy || projectionBusy || Boolean(webRtcClient?.sessionId());
   updateProjectionHint();
   const connected = Boolean(webRtcClient?.sessionId());
-  $('#connect-avatar').textContent = connected ? 'Отключить' : 'Подключить WebRTC';
+  $('#connect-avatar').textContent = connected ? 'Отключить превью' : 'Включить превью';
   if (['disconnected', 'failed', 'closed'].includes(state)) {
     if (activeTarget === 'preview') selectConversationTarget('none');
     $('#avatar-video').srcObject = null;
@@ -140,6 +147,7 @@ function showWebRtcState(state) {
     $('.stage-empty').hidden = false;
   }
   updateConversationControls();
+  updateWorkflowHint();
 }
 
 function receiveTrack(event) {
@@ -170,6 +178,7 @@ function showProjectionState(state) {
   updateProjectionHint();
   if (activeTarget === 'projection' && !projectionClient?.sessionId()) selectConversationTarget('none');
   updateConversationControls();
+  updateWorkflowHint();
 }
 async function refreshHeadinjarDiscovery() {
   if (!bridge || discoveryPending) return;
@@ -231,6 +240,33 @@ function updateProjectionHint() {
   $('#projection-hint').textContent = hint;
 }
 
+function updateWorkflowHint() {
+  const hint = $('#workflow-hint');
+  const mode = $('#runtime-mode');
+  const setup = $('#setup-description');
+  const emptyTitle = $('.stage-empty h2');
+  const emptyDetail = $('.stage-empty p');
+  if (mode) mode.textContent = currentProfile?.brain.mode === 'batya' ? 'Режим Бати' : 'Прямой LLM';
+  if (setup) setup.textContent = activeSessionId()
+    ? 'Сервисы запущены. Управляйте речью и записью в панели диалога.'
+    : serviceReady ? 'Сервисы запущены. Включите превью здесь или подключите Head in Jar для проекции.'
+    : 'Проверьте окружение и профиль, затем запустите сервисы.';
+  if (emptyTitle && emptyDetail) {
+    emptyTitle.textContent = projectionClient?.sessionId() ? 'Поток отправляется в Head in Jar'
+      : webRtcClient?.sessionId() ? 'Ожидаем видео аватара' : 'Аватар появится здесь';
+    emptyDetail.textContent = projectionClient?.sessionId()
+      ? 'Превью Studio выключено. Поток и управление разговором сейчас в Head in Jar.'
+      : webRtcClient?.sessionId() ? 'Превью подключено. Ожидаем первый кадр.'
+      : 'Включите превью, чтобы увидеть поток аватара в Studio.';
+  }
+  if (!hint) return;
+  hint.textContent = activeSessionId() ? 'Подключено · можно говорить или отправить текст.'
+    : ['checking', 'starting'].includes(servicePhase) ? 'Сервисы запускаются · дождитесь окончания загрузки.'
+      : serviceReady ? 'Готово · включите превью или подключите проекцию.'
+        : servicePhase === 'failed' ? 'Ошибка запуска · проверьте журнал и профиль.'
+          : 'Первый шаг · настройте профиль и запустите сервисы.';
+}
+
 async function disconnectProjection() {
   ++connectionGeneration;
   projectionBusy = false;
@@ -244,16 +280,46 @@ const phaseLabels = {
   'not-configured': 'Не настроено', checking: 'Проверка', starting: 'Запуск',
   ready: 'Работает', reconnecting: 'Переподключение', failed: 'Ошибка',
 };
-const stageLabels = { stopped: 'Ожидает', starting: 'Запуск', ready: 'Работает', failed: 'Ошибка' };
+const stageLabels = { stopped: 'Ожидает', waiting: 'В очереди', ready: 'Работает', failed: 'Ошибка' };
+const stageNames = { database: 'PostgreSQL', batya: 'Батя', asr: 'Qwen ASR', tts: 'Qwen TTS', livetalking: 'LiveTalking' };
+function formatElapsed(startedAt) {
+  const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+function renderStartupProgress(snapshot) {
+  const phase = snapshot.service.phase;
+  const active = [];
+  for (const stage of ['database', 'batya', 'asr', 'tts', 'livetalking']) {
+    const owner = stage === 'database' || stage === 'batya' ? snapshot.brain : snapshot.supervisor;
+    const state = owner?.stages?.[stage] || 'stopped';
+    const startedAt = owner?.stageStartedAt?.[stage];
+    const label = $(`#${stage}-state`);
+    label.dataset.state = state;
+    label.textContent = state === 'starting'
+      ? `${stage === 'asr' || stage === 'tts' ? 'Загрузка модели' : 'Запуск'}${startedAt ? ` · ${formatElapsed(startedAt)}` : ''}`
+      : stageLabels[state] || state;
+    if (state === 'starting') active.push(stageNames[stage]);
+  }
+  const isStarting = phase === 'checking' || phase === 'starting';
+  $('#startup-progress').hidden = !isStarting;
+  if (!isStarting) return;
+  const downloading = phase === 'checking' && ['checking', 'downloading'].includes(snapshot.downloads?.state);
+  $('#startup-progress-text').textContent = downloading
+    ? `${snapshot.downloads.label || 'Скачиваем модели'} · ${Math.round(snapshot.downloads.progress || 0)}%`
+    : phase === 'checking' ? 'Проверяем окружение и модели…'
+      : active.length ? `Запускаем: ${active.join(', ')}. Подключение станет доступно после готовности всех сервисов.`
+        : 'Подготавливаем запуск сервисов…';
+}
 
 function showSnapshot(snapshot) {
+  latestRuntimeSnapshot = snapshot;
   const wasReady = serviceReady;
   const phase = snapshot.service.phase;
   servicePhase = phase;
   serviceReady = phase === 'ready';
   if (serviceReady && !wasReady) void refreshHeadinjarDiscovery();
   $('#setup-title').textContent = serviceReady ? 'Профиль запущен' : 'Локальное окружение';
-  if (serviceReady) { $('#setup-details').open = false; $('#check-details').open = false; }
+  if (serviceReady && !wasReady) { $('#setup-details').open = false; $('#check-details').open = false; }
   showWebRtcState(webRtcState);
   showProjectionState(projectionClient?.sessionId() ? 'connected' : 'disconnected');
   if (!serviceReady && webRtcClient) disconnectAvatar();
@@ -263,21 +329,20 @@ function showSnapshot(snapshot) {
   showMicrophoneState(microphoneState);
   const downloading = phase === 'checking' && ['checking', 'downloading'].includes(snapshot.downloads?.state);
   $('#runtime-state').textContent = downloading ? 'Скачиваем модели' : phaseLabels[phase] || phase;
+  $('#runtime-state').dataset.phase = phase;
   $('#model-download-panel').hidden = !downloading;
   $('#model-download-progress').value = snapshot.downloads?.progress || 0;
   $('#model-download-state').textContent = downloading
     ? `${snapshot.downloads.label || 'Подготовка загрузки'}${snapshot.downloads.totalBytes ? ` · ${Math.round(snapshot.downloads.downloadedBytes / 1048576)} / ${Math.round(snapshot.downloads.totalBytes / 1048576)} МБ` : ''}` : '';
   $('#start-profile').disabled = ['checking', 'starting', 'ready'].includes(phase);
   $('#stop-profile').disabled = ['not-configured'].includes(phase);
-  for (const stage of ['livetalking', 'asr', 'tts']) {
-    const state = snapshot.supervisor?.stages?.[stage] || 'stopped';
-    $(`#${stage}-state`).textContent = stageLabels[state] || state;
-  }
-  for (const stage of ['batya', 'database']) $(`#${stage}-state`).textContent = stageLabels[snapshot.brain?.stages?.[stage] || 'stopped'] || 'Ожидает';
+  renderStartupProgress(snapshot);
   $('#runtime-log').textContent = [snapshot.brain?.logExcerpt, snapshot.supervisor?.logExcerpt, snapshot.service.detail].filter(Boolean).join('\n') || 'Нет сообщений';
   if (serviceReady && !wasReady && currentProfile?.brain.mode === 'batya') void refreshConversations().catch(error => { $('#conversation-message').textContent = error.message; });
   avatarUI?.applySnapshot();
   if (phase === 'failed') message(snapshot.service.detail || 'Сервис завершился с ошибкой');
+  if (serviceReady && !wasReady && $('#setup-message').textContent === 'Запускаем сервисы…') message('');
+  updateWorkflowHint();
 }
 
 function showKnownVoices(voices) {
@@ -341,6 +406,7 @@ function showProfile(profile) {
   brainState = { conversationId: profile.brain.conversationId, turns: {}, pending: 0 };
   showMode();
   showBrainMode();
+  updateWorkflowHint();
 }
 
 function formProfile() {
@@ -389,9 +455,12 @@ function clearConversation() {
 
 async function loadHistory(identifier) {
   const token = ++historyGeneration;
+  const eventVersion = brainEventVersion;
   if (!identifier) { clearConversation(); return; }
+  if (brainState.conversationId === identifier && brainState.pending) return;
   const messages = await bridge.brainHistory(currentProfile.id, identifier);
   if (token !== historyGeneration || currentProfile.brain.conversationId !== identifier) return;
+  if (brainState.conversationId === identifier && (brainState.pending || eventVersion !== brainEventVersion)) return;
   clearConversation();
   for (const item of messages) {
     appendMessage(item.text, 'chat', { role: item.role, requestId: item.request_id });
@@ -414,21 +483,64 @@ async function refreshConversations() {
   await loadHistory(currentProfile.brain.conversationId);
 }
 
-async function newConversation({ keepConnectionAttempt = false } = {}) {
-  if (recording || recordingBusy) throw new Error('Завершите запись перед сменой разговора.');
-  if (!keepConnectionAttempt) {
-    await disconnectProjection();
-    disconnectAvatar();
-  }
-  const conversation = await bridge.createBrainConversation(currentProfile.id);
-  currentProfile.brain.conversationId = conversation.id;
+function updateConversationSelectionControls() {
+  $('#new-brain-conversation').disabled = conversationChangeBusy;
+  $('#brain-conversation').disabled = conversationChangeBusy;
+  $('#refresh-brain-conversations').disabled = conversationChangeBusy;
+  updateConversationControls();
+  showMicrophoneState(microphoneState);
+}
+
+async function applyBrainConversation(identifier) {
+  if (continuousVoiceClient) await stopContinuousVoice();
+  ++microphoneGeneration;
+  asrClient?.dispose(); asrClient = null;
+  showMicrophoneState('idle');
+  if (activeSessionId()) await conversationClient.setConversation(identifier);
+  currentProfile.brain.conversationId = identifier;
+  await bridge.saveProfile(currentProfile);
+  selectConversationTarget(activeTarget);
+  speechInterrupted = false;
+  $('#brain-turn-state').textContent = 'Батя ожидает';
   await refreshConversations();
+}
+
+async function selectBrainConversation(identifier, { keepConnectionAttempt = false } = {}) {
+  if (conversationChangeBusy) throw new Error('Дождитесь смены разговора.');
+  if (recording || recordingBusy) throw new Error('Завершите запись перед сменой разговора.');
+  if (sending) throw new Error('Дождитесь отправки сообщения перед сменой разговора.');
+  if (!keepConnectionAttempt && (projectionBusy || previewBusy)) throw new Error('Дождитесь подключения потока.');
+  conversationChangeBusy = true;
+  updateConversationSelectionControls();
+  try {
+    await applyBrainConversation(identifier);
+  } finally {
+    conversationChangeBusy = false;
+    updateConversationSelectionControls();
+  }
+}
+
+async function newConversation({ keepConnectionAttempt = false } = {}) {
+  if (conversationChangeBusy) return;
+  if (recording || recordingBusy) throw new Error('Завершите запись перед сменой разговора.');
+  if (sending) throw new Error('Дождитесь отправки сообщения перед сменой разговора.');
+  if (!keepConnectionAttempt && (projectionBusy || previewBusy)) throw new Error('Дождитесь подключения потока.');
+  conversationChangeBusy = true;
+  updateConversationSelectionControls();
+  try {
+    const conversation = await bridge.createBrainConversation(currentProfile.id);
+    await applyBrainConversation(conversation.id);
+  } finally {
+    conversationChangeBusy = false;
+    updateConversationSelectionControls();
+  }
 }
 
 function receiveBrainEvent(event) {
   const next = reduceBrainEvent(brainState, event);
   if (next === brainState) return;
   brainState = next;
+  ++brainEventVersion;
   const turn = brainState.turns[event.request_id];
   if (typeof event.user_text === 'string' && ![...$('#conversation-list').children].some(item => item.dataset.role === 'user' && item.dataset.requestId === event.request_id)) {
     appendMessage(event.user_text, 'chat', { role: 'user', requestId: event.request_id });
@@ -504,13 +616,13 @@ $('#new-brain-conversation').addEventListener('click', () => { void newConversat
 $('#refresh-brain-conversations').addEventListener('click', () => { void refreshConversations().catch(error => { $('#conversation-message').textContent = error.message; }); });
 $('#brain-conversation').addEventListener('change', async () => {
   try {
-    if (recording || recordingBusy) throw new Error('Завершите запись перед сменой разговора.');
-    await disconnectProjection();
-    disconnectAvatar();
-    currentProfile.brain.conversationId = $('#brain-conversation').value;
-    await bridge.saveProfile(currentProfile);
-    await loadHistory(currentProfile.brain.conversationId);
-  } catch (error) { $('#conversation-message').textContent = error.message; }
+    const identifier = $('#brain-conversation').value;
+    if (identifier) await selectBrainConversation(identifier);
+    else await newConversation();
+  } catch (error) {
+    $('#brain-conversation').value = currentProfile.brain.conversationId;
+    $('#conversation-message').textContent = error.message;
+  }
 });
 $('#refresh-memories').addEventListener('click', async () => {
   try {
@@ -578,11 +690,15 @@ $('#start-profile').addEventListener('click', async () => {
   } catch (error) { message(error.message); }
 });
 $('#stop-profile').addEventListener('click', async () => {
+  if (recording || recordingBusy) { $('#conversation-message').textContent = 'Завершите запись перед остановкой профиля.'; return; }
   try { await disconnectProjection(); } catch (error) { $('#projection-state').textContent = error.message; }
   try { await bridge.stopProfile(); } catch (error) { message(error.message); }
 });
 $('#connect-avatar').addEventListener('click', async () => {
-  if (webRtcClient?.sessionId()) { disconnectAvatar(); return; }
+  if (webRtcClient?.sessionId()) {
+    if (recording || recordingBusy) { $('#conversation-message').textContent = 'Завершите запись перед отключением превью.'; return; }
+    disconnectAvatar(); return;
+  }
   if (!serviceReady || !currentProfile || projectionClient || projectionBusy || previewBusy) return;
   previewBusy = true;
   const attempt = ++connectionGeneration;
@@ -668,11 +784,14 @@ $('#connect-projection').addEventListener('click', async () => {
 });
 $('#message-text').addEventListener('input', updateConversationControls);
 $('#microphone-button').addEventListener('click', async () => {
+  if (conversationChangeBusy) return;
+  const token = microphoneState === 'capturing' ? microphoneGeneration : ++microphoneGeneration;
   try {
     if (continuousVoiceClient) return;
     if (microphoneState === 'capturing') { await asrClient.stop(); return; }
     if (!serviceReady || !currentProfile) return;
     if (conversationClient && activeSessionId()) await conversationClient.interrupt();
+    if (token !== microphoneGeneration) return;
     asrClient?.dispose();
     asrClient = createAsrClient({
       getUserMedia: navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices),
@@ -680,17 +799,19 @@ $('#microphone-button').addEventListener('click', async () => {
       AudioWorkletNode: window.AudioWorkletNode,
       WebSocket: window.WebSocket,
       baseUrl: `http://127.0.0.1:${currentProfile.liveTalking.port}`,
-      onState: showMicrophoneState,
+      onState: (state, detail) => { if (token === microphoneGeneration) showMicrophoneState(state, detail); },
       onText: text => {
+        if (token !== microphoneGeneration) return;
         $('#message-text').value = text;
         $('#conversation-message').textContent = 'Проверьте распознанный текст и нажмите Отправить.';
         updateConversationControls();
       },
     });
     await asrClient.start();
-  } catch (error) { showMicrophoneState('failed', error.message); }
+  } catch (error) { if (token === microphoneGeneration) showMicrophoneState('failed', error.message); }
 });
 $('#handsfree-button').addEventListener('click', async () => {
+  if (conversationChangeBusy) return;
   if (continuousVoiceClient) {
     const restart = $('#handsfree-state').dataset.state === 'failed';
     await stopContinuousVoice();
@@ -709,6 +830,9 @@ $('#handsfree-button').addEventListener('click', async () => {
     baseUrl: `http://127.0.0.1:${currentProfile.liveTalking.port}`,
     allowBargeIn: $('#handsfree-barge-in').checked,
     onState: (state, detail) => { if (continuousVoiceClient === client) showContinuousVoiceState(state, detail); },
+    onLevel: level => {
+      if (continuousVoiceClient === client) $('#handsfree-level').textContent = `Вход: ${(level * 100).toFixed(1)}%`;
+    },
     onBargeIn: async () => {
       if (activeSessionId() !== targetSession) return;
       await targetClient.interrupt();
@@ -736,8 +860,9 @@ $('#handsfree-button').addEventListener('click', async () => {
   catch (error) { if (continuousVoiceClient === client) showContinuousVoiceState('failed', error.message); }
 });
 async function submitTurn(turn) {
-  if (!conversationClient || sending) return false;
+  if (!conversationClient || sending || conversationChangeBusy) return false;
   const { text, type, requestId } = turn;
+  const submittedDraft = $('#message-text').value;
   const token = sessionGeneration;
   sending = true;
   updateConversationControls();
@@ -748,7 +873,7 @@ async function submitTurn(turn) {
     await conversationClient.sendText(text, { type, interrupt: true, requestId });
     if (token !== sessionGeneration) return;
     failedTurn = null; $('#retry-message').hidden = true;
-    $('#message-text').value = '';
+    if (submittedDraft.trim() === text && $('#message-text').value === submittedDraft) $('#message-text').value = '';
     $('#conversation-message').textContent = 'Сообщение принято.';
     return true;
   } catch (error) { if (token !== sessionGeneration) return false; $('#conversation-message').textContent = error.message; failedTurn = turn; $('#retry-message').hidden = false; return false; }
@@ -768,7 +893,7 @@ $('#interrupt-avatar').addEventListener('click', async () => {
   } catch (error) { $('#conversation-message').textContent = error.message; }
 });
 $('#record-avatar').addEventListener('click', async () => {
-  if (recordingBusy) return;
+  if (recordingBusy || conversationChangeBusy) return;
   recordingBusy = true;
   updateConversationControls();
   try {
@@ -790,9 +915,13 @@ $('#record-avatar').addEventListener('click', async () => {
 let speakingPollBusy = false;
 const speakingTimer = setInterval(async () => {
   if (!conversationClient || !activeSessionId() || speakingPollBusy) return;
+  const token = sessionGeneration;
   speakingPollBusy = true;
-  try { $('#speaking-state').textContent = await conversationClient.speaking() ? 'Говорит' : 'Слушает'; }
-  catch { $('#speaking-state').textContent = 'Нет статуса'; }
+  try {
+    const speaking = await conversationClient.speaking();
+    if (token === sessionGeneration) $('#speaking-state').textContent = speaking ? 'Говорит' : 'Слушает';
+  }
+  catch { if (token === sessionGeneration) $('#speaking-state').textContent = 'Нет статуса'; }
   finally { speakingPollBusy = false; }
 }, 1000);
 window.addEventListener('beforeunload', () => { clearInterval(speakingTimer); asrClient?.dispose(); void stopContinuousVoice(); });
@@ -814,6 +943,10 @@ const projectionTimer = setInterval(async () => {
 }, 2000);
 window.addEventListener('beforeunload', () => { clearInterval(projectionTimer); void disconnectProjection(); });
 window.addEventListener('beforeunload', disconnectAvatar);
+const startupTimer = setInterval(() => {
+  if (latestRuntimeSnapshot && ['checking', 'starting'].includes(latestRuntimeSnapshot.service.phase)) renderStartupProgress(latestRuntimeSnapshot);
+}, 1000);
+window.addEventListener('beforeunload', () => clearInterval(startupTimer));
 
 if (bridge) {
   avatarUI = mountAvatarLibrary({ document, bridge, getProfile: () => currentProfile ? formProfile() : null,

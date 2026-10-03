@@ -17,6 +17,35 @@ test('Batya adopts an existing compatible API without owning or stopping its dat
   await supervisor.stop();
 });
 
+test('Batya reports database and API as separate startup stages', async () => {
+  const snapshots = [];
+  let checks = 0;
+  const supervisor = createBatyaSupervisor({
+    health: async () => ++checks > 1,
+    run: async () => ({ stdout: JSON.stringify({ State: 'running', Health: 'healthy' }) }),
+    spawn: () => child(),
+    emit: snapshot => snapshots.push(snapshot),
+  });
+  await supervisor.start(profile, env);
+  const databaseStartup = snapshots.find(snapshot => snapshot.stages.database === 'starting');
+  const apiStartup = snapshots.find(snapshot => snapshot.stages.database === 'ready' && snapshot.stages.batya === 'starting');
+  assert.equal(databaseStartup.stages.batya, 'waiting');
+  assert.ok(databaseStartup.stageStartedAt.database > 0);
+  assert.ok(apiStartup.stageStartedAt.batya > 0);
+  assert.deepEqual(supervisor.snapshot().stageStartedAt, { batya: null, database: null });
+});
+
+test('database startup failure stops its loading indicator', async () => {
+  const supervisor = createBatyaSupervisor({
+    health: async () => false,
+    run: async () => { throw new Error('database unavailable'); },
+    spawn: () => assert.fail('API must not start'),
+  });
+  await assert.rejects(supervisor.start(profile, env), /database unavailable/);
+  assert.equal(supervisor.snapshot().stages.database, 'failed');
+  assert.equal(supervisor.snapshot().stageStartedAt.database, null);
+});
+
 test('owned API stops once and an adopted database remains running; credentials stay in env', async () => {
   const process = child();
   const commands = [], signals = [];

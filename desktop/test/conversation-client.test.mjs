@@ -25,6 +25,17 @@ test('conversation client controls recording and refuses commands after session 
   assert.equal(calls.length, 2);
 });
 
+test('conversation client changes the brain conversation on the current session', async () => {
+  const calls = [];
+  const client = createConversationClient({ fetch: async (url, options) => {
+    calls.push([url, JSON.parse(options.body)]);
+    return { ok: true, json: async () => ({ code: 0, data: { conversation_id: 'new-id', pending: 0 } }) };
+  }, baseUrl: 'http://127.0.0.1:8010', getSessionId: () => 'projection-session' });
+  await client.setConversation('new-id');
+  assert.deepEqual(calls, [['http://127.0.0.1:8010/api/brain/session',
+    { sessionid: 'projection-session', conversation_id: 'new-id' }]]);
+});
+
 test('conversation client reports API failure and returns speaking state', async () => {
   const bad = createConversationClient({ fetch: async () => ({ ok: true, json: async () => ({ code: -1, msg: 'session not found' }) }), baseUrl: 'http://127.0.0.1:8010', getSessionId: () => '123' });
   await assert.rejects(bad.interrupt(), /session not found/);

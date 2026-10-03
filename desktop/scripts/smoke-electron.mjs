@@ -40,6 +40,7 @@ async function runCase(corrupt) {
     await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Работает');
     await window.locator('#connect-avatar').click();
     await window.waitForFunction(() => document.querySelector('#webrtc-state').dataset.sessionId === 'fixture-session');
+    assert.match(await window.locator('#projection-hint').textContent(), /отключите.*WebRTC/i);
     assert.equal(await window.locator('#avatar-video').evaluate(video => video.muted), true, 'only the audio element may play incoming audio');
     await window.locator('#conversation-mode').selectOption('echo');
     await window.locator('#message-text').fill('Привет из smoke-теста');
@@ -76,17 +77,24 @@ async function runCase(corrupt) {
     });
     await window.locator('#handsfree-button').click();
     await window.waitForFunction(() => document.querySelector('#handsfree-state').dataset.state === 'listening');
+    assert.equal(await window.locator('#handsfree-level').isVisible(), true);
+    assert.match(await window.locator('#handsfree-level').textContent(), /ожидаем сигнал/i);
     await window.evaluate(() => {
       const feed = (amplitude, count) => {
         for (let i = 0; i < count; i++) window.__autoVoiceWorklet.port.onmessage({ data: new Float32Array(160).fill(amplitude) });
       };
-      feed(0.12, 45); feed(0, 91);
+      feed(0.012, 45);
+    });
+    await window.waitForFunction(() => /Вход: [1-9]/.test(document.querySelector('#handsfree-level').textContent));
+    await window.evaluate(() => {
+      for (let i = 0; i < 91; i++) window.__autoVoiceWorklet.port.onmessage({ data: new Float32Array(160) });
     });
     await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Сообщение принято.');
     assert.equal(fixture.commands.findLast(command => command.path === '/human').body.text, 'Вопрос без кнопок');
     assert.equal(fixture.commands.findLast(command => command.path === '/human').body.type, 'chat');
     await window.locator('#handsfree-button').click();
     await window.waitForFunction(() => document.querySelector('#handsfree-state').dataset.state === 'idle');
+    assert.equal(await window.locator('#handsfree-level').isVisible(), false);
     assert.equal(await window.evaluate(() => window.__autoMicStops), 1);
     await window.locator('#handsfree-button').click();
     await window.waitForFunction(() => document.querySelector('#handsfree-state').dataset.state === 'listening');
@@ -94,6 +102,7 @@ async function runCase(corrupt) {
     await window.waitForFunction(() => document.querySelector('#handsfree-state').dataset.state === 'idle');
     assert.equal(await window.evaluate(() => window.__autoMicStops), 2);
     await window.locator('#projection-url').fill('http://127.0.0.1:19840/whip');
+    await window.locator('#projection-advanced > summary').click();
     await window.locator('#projection-token').fill('fixture-secret');
     fixture.control.delayOfferMs = 300;
     await window.locator('#connect-avatar').click();
@@ -266,6 +275,9 @@ async function runAvatarCase() {
     await window.locator('#start-profile').click();
     await window.waitForFunction(() => document.querySelector('#model-download-progress').value === 25);
     assert.equal(await window.locator('#model-download-panel').isVisible(), true);
+    assert.equal(await window.locator('#startup-progress').isVisible(), true);
+    assert.equal(await window.locator('#runtime-state').getAttribute('data-phase'), 'checking');
+    assert.notEqual(await window.locator('.startup-spinner').evaluate(node => getComputedStyle(node).animationName), 'none');
     assert.equal(await window.locator('#model-download-panel').evaluate(panel => { const box = panel.getBoundingClientRect(); return box.top >= 0 && box.bottom <= innerHeight; }), true, 'download progress must be visible without scrolling settings');
     assert.match(await window.locator('#model-download-state').textContent(), /Модель аватара/);
     await window.screenshot({ path: path.join(artifactDirectory, 'smoke-model-download.png') });
@@ -387,7 +399,7 @@ async function runBatyaCase() {
     await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Работает');
     await window.locator('#new-brain-conversation').click();
     await window.waitForFunction(() => Boolean(document.querySelector('#brain-conversation').value));
-    const id = await window.locator('#brain-conversation').inputValue();
+    let id = await window.locator('#brain-conversation').inputValue();
     await window.locator('#connect-avatar').click();
     await window.waitForFunction(() => document.querySelector('#brain-turn-state').dataset.stream === 'connected');
     await window.locator('#message-text').fill('Привет из теста Бати');
@@ -421,6 +433,7 @@ async function runBatyaCase() {
     assert.equal(await window.locator('#conversation-list [data-role="assistant"]').count(), 2);
     await window.locator('#connect-avatar').click();
     await window.locator('#projection-url').fill('http://127.0.0.1:19840/whip');
+    await window.locator('#projection-advanced > summary').click();
     await window.locator('#projection-token').fill('batya-fixture-secret');
     await window.locator('#connect-projection').click();
     await window.waitForFunction(() => Boolean(document.querySelector('#projection-state').dataset.sessionId));
@@ -431,13 +444,34 @@ async function runBatyaCase() {
     assert.equal(fixture.commands.findLast(c => c.path === '/human').body.sessionid, batyaProjectionId);
     fixture.finishTurn();
     await window.waitForFunction(() => [...document.querySelectorAll('#conversation-list [data-role="assistant"]')].at(-1)?.dataset.status === 'done');
+    const previousId = id;
+    const disconnects = fixture.commands.filter(c => c.path === '/api/whip/disconnect').length;
+    await window.locator('#new-brain-conversation').click();
+    await window.waitForFunction(previous => document.querySelector('#brain-conversation').value !== previous, id);
+    id = await window.locator('#brain-conversation').inputValue();
+    assert.equal(await window.locator('#projection-state').getAttribute('data-session-id'), batyaProjectionId);
+    assert.equal(fixture.commands.filter(c => c.path === '/api/whip/disconnect').length, disconnects);
+    await window.locator('#message-text').fill('Новая тема на проекции'); await window.locator('#send-message').click();
+    await window.waitForFunction(() => document.querySelector('#conversation-list [data-role="assistant"]')?.dataset.status === 'delta');
+    assert.equal(fixture.commands.findLast(c => c.path === '/human').body.sessionid, batyaProjectionId);
+    assert.equal(fixture.control.currentConversation, id);
+    fixture.finishTurn();
+    await window.waitForFunction(() => document.querySelector('#conversation-list [data-role="assistant"]')?.dataset.status === 'done');
+    await window.locator('#brain-conversation').selectOption(previousId);
+    await window.waitForFunction(() => document.querySelectorAll('#conversation-list [data-role="assistant"]').length === 3);
+    assert.equal(fixture.control.currentConversation, previousId);
+    assert.equal(await window.locator('#projection-state').getAttribute('data-session-id'), batyaProjectionId);
+    await window.locator('#brain-conversation').selectOption(id);
+    await window.waitForFunction(() => document.querySelectorAll('#conversation-list [data-role="assistant"]').length === 1);
+    assert.equal(fixture.control.currentConversation, id);
+    assert.equal(await window.locator('#projection-state').getAttribute('data-session-id'), batyaProjectionId);
     await window.locator('#connect-projection').click();
     await window.screenshot({ path: path.join(artifactDirectory, 'smoke-batya.png') });
     await application.close(); application = await launch();
     const reopened = await application.firstWindow();
     await reopened.locator('#setup-results li').first().waitFor({ state: 'attached' });
     await reopened.locator('#start-profile').click();
-    await reopened.waitForFunction(() => document.querySelectorAll('#conversation-list [data-role="assistant"]').length === 3);
+    await reopened.waitForFunction(() => document.querySelectorAll('#conversation-list [data-role="assistant"]').length === 1);
     assert.equal(await reopened.locator('#brain-conversation').inputValue(), id);
     await reopened.locator('#stop-profile').click();
     await reopened.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Не настроено');

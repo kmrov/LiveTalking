@@ -63,6 +63,22 @@ test('one microphone session recognizes consecutive phrases and sends each to th
   assert.equal(FakeSocket.latest.closed, true);
 });
 
+test('microphone input level is reported while listening and stops after capture ends', async () => {
+  const levels = [];
+  const client = createContinuousVoiceClient({
+    getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }),
+    AudioContext: FakeContext, AudioWorkletNode: FakeWorklet, WebSocket: FakeSocket,
+    baseUrl: 'http://127.0.0.1:8010', onLevel: level => levels.push(level),
+  });
+  await client.start();
+  feed(0.012, 30);
+  assert.ok(levels.some(level => level >= 0.01 && level <= 0.013));
+  const reported = levels.length;
+  await client.stop();
+  feed(0.012, 30);
+  assert.equal(levels.length, reported);
+});
+
 test('avatar reply pauses recognition until it finishes', async () => {
   assert.equal(typeof createContinuousVoiceClient, 'function');
   let finishReply;

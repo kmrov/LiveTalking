@@ -1,4 +1,4 @@
-export function createVoiceActivityDetector({ sampleRate = 16000, onStart = () => {}, onAudio = () => {}, onEnd = () => {},
+export function createVoiceActivityDetector({ sampleRate = 16000, onStart = () => {}, onAudio = () => {}, onEnd = () => {}, onLevel = () => {},
   silenceMs = 900, startMs = 180, minVoiceMs = 250, preRollMs = 450, maxUtteranceMs = 25000 } = {}) {
   if (!Number.isFinite(sampleRate) || sampleRate <= 0) throw new Error('Invalid voice activity sample rate');
   let noiseFloor = 0.003;
@@ -22,7 +22,8 @@ export function createVoiceActivityDetector({ sampleRate = 16000, onStart = () =
     let power = 0;
     for (const sample of pcm) power += sample * sample;
     const rms = Math.sqrt(power / pcm.length) / 32768;
-    const voiced = rms >= Math.max(0.022, noiseFloor * 2.7) * thresholdMultiplier;
+    onLevel(rms, duration);
+    const voiced = rms >= Math.max(0.008, noiseFloor * 2.7) * thresholdMultiplier;
 
     if (!active) {
       preRoll.push(pcm);
