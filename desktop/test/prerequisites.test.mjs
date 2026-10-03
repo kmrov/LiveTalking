@@ -50,7 +50,7 @@ test('prerequisite reports missing adjacent LiveTalking checkout', async () => {
   const profile = normalizeProfile({ ...base, liveTalking: { ...base.liveTalking, root: '' } });
   const results = await inspectPrerequisites(profile, probes());
   assert.equal(results.find(item => item.id === 'checkout').state, 'missing');
-  assert.match(results.find(item => item.id === 'checkout').action, /рядом|каталог/i);
+  assert.match(results.find(item => item.id === 'checkout').action, /beside|folder/i);
 });
 
 test('prerequisite rejects a prepared avatar whose inference weights are absent', async () => {
@@ -69,6 +69,6 @@ test('avatar preparation completeness and model compatibility block startup', as
  for(const avatar of [null,{ready:false,reason:'Нет координат',model:'wav2lip'},{ready:true,model:'musetalk'}]) {
   const results=await inspectPrerequisites(base,probes({avatar:async()=>avatar}));
   assert.equal(results.find(x=>x.id==='avatar').state,'missing');
-  assert.match(results.find(x=>x.id==='avatar').action,/выберите|Выберите/);
+  assert.match(results.find(x=>x.id==='avatar').action,/select/i);
  }
 });

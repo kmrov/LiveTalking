@@ -19,7 +19,7 @@ export function createConversationClient({ fetch, baseUrl, getSessionId, idempot
   }
   return {
     async sendText(text, { type = 'chat', interrupt = true, requestId = '' } = {}) {
-      if (typeof text !== 'string' || !text.trim()) throw new Error('Введите сообщение');
+      if (typeof text !== 'string' || !text.trim()) throw new Error('Enter a message');
       if (!['echo', 'chat'].includes(type)) throw new Error('Invalid conversation mode');
       const request_id = type === 'chat' ? requestId || globalThis.crypto.randomUUID() : '';
       return command('/human', { text: text.trim(), type, interrupt: Boolean(interrupt), ...(request_id ? { request_id } : {}) }, type === 'chat' && idempotentChat);

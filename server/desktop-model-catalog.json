@@ -64,7 +64,7 @@
       "repo": "ManyOtherFunctions/face-parse-bisent",
       "revision": "0073b233a5a3c4b1377d4dbf49245017938a72b5",
       "storage": "checkout",
-      "label": "Разбор лица",
+      "label": "Face parsing",
       "files": [
         {
           "file": "79999_iter.pth",

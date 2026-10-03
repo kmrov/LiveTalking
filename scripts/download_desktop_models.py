@@ -20,10 +20,10 @@ def main():
     try:
         source = Path(args.profile)
         if source.stat().st_size > 65536:
-            raise ValueError('Слишком большой запрос загрузки.')
+            raise ValueError('Download request is too large.')
         request = json.loads(source.read_text())
         if set(request) != {'root', 'model', 'speechMode'} or not all(isinstance(value, str) for value in request.values()):
-            raise ValueError('Некорректный запрос загрузки.')
+            raise ValueError('Invalid download request.')
         ensure_models(request, lambda value: event('downloading', **value), scope='start')
         event('completed')
         return 0

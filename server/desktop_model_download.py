@@ -36,7 +36,7 @@ def _digest(spec):
         digest = hashlib.sha1()
         digest.update(f"blob {spec['size']}\0".encode())
         return digest
-    raise ValueError('Неподдерживаемая проверка модели.')
+    raise ValueError('Unsupported model checksum.')
 
 
 def _response(open_url, url, offset):
@@ -56,22 +56,22 @@ def _response_end(response, offset, size):
     status = getattr(response, 'status', 200)
     headers = getattr(response, 'headers', {})
     if headers.get('Content-Encoding', 'identity').lower() != 'identity':
-        raise ValueError('Сервер вернул сжатый файл вместо исходных байтов модели.')
+        raise ValueError('Server returned a compressed file instead of raw model bytes.')
     if status == 206:
         match = re.fullmatch(r'bytes (\d+)-(\d+)/(\d+)', headers.get('Content-Range') or '')
         if not match:
-            raise ValueError('Сервер не подтвердил диапазон докачивания.')
+            raise ValueError('Server did not confirm the download range.')
         first, last, total = map(int, match.groups())
         if first != offset or not first <= last < size or total != size:
-            raise ValueError('Диапазон докачивания не совпал с сохранённой моделью.')
+            raise ValueError('Download range does not match the saved model.')
         end = last + 1
     elif status == 200:
         offset, end = 0, size
     else:
-        raise ValueError(f'Неподдерживаемый ответ загрузки: HTTP {status}.')
+        raise ValueError(f'Unsupported download response: HTTP {status}.')
     length = headers.get('Content-Length')
     if length is not None and (not re.fullmatch(r'\d+', str(length)) or int(length) != end-offset):
-        raise ValueError('Размер ответа сервера не совпал с моделью.')
+        raise ValueError('Server response size does not match the model.')
     return offset, end
 
 
@@ -79,7 +79,7 @@ def _safe_target(base, relative):
     base = Path(base).resolve()
     parts = PurePosixPath(relative).parts
     if not parts or PurePosixPath(relative).is_absolute() or any(x in ('.', '..') for x in parts) or '\\' in relative:
-        raise ValueError('Недопустимый путь модели.')
+        raise ValueError('Invalid model path.')
     target = base
     for part in parts:
         target = target / part
@@ -87,7 +87,7 @@ def _safe_target(base, relative):
             # Existing HF cache files may be links to its own blobs; never write through a link.
             if target == base.joinpath(*parts) and target.is_file() and target.resolve().is_relative_to(base):
                 return target
-            raise ValueError('Путь модели проходит через символическую ссылку.')
+            raise ValueError('Model path contains a symbolic link.')
     return target
 
 
@@ -103,7 +103,7 @@ def _lock(folder, cancelled):
     try:
         while True:
             if cancelled():
-                raise DownloadCancelled('Загрузка отменена.')
+                raise DownloadCancelled('Download cancelled.')
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
@@ -119,83 +119,83 @@ def download_file(base, relative, spec, *, open_url=urlopen, emit=lambda _event:
     if _present(target):
         return target
     if target.exists():
-        raise ValueError(f'Файл модели пуст или непригоден: {target}. Уберите его и повторите загрузку.')
+        raise ValueError(f'Model file is empty or invalid: {target}. Remove it and retry the download.')
     if not re.fullmatch(r'[0-9a-f]{40}', spec['revision']) or not re.fullmatch(r'[\w.-]+/[\w.-]+', spec['repo']):
-        raise ValueError('Недопустимый источник модели.')
+        raise ValueError('Invalid model source.')
     source = PurePosixPath(spec['file'])
     if source.is_absolute() or any(x in ('.', '..') for x in source.parts):
-        raise ValueError('Недопустимый файл модели.')
+        raise ValueError('Invalid model file.')
     target.parent.mkdir(parents=True, exist_ok=True)
     with _lock(target.parent, cancelled):
         if _present(target):
             return target
         size = spec['size']
         if type(size) is not int or size <= 0:
-            raise ValueError('Некорректный размер модели.')
+            raise ValueError('Invalid model size.')
         url = f"https://huggingface.co/{spec['repo']}/resolve/{spec['revision']}/{spec['file']}?download=true"
         digest = _digest(spec)
         temporary = _partial_file(target, spec)
         if cancelled():
-            raise DownloadCancelled('Загрузка отменена.')
+            raise DownloadCancelled('Download cancelled.')
         fd = os.open(temporary, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
         try:
             info = os.fstat(fd)
             if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-                raise ValueError('Непригодный временный файл модели.')
+                raise ValueError('Invalid temporary model file.')
             # Unbuffered writes retain each received chunk even after a forced process exit.
             with os.fdopen(fd, 'r+b', buffering=0) as output:
                 fd = None
                 done = info.st_size
                 if done > size:
-                    raise _InvalidModel('Сохранённая часть больше файла модели; повторите загрузку.')
+                    raise _InvalidModel('Saved part is larger than the model file; retry the download.')
                 def progress():
                     emit({'file':spec['file'], 'downloadedBytes':done, 'totalBytes':size, 'progress':int(done*100/size)})
                 if done:
                     progress()
                 while True:
                     if cancelled():
-                        raise DownloadCancelled('Загрузка отменена.')
+                        raise DownloadCancelled('Download cancelled.')
                     chunk = output.read(1024 * 1024)
                     if not chunk:
                         break
                     digest.update(chunk)
                 if done < size:
                     if shutil.disk_usage(target.parent)[2] < size-done:
-                        raise OSError('Недостаточно места для загрузки модели.')
+                        raise OSError('Not enough disk space to download the model.')
                     with _response(open_url, url, done) as response:
                         start, end = _response_end(response, done, size)
                         if start == 0 and done:
                             # Range is optional: preserve the old prefix until a full response is usable.
                             if shutil.disk_usage(target.parent)[2] < size:
-                                raise OSError('Недостаточно места для загрузки модели заново.')
+                                raise OSError('Not enough disk space to restart the model download.')
                             output.seek(0); output.truncate(0)
                             done = 0; digest = _digest(spec)
                             progress()
                         while True:
                             if cancelled():
-                                raise DownloadCancelled('Загрузка отменена.')
+                                raise DownloadCancelled('Download cancelled.')
                             chunk = response.read(1024 * 1024)
                             if not chunk:
                                 break
                             if done + len(chunk) > end:
-                                raise _InvalidModel('Размер загруженной модели не совпал.')
+                                raise _InvalidModel('Downloaded model size does not match.')
                             pending = memoryview(chunk)
                             while pending:
                                 if cancelled():
-                                    raise DownloadCancelled('Загрузка отменена.')
+                                    raise DownloadCancelled('Download cancelled.')
                                 written = output.write(pending)
                                 if not written:
-                                    raise OSError('Не удалось сохранить загруженные байты модели.')
+                                    raise OSError('Could not save downloaded model bytes.')
                                 pending = pending[written:]
                             done += len(chunk)
                             digest.update(chunk)
                             progress()
                 if cancelled():
-                    raise DownloadCancelled('Загрузка отменена.')
+                    raise DownloadCancelled('Download cancelled.')
                 if done != size:
-                    raise ValueError('Загрузка оборвалась; повторите, чтобы докачать сохранённую часть.')
+                    raise ValueError('Download was interrupted; retry to resume the saved part.')
                 if digest.hexdigest() != spec['digest']:
-                    raise _InvalidModel(f"Проверка файла {spec['file']} не прошла; повторите загрузку.")
+                    raise _InvalidModel(f"Validation of file {spec['file']} failed; retry the download.")
                 os.fsync(output.fileno())
                 os.fchmod(output.fileno(), 0o644)
             # Atomic no-replace publication: a race cannot overwrite an existing model.
@@ -252,9 +252,9 @@ def _weights_ready(folder):
 def model_download_plan(root, model, *, scope, speech_mode='external', torch_hub=None, speech_hub=None):
     root = Path(root).resolve(strict=True)
     if scope not in ('creation','start') or model not in ('musetalk','wav2lip','ultralight') or speech_mode not in ('local','external'):
-        raise ValueError('Некорректные параметры загрузки моделей.')
+        raise ValueError('Invalid model download parameters.')
     if scope=='creation' and model=='ultralight':
-        raise ValueError('Создание Ultralight не поддерживается.')
+        raise ValueError('Ultralight creation is not supported.')
     selected = (['s3fd','musetalk','vae','face-parsing'] if model=='musetalk' else ['s3fd']) if scope=='creation' else {'musetalk':['musetalk','vae','whisper'],'wav2lip':['wav2lip'],'ultralight':['hubert']}[model]
     if scope=='start' and speech_mode=='local':
         selected += ['asr','tts']
@@ -283,7 +283,7 @@ def model_download_plan(root, model, *, scope, speech_mode='external', torch_hub
 @contextlib.contextmanager
 def _cancellation():
     def stop(_signum,_frame):
-        raise DownloadCancelled('Загрузка отменена.')
+        raise DownloadCancelled('Download cancelled.')
     previous=signal.signal(signal.SIGTERM,stop)
     try:
         yield

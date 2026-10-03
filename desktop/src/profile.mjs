@@ -68,7 +68,7 @@ export function normalizeProfile(input) {
   return {
     schemaVersion: 1,
     id,
-    name: string(source.name, 'name', 'Основной'),
+    name: string(source.name, 'name', 'Main'),
     liveTalking: {
       root,
       python: absolutePath(lt.python, 'liveTalking.python', root ? path.join(root, '.venv/bin/python') : ''),

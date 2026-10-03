@@ -11,8 +11,8 @@ const defaults = {
   async python(executable) {
     try {
       await run(executable, ['-c', 'import sys; assert sys.version_info[:2] == (3,13), "Need Python 3.13"; import fastapi, uvicorn, batya.main, psycopg, pgvector'], { timeout: 15000 });
-      return { ok: true, detail: 'Python 3.13 и зависимости Бати доступны' };
-    } catch { return { ok: false, detail: 'Python 3.13 или зависимости Бати недоступны' }; }
+      return { ok: true, detail: 'Python 3.13 and Batya dependencies are available' };
+    } catch { return { ok: false, detail: 'Python 3.13 or Batya dependencies are unavailable' }; }
   },
   async docker(root, env) {
     try {
@@ -27,22 +27,22 @@ const defaults = {
 export async function inspectBatyaPrerequisites(profile, environment, probes = defaults) {
   if (profile.brain.mode !== 'batya') return [];
   const brain = profile.brain;
-  if (await probes.health(brain.url)) return [item('batya', 'ready', `Батя с голосовым стримом доступен: ${brain.url}`)];
-  if (!brain.managed) return [item('batya', 'missing', `Батя недоступен или требует обновления: ${brain.url}`, 'Запустите обновлённый API Бати с /api/v1/capabilities и speech_stream=1.')];
+  if (await probes.health(brain.url)) return [item('batya', 'ready', `Batya with speech streaming is available: ${brain.url}`)];
+  if (!brain.managed) return [item('batya', 'missing', `Batya is unavailable or needs an update: ${brain.url}`, 'Run an updated Batya API with /api/v1/capabilities and speech_stream=1.')];
   const results = [];
   results.push(probes.exists(path.join(brain.root, 'src/batya/main.py'))
-    ? item('batya', 'ready', `Батя найден: ${brain.root}`)
-    : item('batya', 'missing', 'Каталог Бати не найден', 'Выберите каталог с src/batya/main.py.'));
+    ? item('batya', 'ready', `Batya found: ${brain.root}`)
+    : item('batya', 'missing', 'Batya folder not found', 'Select the folder containing src/batya/main.py.'));
   const python = await probes.python(brain.python);
-  results.push(python.ok ? item('batya-python', 'ready', python.detail) : item('batya-python', 'missing', python.detail, 'В каталоге Бати выполните uv sync и укажите .venv/bin/python.'));
+  results.push(python.ok ? item('batya-python', 'ready', python.detail) : item('batya-python', 'missing', python.detail, 'Run uv sync in the Batya folder and select .venv/bin/python.'));
   results.push(environment.YANDEX_AISTUDIO_KEY && environment.YANDEX_FOLDER_ID
-    ? item('batya-credentials', 'ready', 'Ключ и проект Yandex настроены')
-    : item('batya-credentials', 'missing', 'Не заданы ключ Yandex или ID проекта', 'Заполните ключ и ID проекта в настройках Бати либо в его окружении/.env.'));
+    ? item('batya-credentials', 'ready', 'Yandex key and folder are configured')
+    : item('batya-credentials', 'missing', 'Yandex key or folder ID is missing', 'Enter the key and folder ID in Batya settings or its environment/.env.'));
   if (brain.databaseMode === 'compose') results.push(await probes.docker(brain.root, environment)
-    ? item('batya-database', 'ready', 'Docker Compose и сервис PostgreSQL доступны')
-    : item('batya-database', 'missing', 'Docker Compose или PostgreSQL db недоступны', 'Проверьте доступ к Docker и compose.yaml в каталоге Бати; либо выберите внешнюю базу.'));
+    ? item('batya-database', 'ready', 'Docker Compose and PostgreSQL service are available')
+    : item('batya-database', 'missing', 'Docker Compose or PostgreSQL db is unavailable', 'Check Docker access and compose.yaml in the Batya folder, or choose an external database.'));
   else results.push(environment.BATYA_DATABASE_URL
-    ? item('batya-database', 'ready', 'Внешняя PostgreSQL настроена')
-    : item('batya-database', 'missing', 'Не указан адрес PostgreSQL', 'Задайте BATYA_DATABASE_URL в .env Бати или защищённых настройках.'));
+    ? item('batya-database', 'ready', 'External PostgreSQL is configured')
+    : item('batya-database', 'missing', 'PostgreSQL URL is missing', 'Set BATYA_DATABASE_URL in Batya .env or secure settings.'));
   return results;
 }

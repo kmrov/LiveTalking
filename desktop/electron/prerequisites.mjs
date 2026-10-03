@@ -95,8 +95,8 @@ export const defaultProbes = {
   async python(executable) {
     const result = spawnSync(executable, ['-c', 'import aiohttp, aiortc, torch, requests, soxr'], { encoding: 'utf8', timeout: 20000 });
     return result.status === 0
-      ? { ok: true, detail: 'Python, aiohttp, aiortc и torch доступны' }
-      : { ok: false, detail: (result.stderr || result.error?.message || 'Не удалось импортировать модули').trim().split('\n').at(-1) };
+      ? { ok: true, detail: 'Python, aiohttp, aiortc, and torch are available' }
+      : { ok: false, detail: (result.stderr || result.error?.message || 'Could not import modules').trim().split('\n').at(-1) };
   },
   model: modelStatus,
   port: portStatus,
@@ -113,65 +113,65 @@ export async function inspectPrerequisites(input, probes = defaultProbes) {
   const rootReady = Boolean(lt.root && probes.exists(path.join(lt.root, 'app.py')) && probes.exists(path.join(lt.root, 'config.py')) && probes.exists(path.join(lt.root, 'scripts/start_qwen_avatar.py')));
   results.push(rootReady
     ? item('checkout', 'ready', `LiveTalking: ${lt.root}`)
-    : item('checkout', 'missing', lt.root ? `Совместимый LiveTalking не найден: ${lt.root}` : 'LiveTalking рядом с приложением не найден', 'Положите папку LiveTalking рядом с приложением или выберите другой каталог с scripts/start_qwen_avatar.py.'));
+    : item('checkout', 'missing', lt.root ? `Compatible LiveTalking not found: ${lt.root}` : 'LiveTalking was not found beside the app', 'Place the LiveTalking folder beside the app or select another folder containing scripts/start_qwen_avatar.py.'));
 
   let avatar = null;
   if (rootReady) {
     try { avatar = await probes.avatar(lt); } catch { /* Library provides the repair action below. */ }
   }
   results.push(avatar?.ready && avatar.model === lt.model
-    ? item('avatar', 'ready', `Аватар ${avatar.name || lt.avatarId} готов`)
-    : item('avatar', 'missing', avatar?.reason || `Аватар ${lt.avatarId} не готов для ${lt.model}`, 'Выберите готового аватара из библиотеки или создайте нового.'));
+    ? item('avatar', 'ready', `Avatar ${avatar.name || lt.avatarId} is ready`)
+    : item('avatar', 'missing', avatar?.reason || `Avatar ${lt.avatarId} is not ready for ${lt.model}`, 'Select a ready avatar from the library or create one.'));
 
   const requiredWeights = avatarWeightFiles(lt);
   const missingWeights = requiredWeights.filter(file => !probes.fileReady(file));
   results.push(requiredWeights.length && !missingWeights.length
-    ? item('avatar-model', 'ready', `Веса ${lt.model} найдены`)
-    : item('avatar-model', 'missing', `Веса ${lt.model} не готовы: ${missingWeights.join(', ') || 'неподдерживаемая модель'}`, 'Нажмите «Запустить»: Studio скачает недостающие модели.'));
+    ? item('avatar-model', 'ready', `Weights for ${lt.model} found`)
+    : item('avatar-model', 'missing', `Weights for ${lt.model} are not ready: ${missingWeights.join(', ') || 'unsupported model'}`, 'Press Start: Studio will download missing models.'));
 
   const pythonReady = Boolean(lt.python && probes.exists(lt.python));
-  if (!pythonReady) results.push(item('python', 'missing', `Python не найден: ${lt.python || 'путь не задан'}`, `Создайте окружение: python3 -m venv "${lt.root || 'LiveTalking'}/.venv" и установите зависимости.`));
+  if (!pythonReady) results.push(item('python', 'missing', `Python not found: ${lt.python || 'path not set'}`, `Create an environment: python3 -m venv "${lt.root || 'LiveTalking'}/.venv" and install dependencies.`));
   else {
     const result = await probes.python(lt.python);
-    results.push(result.ok ? item('python', 'ready', result.detail) : item('python', 'missing', result.detail, `Установите зависимости в ${lt.python}: python -m pip install -r requirements.txt.`));
+    results.push(result.ok ? item('python', 'ready', result.detail) : item('python', 'missing', result.detail, `Install dependencies in ${lt.python}: python -m pip install -r requirements.txt.`));
   }
 
   results.push(speech.referenceWav && probes.exists(speech.referenceWav)
-    ? item('voice', 'ready', `Образец голоса: ${speech.referenceWav}`)
-    : item('voice', 'missing', 'WAV-образец голоса не найден', 'Выберите WAV-файл с образцом голоса.'));
+    ? item('voice', 'ready', `Voice sample: ${speech.referenceWav}`)
+    : item('voice', 'missing', 'WAV voice sample not found', 'Select a WAV voice sample.'));
   results.push(speech.referenceText
-    ? item('transcript', 'ready', 'Расшифровка образца задана')
-    : item('transcript', 'missing', 'Расшифровка образца не задана', 'Введите точный текст, произнесённый в WAV-файле.'));
+    ? item('transcript', 'ready', 'Sample transcript is set')
+    : item('transcript', 'missing', 'Sample transcript is missing', 'Enter the exact words spoken in the WAV file.'));
 
   for (const [id, expected, address, executable] of [
     ['asr', asrModel, speech.asrUrl || 'http://127.0.0.1:8092', speech.asrVllm],
     ['tts', ttsModel, speech.ttsUrl || 'http://127.0.0.1:8091', speech.ttsVllm],
   ]) {
     const status = await probes.model(address, expected);
-    if (status === 'ready') results.push(item(id, 'ready', `${expected} доступна на ${address}`));
-    else if (status === 'wrong') results.push(item(id, 'blocked', `${address} отвечает другой моделью`, `Настройте ${expected} на ${address} или укажите правильный адрес.`));
-    else if (speech.mode === 'external') results.push(item(id, 'missing', `${expected} недоступна на ${address}`, `Запустите сервер ${expected} или исправьте URL.`));
-    else if (executable && probes.exists(executable)) results.push(item(id, 'ready', `${expected} будет запущена через ${executable}`));
-    else results.push(item(id, 'missing', `Исполняемый файл ${id.toUpperCase()} не найден: ${executable || 'путь не задан'}`, `Укажите путь к vLLM для ${expected} или выберите внешнюю модель.`));
+    if (status === 'ready') results.push(item(id, 'ready', `${expected} is available at ${address}`));
+    else if (status === 'wrong') results.push(item(id, 'blocked', `${address} responds with a different model`, `Configure ${expected} at ${address} or enter the correct address.`));
+    else if (speech.mode === 'external') results.push(item(id, 'missing', `${expected} is unavailable at ${address}`, `Start the ${expected} server or correct the URL.`));
+    else if (executable && probes.exists(executable)) results.push(item(id, 'ready', `${expected} will be started using ${executable}`));
+    else results.push(item(id, 'missing', `Executable for ${id.toUpperCase()} not found: ${executable || 'path not set'}`, `Set the vLLM path for ${expected} or select an external model.`));
   }
 
   if (speech.mode === 'local') {
     for (const [id, name] of [['asr-model', 'Qwen3-ASR-0.6B'], ['tts-model', 'Qwen3-TTS-12Hz-1.7B-Base']]) {
       const folder = `models--Qwen--${name}`;
       results.push(probes.cachedModelReady(path.join(speechCacheRoot(lt.root), folder), id === 'tts-model')
-        ? item(id, 'ready', `${name}: файлы модели найдены`)
-        : item(id, 'missing', `${name}: файлы модели не найдены`, 'Нажмите «Запустить»: Studio скачает модель в Hugging Face cache.'));
+        ? item(id, 'ready', `${name}: model files found`)
+        : item(id, 'missing', `${name}: model files not found`, 'Press Start: Studio will download the model into the Hugging Face cache.'));
     }
   }
 
   results.push(await probes.gpu()
-    ? item('gpu', 'ready', 'NVIDIA GPU для аватара доступна')
-    : item('gpu', 'missing', 'NVIDIA GPU для аватара не обнаружена', 'Проверьте драйвер CUDA через nvidia-smi; локальному аватару GPU нужна и при внешних ASR/TTS серверах.'));
+    ? item('gpu', 'ready', 'NVIDIA GPU is available for the avatar')
+    : item('gpu', 'missing', 'NVIDIA GPU was not detected for the avatar', 'Check the CUDA driver with nvidia-smi; a local avatar needs a GPU even with external ASR/TTS servers.'));
   const port = await probes.port(lt.port, profile);
   results.push(port === 'incompatible'
-    ? item('port', 'blocked', `LiveTalking на ${lt.port} несовместим с выбранным профилем`, 'Самостоятельно перезапустите внешний сервис с выбранной моделью, каталогом и мозгом или выберите другой порт.')
+    ? item('port', 'blocked', `LiveTalking at ${lt.port} is incompatible with the selected profile`, 'Restart the external service with the selected model, folder, and brain, or choose another port.')
     : port === 'occupied'
-    ? item('port', 'blocked', `Порт ${lt.port} занят другим процессом`, 'Остановите конфликтующий процесс или выберите другой порт.')
-    : item('port', 'ready', port === 'livetalking' ? `Совместимый LiveTalking уже работает на ${lt.port}` : `Порт ${lt.port} свободен`));
+    ? item('port', 'blocked', `Port ${lt.port} is used by another process`, 'Stop the conflicting process or choose another port.')
+    : item('port', 'ready', port === 'livetalking' ? `Compatible LiveTalking is already running on ${lt.port}` : `Port ${lt.port} is available`));
   return results;
 }

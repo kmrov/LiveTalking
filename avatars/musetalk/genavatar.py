@@ -97,17 +97,17 @@ def generate_avatar(video_path, avatar_id, save_path='./data/avatars', bbox_shif
 
     input_img_list = sorted(glob.glob(os.path.join(save_full_path, '*.[jpJP][pnPN]*[gG]')))
     if not input_img_list:
-        raise ValueError("Исходник не содержит читаемых кадров.")
+        raise ValueError("Source has no readable frames.")
     print("extracting landmarks...")
     coord_list, frame_list = get_landmark_and_bbox(input_img_list, bbox_shift)
 
     if progress_callback: progress_callback(50)
 
     if len(coord_list) != len(frame_list) or not frame_list:
-        raise ValueError("Кадры и координаты лица не согласованы.")
+        raise ValueError("Frames and face coordinates do not match.")
     for box, frame in zip(coord_list, frame_list):
         if frame is None:
-            raise ValueError("Не удалось прочитать кадр.")
+            raise ValueError("Could not read a frame.")
         validate_face_box(box, frame.shape, "xyxy")
 
     input_latent_list = []

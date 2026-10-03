@@ -91,7 +91,7 @@ export function createAsrClient({ getUserMedia, AudioContext, WebSocket, AudioWo
       socket = new WebSocket(address.href);
       await new Promise((resolve, reject) => {
         socket.onopen = resolve;
-        socket.onerror = () => { const error = new Error('Ошибка соединения ASR'); fail(error); reject(error); };
+        socket.onerror = () => { const error = new Error('ASR connection error'); fail(error); reject(error); };
         socket.onclose = () => { const error = new Error('ASR connection closed'); fail(error); reject(error); };
       });
       if (token !== generation) throw new Error('Microphone capture cancelled');

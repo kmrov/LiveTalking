@@ -31,7 +31,7 @@ async function runWorker(requestFile) {
   console.log(`fixture pid=${process.pid}`);
   await mkdir(path.join(request.jobDir, 'source'), { recursive: true });
   await copyFile(request.sourceFile, path.join(request.jobDir, 'source', 'input' + path.extname(request.sourceFile).toLowerCase()));
-  event('running', 'downloading', 25, { message: 'Скачиваем модель аватара · 25 / 100 МБ', downloadedBytes: 25, totalBytes: 100 });
+  event('running', 'downloading', 25, { message: 'Downloading avatar model · 25 / 100 MB', downloadedBytes: 25, totalBytes: 100 });
   let control;
   do {
     control = JSON.parse(await readFile(path.join(request.root, 'fixture-control.json'), 'utf8'));
@@ -53,7 +53,7 @@ if (process.argv[2] === '--job') await runWorker(process.argv[3]);
 if (process.argv[2] === '--models') {
   const request = JSON.parse(await readFile(process.argv[3], 'utf8'));
   const event = (state, extra = {}) => console.log('LT_MODELS ' + JSON.stringify({ version: 1, state, ...extra }));
-  event('downloading', { label: 'Модель аватара', file: 'fixture.pth', downloadedBytes: 25, totalBytes: 100, progress: 25 });
+  event('downloading', { label: 'Avatar model', file: 'fixture.pth', downloadedBytes: 25, totalBytes: 100, progress: 25 });
   let control;
   do {
     control = JSON.parse(await readFile(path.join(request.root, 'fixture-control.json'), 'utf8'));

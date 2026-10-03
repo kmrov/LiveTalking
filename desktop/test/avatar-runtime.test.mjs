@@ -42,13 +42,13 @@ test('an unavailable checkout returns a library error while preserving editable 
  const f=await fixture(t);
  const runtime=createAvatarRuntime({library:createAvatarLibrary(),jobs:{recover:async()=>null,snapshot:async()=>null}});
  const result=await runtime.snapshot({...f.profile,liveTalking:{...f.profile.liveTalking,root:path.join(f.root,'removed')}});
- assert.deepEqual(result.entries,[]);assert.equal(result.job,null);assert.match(result.error,/каталог|ENOENT/i);
+ assert.deepEqual(result.entries,[]);assert.equal(result.job,null);assert.match(result.error,/folder|ENOENT/i);
 });
 test('source replacement while stopping services is refused before starting a worker',async t=>{
  const f=await fixture(t),file=path.join(f.root,'photo.png');await writeFile(file,'original');
  const sources=createAvatarSources({chooseFile:async()=>file,inspectPreview:async()=>null});
  const selection=await sources.choose(f.profile);let starts=0;
  const runtime=createAvatarRuntime({sources,jobs:{isBusy:()=>false,start:async()=>{starts++;}},getServiceState:()=>({phase:'ready'}),stopProfile:async()=>{await rename(file,file+'.old');await writeFile(file,'replacement');}});
- await assert.rejects(runtime.create({root:f.root,python:f.profile.liveTalking.python,sourceToken:selection.token,name:'Фото',model:'musetalk',parameters:{}},{stopServices:true}),/заново|измен/i);
+ await assert.rejects(runtime.create({root:f.root,python:f.profile.liveTalking.python,sourceToken:selection.token,name:'Фото',model:'musetalk',parameters:{}},{stopServices:true}),/again|changed/i);
  assert.equal(starts,0);
 });

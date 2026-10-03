@@ -77,7 +77,7 @@ class DesktopAvatarWorkerTest(unittest.TestCase):
             self.source.rename(self.source.with_suffix('.old'));Image.new('RGB',(100,100),'blue').save(self.source)
             return []
         with patch('scripts.prepare_desktop_avatar.inspect_creation',side_effect=probe):
-            with self.assertRaisesRegex(ValueError,'заново'):
+            with self.assertRaisesRegex(ValueError,'again'):
                 run_job(self.request,lambda _:None,generator_loader=lambda _:self.generate)
         self.assertFalse((Path(self.request['jobDir'])/'source/input.jpg').exists())
     def test_missing_weights_are_downloaded_after_saving_source_then_generation_continues(self):
@@ -96,7 +96,7 @@ class DesktopAvatarWorkerTest(unittest.TestCase):
         def changing_copy(source,destination,*args,**kwargs):
             copy(source,destination,*args,**kwargs);self.source.write_bytes(b'changed during copy')
         with patch('scripts.prepare_desktop_avatar.inspect_creation',return_value=[]),patch('scripts.prepare_desktop_avatar.shutil.copyfileobj',side_effect=changing_copy):
-            with self.assertRaisesRegex(ValueError,'заново'):
+            with self.assertRaisesRegex(ValueError,'again'):
                 run_job(self.request,lambda _:None,generator_loader=lambda _:self.generate)
         self.assertFalse((Path(self.request['jobDir'])/'source/input.jpg').exists())
     @unittest.skipUnless(shutil.which('ffmpeg'),'FFmpeg unavailable')
@@ -125,6 +125,6 @@ class DesktopAvatarWorkerTest(unittest.TestCase):
         def frames(video,folder,**kwargs):
             Image.new('RGB',(100,100)).save(Path(folder)/'00000000.png')
         with patch.object(genavatar,'video2imgs',side_effect=frames),patch.object(genavatar.face_detection,'FaceAlignment',return_value=Detector()):
-            with self.assertRaisesRegex(ValueError,'Лицо не найдено'):
+            with self.assertRaisesRegex(ValueError,'Face not found'):
                 genavatar.generate_avatar('unused','no_face',save_path=str(self.root))
         self.assertFalse((self.root/'no_face/coords.pkl').exists())

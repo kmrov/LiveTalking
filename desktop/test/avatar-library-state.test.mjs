@@ -6,7 +6,7 @@ test('search uses display names and technical IDs without case sensitivity',()=>
 });
 test('recording blocks a destructive session change and keeps the explicit label',()=>{
  const action=avatarActionState({serviceActive:true,recording:true,recordingBusy:false,generationBusy:false},null);
- assert.equal(action.canCreate,false);assert.equal(action.canSelect,false);assert.equal(action.selectLabel,'Остановить и выбрать');
+ assert.equal(action.canCreate,false);assert.equal(action.canSelect,false);assert.equal(action.selectLabel,'Stop and select');
 });
 test('running preparation blocks starts and environment changes but permits cancellation',()=>{
  const action=avatarActionState({serviceActive:false,recording:false,recordingBusy:false},{state:'running'});

@@ -25,7 +25,7 @@ test('startup download reports parsed UTF-8 progress and requires successful com
  assert.equal(f.runner.snapshot().state,'completed');assert.equal(f.runner.isBusy(),false);
 });
 test('stop cancels only the owned model downloader and permits a later repeat',async t=>{
- const f=await fixture(t);const pending=f.runner.prepare(f.profile);const failure=assert.rejects(pending,/отмен/i);await until(()=>f.request());
+ const f=await fixture(t);const pending=f.runner.prepare(f.profile);const failure=assert.rejects(pending,/cancel/i);await until(()=>f.request());
  await f.runner.stop();await failure;
  assert.deepEqual(f.signals,[[-12345,'SIGTERM']]);assert.equal(f.runner.snapshot().state,'cancelled');assert.equal(f.runner.isBusy(),false);
  const previousRequest=f.request();const repeat=f.runner.prepare(f.profile);await until(()=>f.request()!==previousRequest);
@@ -33,7 +33,7 @@ test('stop cancels only the owned model downloader and permits a later repeat',a
  assert.equal(f.runner.snapshot().state,'completed');
 });
 test('zero exit without completed event cannot advertise successful model installation',async t=>{
- const f=await fixture(t);const pending=f.runner.prepare(f.profile);const failure=assert.rejects(pending,/подтвержд|результат/i);await until(()=>f.request());f.child.emit('close',0);await failure;
+ const f=await fixture(t);const pending=f.runner.prepare(f.profile);const failure=assert.rejects(pending,/confirm|result/i);await until(()=>f.request());f.child.emit('close',0);await failure;
  assert.equal(f.runner.snapshot().state,'failed');
 });
 
@@ -47,6 +47,6 @@ test('startup downloads missing weights only after all other requirements are re
  await assert.rejects(downloads.prepareProfileModels(profile,{inspect:async()=>[{id:'tts-model',state:'missing',detail:'Still missing'}],download:async()=>{}}),/Still missing/);
 });
 test('stop before worker spawn releases ownership and does not launch a downloader',async t=>{
- const f=await fixture(t);const pending=f.runner.prepare(f.profile);const failure=assert.rejects(pending,/отмен/i);await f.runner.stop();await failure;
+ const f=await fixture(t);const pending=f.runner.prepare(f.profile);const failure=assert.rejects(pending,/cancel/i);await f.runner.stop();await failure;
  assert.equal(f.request(),undefined);assert.equal(f.runner.isBusy(),false);assert.deepEqual(f.signals,[]);
 });

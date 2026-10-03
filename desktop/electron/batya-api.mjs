@@ -12,7 +12,7 @@ export function createBatyaApi({ baseUrl, fetch: request = globalThis.fetch }) {
       signal: AbortSignal.timeout(15000),
     });
     const payload = await response.json();
-    if (!response.ok) throw new Error(`Батя: ${payload.detail?.code || payload.detail || `HTTP ${response.status}`}`);
+    if (!response.ok) throw new Error(`Batya: ${payload.detail?.code || payload.detail || `HTTP ${response.status}`}`);
     return payload;
   }
   return {

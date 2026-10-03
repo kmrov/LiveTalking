@@ -9,7 +9,7 @@ test('source tokens hide paths and bind file identity and root',async t=>{
  const selection=await sources.choose(profile);assert.equal(selection.fileName,'Мой портрет.png');assert.equal(selection.kind,'image');assert.equal(Object.hasOwn(selection,'sourceFile'),false);
  const resolved=await sources.resolve(selection.token,root);assert.equal(resolved.sourceFile,file);assert.equal(resolved.sourceKind,'image');assert.match(resolved.sourceFingerprint,/^\d+:\d+:\d+:\d+$/);
  await assert.rejects(sources.resolve(selection.token,os.tmpdir()));await assert.rejects(sources.resolve('unknown',root));
- await writeFile(file,'changed photo');await assert.rejects(sources.resolve(selection.token,root),/заново|измен/i);
+ await writeFile(file,'changed photo');await assert.rejects(sources.resolve(selection.token,root),/again|changed/i);
 });
 test('replacement, symlink and deletion require a new source selection',async t=>{
  const {root,file,profile}=await fixture(t);const sources=createAvatarSources({chooseFile:async()=>file,inspectPreview:async()=>null});

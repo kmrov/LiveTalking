@@ -30,7 +30,7 @@ test('catalog detects models and keeps corrupt entries isolated',async t=>{
  assert.equal(entries.length,4);
  assert.deepEqual(entries.filter(x=>x.ready).map(x=>x.model).sort(),['musetalk','ultralight','wav2lip']);
  assert.equal(entries.find(x=>x.id==='broken').ready,false);
- assert.match(entries.find(x=>x.id==='broken').reason,/метаданн/i);
+ assert.match(entries.find(x=>x.id==='broken').reason,/metadata/i);
 });
 test('incomplete, conflicting, duplicate and nonnumeric artifacts cannot be selected',async t=>{
  const root=await fixture(t);

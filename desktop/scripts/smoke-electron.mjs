@@ -37,18 +37,18 @@ async function runCase(corrupt) {
       return;
     }
     await window.locator('#start-profile').click();
-    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Работает');
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Running');
     await window.locator('#connect-avatar').click();
     await window.waitForFunction(() => document.querySelector('#webrtc-state').dataset.sessionId === 'fixture-session');
-    assert.match(await window.locator('#projection-hint').textContent(), /отключите.*WebRTC/i);
+    assert.match(await window.locator('#projection-hint').textContent(), /Disconnect.*WebRTC/i);
     assert.equal(await window.locator('#avatar-video').evaluate(video => video.muted), true, 'only the audio element may play incoming audio');
     await window.locator('#conversation-mode').selectOption('echo');
     await window.locator('#message-text').fill('Привет из smoke-теста');
     await window.locator('#send-message').click();
-    await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Сообщение принято.');
+    await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Message received.');
     assert.deepEqual(fixture.commands.find(command => command.path === '/human').body, { sessionid: 'fixture-session', text: 'Привет из smoke-теста', type: 'echo', interrupt: true });
     await window.locator('#interrupt-avatar').click();
-    await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Озвучивание прервано.');
+    await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Speech interrupted.');
     assert.equal(fixture.commands.some(command => command.path === '/interrupt_talk'), true);
     assert.equal(await window.locator('#handsfree-button').count(), 1);
     await window.evaluate(() => {
@@ -78,18 +78,18 @@ async function runCase(corrupt) {
     await window.locator('#handsfree-button').click();
     await window.waitForFunction(() => document.querySelector('#handsfree-state').dataset.state === 'listening');
     assert.equal(await window.locator('#handsfree-level').isVisible(), true);
-    assert.match(await window.locator('#handsfree-level').textContent(), /ожидаем сигнал/i);
+    assert.match(await window.locator('#handsfree-level').textContent(), /waiting for signal/i);
     await window.evaluate(() => {
       const feed = (amplitude, count) => {
         for (let i = 0; i < count; i++) window.__autoVoiceWorklet.port.onmessage({ data: new Float32Array(160).fill(amplitude) });
       };
       feed(0.012, 45);
     });
-    await window.waitForFunction(() => /Вход: [1-9]/.test(document.querySelector('#handsfree-level').textContent));
+    await window.waitForFunction(() => /Input: [1-9]/.test(document.querySelector('#handsfree-level').textContent));
     await window.evaluate(() => {
       for (let i = 0; i < 91; i++) window.__autoVoiceWorklet.port.onmessage({ data: new Float32Array(160) });
     });
-    await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Сообщение принято.');
+    await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Message received.');
     assert.equal(fixture.commands.findLast(command => command.path === '/human').body.text, 'Вопрос без кнопок');
     assert.equal(fixture.commands.findLast(command => command.path === '/human').body.type, 'chat');
     await window.locator('#handsfree-button').click();
@@ -123,11 +123,11 @@ async function runCase(corrupt) {
     assert.match(projectionId, /^[0-9a-f-]{36}$/);
     await window.locator('#message-text').fill('Привет проекции');
     await window.locator('#send-message').click();
-    await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Сообщение принято.');
+    await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Message received.');
     assert.equal(fixture.commands.findLast(command => command.path === '/human').body.sessionid, projectionId);
     assert.equal(fixture.commands.find(command => command.path === '/api/whip/connect').body.token, 'fixture-secret');
     await window.locator('#interrupt-avatar').click();
-    await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Озвучивание прервано.');
+    await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Speech interrupted.');
     assert.equal(fixture.commands.findLast(command => command.path === '/interrupt_talk').body.sessionid, projectionId);
     fixture.control.whip = null;
     await window.waitForFunction(() => document.querySelector('#projection-state').dataset.sessionId === '', null, { timeout: 7000 });
@@ -140,7 +140,7 @@ async function runCase(corrupt) {
     assert.equal(await window.locator('#send-message').isDisabled(), true);
     await window.screenshot({ path: path.join(artifactDirectory, 'smoke-studio.png') });
     await window.locator('#stop-profile').click();
-    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Не настроено');
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Not configured');
     assert.equal(await window.locator('#send-message').isDisabled(), true);
     assert.equal(await window.locator('#record-avatar').isDisabled(), true);
     assert.equal(await window.locator('#webrtc-state').getAttribute('data-session-id'), '');
@@ -171,7 +171,7 @@ async function runMissingRootCase() {
  try {
   const window=await application.firstWindow();
   window.on('pageerror',error=>logs.push(`Renderer error: ${error.stack}`));
-  await window.waitForFunction(()=>document.querySelector('#avatar-summary-message').textContent.includes('Не удалось открыть библиотеку'));
+  await window.waitForFunction(()=>document.querySelector('#avatar-summary-message').textContent.includes('Could not open library'));
   assert.equal(await window.locator('#choose-root').isEnabled(),true);
   console.log('Unavailable saved checkout → editable setup and library error: passed');
  } finally {await application.close();await rm(userData,{recursive:true,force:true});}
@@ -223,7 +223,7 @@ async function runAvatarCase() {
     await window.locator('#submit-avatar-create').click();
     await state('running');
     await window.waitForFunction(() => document.querySelector('#avatar-job-progress').value >= 25);
-    assert.match(await window.locator('#avatar-job-message').textContent(), /Скачиваем модель аватара/);
+    assert.match(await window.locator('#avatar-job-message').textContent(), /Downloading avatar model/);
     await window.screenshot({ path: path.join(artifactDirectory, 'smoke-avatar-create.png') });
     await window.keyboard.press('Escape');
     assert.equal(await window.locator('#avatar-create-dialog').isVisible(), false);
@@ -252,9 +252,9 @@ async function runAvatarCase() {
     const restored = JSON.parse(await readFile(path.join(userData, 'profiles.json'), 'utf8')).profiles[0];
     assert.equal(restored.liveTalking.avatarId, createdId);
     assert.equal(restored.liveTalking.model, 'musetalk');
-    await card.getByText('Переименовать', { exact: true }).click();
+    await card.getByText('Rename', { exact: true }).click();
     await card.getByRole('textbox').fill('Портрет');
-    await card.getByRole('button', { name: 'Сохранить имя', exact: true }).click();
+    await card.getByRole('button', { name: 'Save name', exact: true }).click();
     await window.locator('#avatar-search').fill('ПОРТР');
     await window.waitForFunction(() => document.querySelector('[data-avatar-name]')?.textContent === 'Портрет');
     assert.equal(await window.locator('[data-avatar-id]').count(), 1);
@@ -279,21 +279,21 @@ async function runAvatarCase() {
     assert.equal(await window.locator('#runtime-state').getAttribute('data-phase'), 'checking');
     assert.notEqual(await window.locator('.startup-spinner').evaluate(node => getComputedStyle(node).animationName), 'none');
     assert.equal(await window.locator('#model-download-panel').evaluate(panel => { const box = panel.getBoundingClientRect(); return box.top >= 0 && box.bottom <= innerHeight; }), true, 'download progress must be visible without scrolling settings');
-    assert.match(await window.locator('#model-download-state').textContent(), /Модель аватара/);
+    assert.match(await window.locator('#model-download-state').textContent(), /Avatar model/);
     await window.screenshot({ path: path.join(artifactDirectory, 'smoke-model-download.png') });
     await window.locator('#stop-profile').click();
-    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Не настроено');
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Not configured');
     await assert.rejects(readFile(path.join(avatarRoot, '.fixture-models-ready')), { code: 'ENOENT' });
     await writeFile(path.join(avatarRoot, 'fixture-control.json'), JSON.stringify({ mode: 'success', modelsMode: 'fail' }));
     await window.locator('#start-profile').click();
-    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Ошибка');
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Error');
     assert.match(await window.locator('#runtime-log').textContent(), /Fixture model download failed/);
     await writeFile(path.join(avatarRoot, 'fixture-control.json'), JSON.stringify({ mode: 'success', modelsMode: 'success' }));
     await window.locator('#start-profile').click();
-    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Работает');
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Running');
     assert.equal(await readFile(path.join(avatarRoot, '.fixture-models-ready'), 'utf8'), 'verified');
     await window.locator('#stop-profile').click();
-    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Не настроено');
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Not configured');
     console.log('Model download progress → Stop cancellation → failure → repeat → startup: passed');
 
     const existing = path.join(avatarRoot, 'data/avatars/legacy');
@@ -309,23 +309,23 @@ async function runAvatarCase() {
     fixture.control.brainMode = 'batya';
     fixture.control.avatarModel = 'musetalk';
     await window.locator('#start-profile').click();
-    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Работает');
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Running');
     await window.locator('#connect-avatar').click();
     await window.waitForFunction(() => document.querySelector('#brain-turn-state').dataset.stream === 'connected');
     await window.locator('#message-text').fill('Ответ после смены аватара'); await window.locator('#send-message').click();
     await window.waitForFunction(() => document.querySelector('#conversation-list [data-status="delta"]'));
     await window.locator('#record-avatar').click();
-    await window.waitForFunction(() => document.querySelector('#record-avatar').textContent === 'Завершить запись');
+    await window.waitForFunction(() => document.querySelector('#record-avatar').textContent === 'Finish recording');
     await window.locator('#open-avatar-library').click();
     await window.locator('#avatar-search').fill('');
     card = window.locator('[data-avatar-id="legacy"]'); await card.waitFor();
-    assert.equal(await card.getByRole('button', { name: 'Остановить и выбрать', exact: true }).isDisabled(), true);
+    assert.equal(await card.getByRole('button', { name: 'Stop and select', exact: true }).isDisabled(), true);
     await window.keyboard.press('Escape');
     await window.locator('#record-avatar').click();
-    await window.waitForFunction(() => document.querySelector('#conversation-message').textContent.includes('Сохранение отменено'));
+    await window.waitForFunction(() => document.querySelector('#conversation-message').textContent.includes('Save cancelled'));
     await window.locator('#open-avatar-library').click();
-    await card.getByRole('button', { name: 'Остановить и выбрать', exact: true }).click();
-    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Не настроено');
+    await card.getByRole('button', { name: 'Stop and select', exact: true }).click();
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Not configured');
     const before = await window.locator('#conversation-list').textContent();
     fixture.finishTurn();
     await window.waitForFunction(() => document.querySelector('#start-profile').disabled === false);
@@ -336,7 +336,7 @@ async function runAvatarCase() {
     await window.locator('#start-profile').click();
     await window.waitForFunction(() => document.querySelector('#conversation-list [data-role="assistant"]')?.textContent.includes('Это тестовый ответ.'));
     await window.locator('#stop-profile').click();
-    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Не настроено');
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Not configured');
 
     await writeFile(source, png); await control('delay');
     await chooseSource('Отмена'); await window.locator('#submit-avatar-create').click(); await state('running');
@@ -396,7 +396,7 @@ async function runBatyaCase() {
     await window.locator('#brain-service-mode').selectOption('external');
     await window.locator('#brain-url').fill(`http://127.0.0.1:${fixture.port}`);
     await window.locator('#start-profile').click();
-    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Работает');
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Running');
     await window.locator('#new-brain-conversation').click();
     await window.waitForFunction(() => Boolean(document.querySelector('#brain-conversation').value));
     let id = await window.locator('#brain-conversation').inputValue();
@@ -407,13 +407,13 @@ async function runBatyaCase() {
     await window.waitForFunction(() => document.querySelector('#conversation-list [data-role="assistant"]')?.textContent.includes('Привет, сынок.'));
     assert.equal(await window.locator('#conversation-list [data-role="assistant"]').getAttribute('data-status'), 'delta');
     await window.locator('#interrupt-avatar').click();
-    await window.waitForFunction(() => document.querySelector('#brain-turn-state').textContent.includes('завершает'));
-    assert.match(await window.locator('#brain-turn-state').textContent(), /завершает/);
+    await window.waitForFunction(() => document.querySelector('#brain-turn-state').textContent.includes('saving'));
+    assert.match(await window.locator('#brain-turn-state').textContent(), /saving/);
     await window.locator('#connect-avatar').click();
     await window.locator('#connect-avatar').click();
     await window.waitForFunction(() => document.querySelector('#brain-turn-state').dataset.stream === 'connected' && document.querySelector('#conversation-list [data-role="assistant"]')?.dataset.status === 'delta');
     assert.match(await window.locator('#conversation-list [data-role="assistant"]').textContent(), /Привет, сынок/);
-    assert.match(await window.locator('#brain-turn-state').textContent(), /отвечает|завершает/);
+    assert.match(await window.locator('#brain-turn-state').textContent(), /replying|saving/);
     fixture.finishTurn();
     await window.waitForFunction(() => document.querySelector('#conversation-list [data-role="assistant"]')?.dataset.status === 'done');
     await window.locator('#connect-avatar').click();
@@ -474,12 +474,12 @@ async function runBatyaCase() {
     await reopened.waitForFunction(() => document.querySelectorAll('#conversation-list [data-role="assistant"]').length === 1);
     assert.equal(await reopened.locator('#brain-conversation').inputValue(), id);
     await reopened.locator('#stop-profile').click();
-    await reopened.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Не настроено');
+    await reopened.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Not configured');
     fixture.control.brainMode = 'direct';
     await reopened.locator('#setup-details').evaluate(details => { details.open = true; });
     await reopened.locator('#brain-mode').selectOption('direct');
     await reopened.locator('#start-profile').click();
-    await reopened.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Работает');
+    await reopened.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Running');
     assert.equal(await reopened.locator('#brain-conversations').isHidden(), true);
     console.log('Batya streaming → interrupt → reconnect/history → error/retry → restart → direct mode: passed');
   } finally { await application?.close(); await rm(userData, { recursive: true, force: true }); fixture.control.brainMode = 'direct'; }

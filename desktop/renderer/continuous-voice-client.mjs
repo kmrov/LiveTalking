@@ -54,7 +54,7 @@ export function createContinuousVoiceClient({ getUserMedia, AudioContext, AudioW
     ++generation;
     turnAbort?.abort(); turnAbort = null;
     void release();
-    setState('failed', error?.message || 'Ошибка распознавания');
+    setState('failed', error?.message || 'Recognition error');
   }
 
   function finishTurn(text, token) {
@@ -95,11 +95,11 @@ export function createContinuousVoiceClient({ getUserMedia, AudioContext, AudioW
       await new Promise((resolve, reject) => {
         socketOpenReject = reject;
         socket.onopen = () => { socketOpenReject = null; resolve(); };
-        socket.onerror = () => { socketOpenReject = null; reject(new Error('Ошибка соединения ASR')); };
+        socket.onerror = () => { socketOpenReject = null; reject(new Error('ASR connection error')); };
         socket.onclose = () => { socketOpenReject = null; reject(new Error('ASR connection closed')); };
       });
       if (token !== generation) throw new Error('Microphone capture cancelled');
-      socket.onerror = () => fail(new Error('Ошибка соединения ASR'));
+      socket.onerror = () => fail(new Error('ASR connection error'));
       socket.onclose = () => fail(new Error('ASR connection closed'));
       socket.onmessage = event => {
         try {

@@ -78,10 +78,10 @@ def generate_avatar(video_path, avatar_id, save_path='./data/avatars', img_size=
 
     input_img_list = sorted(glob(os.path.join(full_imgs_path, '*.[jpJP][pnPN]*[gG]')))
     if not input_img_list:
-        raise ValueError("Исходник не содержит читаемых кадров.")
+        raise ValueError("Source has no readable frames.")
     frames = read_imgs(input_img_list)
     if any(frame is None for frame in frames):
-        raise ValueError("Не удалось прочитать кадр.")
+        raise ValueError("Could not read a frame.")
 
     if progress_callback: progress_callback(40)
 
@@ -111,10 +111,10 @@ def generate_avatar(video_path, avatar_id, save_path='./data/avatars', img_size=
     results = []
     pady1, pady2, padx1, padx2 = pads
     if len(predictions) != len(frames):
-        raise ValueError("Кадры и результаты детектора не согласованы.")
+        raise ValueError("Frames and detector results do not match.")
     for rect, image in zip(predictions, frames):
         if rect is None:
-            raise ValueError("Лицо не найдено в одном из кадров. Выберите исходник с хорошо видимым лицом.")
+            raise ValueError("Face not found in one of the frames. Select a source with a clearly visible face.")
 
         y1 = max(0, rect[1] - pady1)
         y2 = min(image.shape[0], rect[3] + pady2)

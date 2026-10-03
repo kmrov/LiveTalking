@@ -27,7 +27,7 @@ export function createModelDownloads({ spawn = nodeSpawn, kill = (pid, signal) =
   const publish = value => { state = value; emit(snapshot()); };
 
   async function prepare(profile) {
-    if (active) throw new Error('Загрузка моделей уже выполняется.');
+    if (active) throw new Error('Model download is already running.');
     const owner = { cancelled: false, child: null, directory: null, closed: false };
     active = owner;
     owner.finished = new Promise(resolve => { owner.finish = resolve; });
@@ -37,7 +37,7 @@ export function createModelDownloads({ spawn = nodeSpawn, kill = (pid, signal) =
       const requestFile = path.join(owner.directory, 'request.json');
       const request = { root: profile.liveTalking.root, model: profile.liveTalking.model, speechMode: profile.speech.mode };
       await writeFile(requestFile, JSON.stringify(request), { mode: 0o600 });
-      if (owner.cancelled) throw new Error('Загрузка отменена.');
+      if (owner.cancelled) throw new Error('Download cancelled.');
       await new Promise((resolve, reject) => {
         const child = spawn(profile.liveTalking.python, ['-u', path.join(request.root, 'scripts/download_desktop_models.py'), '--profile', requestFile], { cwd: request.root, detached: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
         owner.child = child;
@@ -50,7 +50,7 @@ export function createModelDownloads({ spawn = nodeSpawn, kill = (pid, signal) =
           try { event = JSON.parse(line.slice(10)); } catch { return; }
           if (event.version !== 1 || owner.cancelled) return;
           if (event.state === 'completed') { completed = true; return; }
-          if (event.state === 'failed') { failure = String(event.message || 'Ошибка загрузки моделей.').slice(0, 2048); return; }
+          if (event.state === 'failed') { failure = String(event.message || 'Model download failed.').slice(0, 2048); return; }
           if (event.state !== 'downloading' || !Number.isSafeInteger(event.downloadedBytes) || !Number.isSafeInteger(event.totalBytes) || event.downloadedBytes < 0 || event.totalBytes < event.downloadedBytes) return;
           publish({ state: 'downloading', progress: Math.min(100, Math.max(0, Math.floor(Number(event.progress) || 0))), file: String(event.file || '').slice(0, 1024), label: String(event.label || '').slice(0, 256), downloadedBytes: event.downloadedBytes, totalBytes: event.totalBytes });
         };
@@ -68,9 +68,9 @@ export function createModelDownloads({ spawn = nodeSpawn, kill = (pid, signal) =
           consume(buffer + decoder.end());
           errors += errorDecoder.end();
           cleanup();
-          if (owner.cancelled) reject(new Error('Загрузка отменена.'));
-          else if (code !== 0 || failure) reject(new Error(failure || errors.trim() || 'Загрузка моделей завершилась с ошибкой.'));
-          else if (!completed) reject(new Error('Загрузчик не подтвердил результат установки моделей.'));
+          if (owner.cancelled) reject(new Error('Download cancelled.'));
+          else if (code !== 0 || failure) reject(new Error(failure || errors.trim() || 'Model download failed.'));
+          else if (!completed) reject(new Error('Downloader did not confirm the installed models.'));
           else resolve();
         };
         child.stdout?.on('data', onData); child.stderr?.on('data', onErrorData);
@@ -79,7 +79,7 @@ export function createModelDownloads({ spawn = nodeSpawn, kill = (pid, signal) =
       publish({ state: 'completed', progress: 100 });
       return snapshot();
     } catch (error) {
-      const failure = owner.cancelled ? new Error('Загрузка отменена.') : error;
+      const failure = owner.cancelled ? new Error('Download cancelled.') : error;
       publish({ ...state, state: owner.cancelled ? 'cancelled' : 'failed', detail: failure.message });
       throw failure;
     } finally {

@@ -61,12 +61,12 @@ const setupChecks = async profile => fixtureMode
 
 async function startProfile(id) {
   if (!fixtureMode) await avatarRuntime.assertCanStart(profileStore.get(id));
-  else if (avatarJobs.isBusy()) throw new Error("Сначала завершите подготовку аватара.");
+  else if (avatarJobs.isBusy()) throw new Error("Finish avatar preparation first.");
   if (startJob) return startJob;
   const profile = profileStore.get(id);
-  if (!profile) throw new Error(`Профиль ${id} не найден`);
+  if (!profile) throw new Error(`Profile ${id} not found`);
   if (serviceState.phase === 'ready' && serviceState.profileId === id) return runtimeSnapshot();
-  if (['ready', 'starting', 'checking'].includes(serviceState.phase) && serviceState.profileId !== id) throw new Error('Остановите текущий профиль перед переключением.');
+  if (['ready', 'starting', 'checking'].includes(serviceState.phase) && serviceState.profileId !== id) throw new Error('Stop the current profile before switching.');
   const wasFailed = serviceState.phase === 'failed';
   const token = ++runGeneration;
   serviceState = transitionServiceState(serviceState, { type: 'CHECK', profileId: id });
@@ -83,7 +83,7 @@ async function startProfile(id) {
       if (token !== runGeneration) return runtimeSnapshot();
       const snapshot = await supervisor.start(profile);
       if (token !== runGeneration) return runtimeSnapshot();
-      if (snapshot.state !== 'ready') throw new Error(snapshot.logExcerpt || 'LiveTalking не запустился');
+      if (snapshot.state !== 'ready') throw new Error(snapshot.logExcerpt || 'LiveTalking did not start');
       serviceState = transitionServiceState(serviceState, { type: 'READY', profileId: id });
       profileStore.setLastSuccessfulId(id);
       publishSnapshot();
@@ -122,7 +122,7 @@ function initialProfile() {
   if (saved) return saved;
   if (fixtureMode) return normalizeProfile({
     id: 'fixture', liveTalking: { root: avatarFixture?.root ?? path.dirname(app.getAppPath()), python: '/usr/bin/python3', port: fixturePort },
-    speech: { mode: 'external', referenceWav: '/tmp/fixture.wav', referenceText: 'Привет', asrUrl: `http://127.0.0.1:${fixturePort}`, ttsUrl: `http://127.0.0.1:${fixturePort}` },
+    speech: { mode: 'external', referenceWav: '/tmp/fixture.wav', referenceText: 'Hello', asrUrl: `http://127.0.0.1:${fixturePort}`, ttsUrl: `http://127.0.0.1:${fixturePort}` },
     autoStart: false,
   });
   const root = discoverLiveTalkingRoot({
@@ -161,7 +161,7 @@ function secretStatus(profile) {
 
 function brainApi(id) {
   const profile = profileStore.get(id);
-  if (!profile || profile.brain.mode !== 'batya') throw new Error('Сначала выберите и сохраните режим «Батя».');
+  if (!profile || profile.brain.mode !== 'batya') throw new Error('Select and save Batya mode first.');
   return createBatyaApi({ baseUrl: profile.brain.url });
 }
 
@@ -180,7 +180,7 @@ function registerSetupIpc() {
   ipcMain.handle('desktop:save-profile', trusted(input => avatarRuntime.runLifecycle(async () => { const profile = normalizeProfile(input); await avatarRuntime.assertCanSave(profile); return profileStore.save(profile); })));
   ipcMain.handle('desktop:brain-secrets', trusted((id, input = {}) => {
     const profile = profileStore.get(id);
-    if (!profile) throw new Error('Профиль не найден');
+    if (!profile) throw new Error('Profile not found');
     for (const [field, name] of [['apiKey', 'key'], ['databaseUrl', 'database']]) {
       const value = input[field];
       if (value === undefined || value === '') continue;
@@ -202,17 +202,17 @@ function registerSetupIpc() {
   ipcMain.handle('desktop:brain-memories', trusted(id => brainApi(id).memories()));
   ipcMain.handle('desktop:brain-document', trusted((id, input) => brainApi(id).document(input)));
   ipcMain.handle('desktop:choose-brain-root', trusted(async () => {
-    const result = await dialog.showOpenDialog(studioWindow, { title: 'Выбрать Батю', properties: ['openDirectory'] });
+    const result = await dialog.showOpenDialog(studioWindow, { title: 'Choose Batya', properties: ['openDirectory'] });
     return result.canceled ? null : result.filePaths[0];
   }));
   ipcMain.handle('desktop:choose-root', trusted(async () => {
-    const result = await dialog.showOpenDialog(studioWindow, { title: 'Выбрать LiveTalking', properties: ['openDirectory'] });
+    const result = await dialog.showOpenDialog(studioWindow, { title: 'Choose LiveTalking', properties: ['openDirectory'] });
     if (result.canceled) return null;
     const root = result.filePaths[0];
     return { root, voiceReferences: findVoiceReferences(root) };
   }));
   ipcMain.handle('desktop:choose-voice-wav', trusted(async () => {
-    const result = await dialog.showOpenDialog(studioWindow, { title: 'Выбрать WAV-образец голоса', properties: ['openFile'], filters: [{ name: 'WAV', extensions: ['wav'] }] });
+    const result = await dialog.showOpenDialog(studioWindow, { title: 'Choose WAV voice sample', properties: ['openFile'], filters: [{ name: 'WAV', extensions: ['wav'] }] });
     return result.canceled ? null : result.filePaths[0];
   }));
   ipcMain.handle('desktop:start-profile', trusted(id => avatarRuntime.runLifecycle(() => startProfile(id))));
@@ -231,11 +231,11 @@ function registerSetupIpc() {
   ipcMain.handle('desktop:save-recording', trusted(async sessionId => {
     if (typeof sessionId !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(sessionId)) throw new Error('Invalid recording session');
     const port = supervisor.snapshot().port;
-    if (!port || serviceState.phase !== 'ready') throw new Error('LiveTalking не запущен');
-    const chosen = await dialog.showSaveDialog(studioWindow, { title: 'Сохранить запись', defaultPath: `livetalking-${sessionId}.mp4`, filters: [{ name: 'MP4', extensions: ['mp4'] }] });
+    if (!port || serviceState.phase !== 'ready') throw new Error('LiveTalking is not running');
+    const chosen = await dialog.showSaveDialog(studioWindow, { title: 'Save recording', defaultPath: `livetalking-${sessionId}.mp4`, filters: [{ name: 'MP4', extensions: ['mp4'] }] });
     if (chosen.canceled || !chosen.filePath) return null;
     const response = await fetch(`http://127.0.0.1:${port}/record/${encodeURIComponent(sessionId)}`, { signal: AbortSignal.timeout(30000) });
-    if (!response.ok) throw new Error(`Не удалось получить запись: HTTP ${response.status}`);
+    if (!response.ok) throw new Error(`Could not retrieve recording: HTTP ${response.status}`);
     await writeFile(chosen.filePath, Buffer.from(await response.arrayBuffer()));
     return chosen.filePath;
   }));
@@ -288,13 +288,13 @@ app.whenReady().then(async () => {
   secrets = createSecretStore({ safeStorage, backend: createFileSecretBackend(app.getPath('userData')) });
   batyaSupervisor = createBatyaSupervisor({ emit: snapshot => {
     if (snapshot.state === 'failed' && !['failed', 'not-configured'].includes(serviceState.phase)) {
-      serviceState = transitionServiceState(serviceState, { type: 'CHILD_EXIT', detail: snapshot.logExcerpt || 'Батя недоступен' });
+      serviceState = transitionServiceState(serviceState, { type: 'CHILD_EXIT', detail: snapshot.logExcerpt || 'Batya is unavailable' });
     }
     publishSnapshot();
   } });
   supervisor = createSupervisor({ emit: snapshot => {
     if (snapshot.state === 'failed' && !['failed', 'not-configured'].includes(serviceState.phase)) {
-      serviceState = transitionServiceState(serviceState, { type: 'CHILD_EXIT', detail: snapshot.logExcerpt || 'Сервис завершился' });
+      serviceState = transitionServiceState(serviceState, { type: 'CHILD_EXIT', detail: snapshot.logExcerpt || 'Service exited' });
     }
     publishSnapshot();
   } });
@@ -310,14 +310,14 @@ app.whenReady().then(async () => {
     },
     moveDirectoryNoReplace: avatarFixture?.moveDirectoryNoReplace ?? (async (_staged, final, context) => {
       const result = await runAvatarCommand({ ...context, schemaVersion: 1 }, 'publish');
-      if (result.version !== 1 || result.avatarId !== context.avatarId || result.path !== final) throw new Error('Публикация аватара не подтверждена.');
+      if (result.version !== 1 || result.avatarId !== context.avatarId || result.path !== final) throw new Error('Avatar publishing was not confirmed.');
     }),
   });
   avatarJobs = createAvatarJobs({ library: avatarLibrary, ...(avatarFixture ? { inspectCreation: avatarFixture.inspectCreation, spawn: avatarFixture.spawn } : {}), emit: job => {
     if (studioWindow && !studioWindow.isDestroyed()) studioWindow.webContents.send('desktop:avatar-snapshot', { root: job.root, job });
   } });
   const avatarSources = createAvatarSources({ ...(avatarFixture ? { inspectPreview: avatarFixture.inspectPreview } : {}), chooseFile: async () => {
-    const result = await dialog.showOpenDialog(studioWindow, { title: 'Фото или видео для аватара', properties: ['openFile'], filters: [{ name: 'Фото и видео', extensions: ['png', 'jpg', 'jpeg', 'mp4', 'mov', 'mkv', 'avi'] }] });
+    const result = await dialog.showOpenDialog(studioWindow, { title: 'Photo or video for avatar', properties: ['openFile'], filters: [{ name: 'Photos and videos', extensions: ['png', 'jpg', 'jpeg', 'mp4', 'mov', 'mkv', 'avi'] }] });
     return result.canceled ? null : result.filePaths[0];
   } });
   avatarRuntime = createAvatarRuntime({ library: avatarLibrary, jobs: avatarJobs, sources: avatarSources, profiles: profileStore, stopProfile,

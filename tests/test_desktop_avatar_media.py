@@ -27,7 +27,7 @@ class DesktopAvatarMediaTest(unittest.TestCase):
         source=self.root/'large.png';Image.new('RGB',(1,1)).save(source)
         data=bytearray(source.read_bytes());data[16:24]=struct.pack('>II',9000,9000)
         data[29:33]=struct.pack('>I',zlib.crc32(data[12:29]));source.write_bytes(data)
-        with self.assertRaisesRegex(ValueError,'пиксел'):
+        with self.assertRaisesRegex(ValueError,'pixels'):
             preview_media(source,'image',self.root/'thumbnail.jpg')
         self.assertFalse((self.root/'thumbnail.jpg').exists())
     def test_video_normalization_passes_one_path_and_25fps_without_audio(self):

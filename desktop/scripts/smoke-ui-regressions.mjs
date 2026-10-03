@@ -33,18 +33,18 @@ try {
   const leftHandle = await window.locator('#left-panel-resizer').boundingBox();
   await window.mouse.move(leftHandle.x + leftHandle.width / 2, leftHandle.y + 50);
   await window.mouse.down();
-  await window.mouse.move(leftHandle.x + leftHandle.width / 2 + 90, leftHandle.y + 50, { steps: 5 });
+  await window.mouse.move(leftHandle.x + leftHandle.width / 2 + 90, leftHandle.y + 50);
   await window.mouse.up();
-  await window.waitForFunction(initial => document.querySelector('.left-panel').getBoundingClientRect().width > initial + 80, initialWidths.left, { timeout: 5000 });
+  await window.waitForFunction(initial => document.querySelector('.left-panel').getBoundingClientRect().width > initial + 80, initialWidths.left);
   const afterLeftDrag = await panelWidths();
   assert.ok(afterLeftDrag.left > initialWidths.left + 80, 'dragging the left divider widens the profile panel');
   assert.ok(afterLeftDrag.stage < initialWidths.stage - 80, 'the stage gives space to the profile panel');
   const rightHandle = await window.locator('#right-panel-resizer').boundingBox();
   await window.mouse.move(rightHandle.x + rightHandle.width / 2, rightHandle.y + 50);
   await window.mouse.down();
-  await window.mouse.move(rightHandle.x + rightHandle.width / 2 - 70, rightHandle.y + 50, { steps: 5 });
+  await window.mouse.move(rightHandle.x + rightHandle.width / 2 - 70, rightHandle.y + 50);
   await window.mouse.up();
-  await window.waitForFunction(initial => document.querySelector('.right-panel').getBoundingClientRect().width > initial + 60, initialWidths.right, { timeout: 5000 });
+  await window.waitForFunction(initial => document.querySelector('.right-panel').getBoundingClientRect().width > initial + 60, initialWidths.right);
   const afterRightDrag = await panelWidths();
   assert.ok(afterRightDrag.right > initialWidths.right + 60, 'dragging the right divider widens the conversation panel');
   await window.locator('#right-panel-resizer').focus();
@@ -75,7 +75,7 @@ try {
   await window.locator('#brain-service-mode').selectOption('external');
   await window.locator('#brain-url').fill(`http://127.0.0.1:${fixture.port}`);
   await window.locator('#start-profile').click();
-  await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Работает');
+  await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Running');
   await window.evaluate(() => { document.querySelector('.left-panel').scrollTop = 0; });
   await window.screenshot({ path: path.join(screenshots, '01-ready.png') });
 
@@ -103,21 +103,21 @@ try {
     'recording must not start during a conversation change');
   await window.waitForFunction(previous => document.querySelector('#brain-conversation').value !== previous, conversationBeforeRecordingRace);
   await window.locator('#record-avatar').click();
-  await window.waitForFunction(() => document.querySelector('#record-avatar').textContent === 'Завершить запись');
+  await window.waitForFunction(() => document.querySelector('#record-avatar').textContent === 'Finish recording');
   await window.locator('#stop-profile').click();
   await window.waitForTimeout(300);
-  assert.equal(await window.locator('#runtime-state').textContent(), 'Работает',
+  assert.equal(await window.locator('#runtime-state').textContent(), 'Running',
     'Stop must leave the profile running while recording');
   assert.equal(await window.locator('#webrtc-state').getAttribute('data-session-id'), 'fixture-session',
     'Stop must retain the active recording session');
-  assert.match(await window.locator('#conversation-message').textContent(), /Завершите запись перед остановкой профиля/);
+  assert.match(await window.locator('#conversation-message').textContent(), /Finish recording before stopping the profile/);
   await window.locator('#connect-avatar').click();
   assert.equal(await window.locator('#webrtc-state').getAttribute('data-session-id'), 'fixture-session',
     'WebRTC must remain connected while recording');
-  assert.equal(await window.locator('#record-avatar').textContent(), 'Завершить запись');
+  assert.equal(await window.locator('#record-avatar').textContent(), 'Finish recording');
   await application.evaluate(({ dialog }) => { dialog.showSaveDialog = async () => ({ canceled: true }); });
   await window.locator('#record-avatar').click();
-  await window.waitForFunction(() => document.querySelector('#conversation-message').textContent.includes('Сохранение отменено'));
+  await window.waitForFunction(() => document.querySelector('#conversation-message').textContent.includes('Save cancelled'));
 
   await window.locator('#message-text').fill('Потоковый ответ');
   await window.locator('#send-message').click();
@@ -143,7 +143,7 @@ try {
   await window.waitForTimeout(250);
   assert.match(await window.locator('#conversation-list [data-role="assistant"]').textContent(), /Привет, сынок\./,
     'refresh must retain an unfinished answer');
-  assert.match(await window.locator('#brain-turn-state').textContent(), /отвечает|думает/,
+  assert.match(await window.locator('#brain-turn-state').textContent(), /replying|thinking/,
     'refresh must retain pending state');
   fixture.finishTurn();
   await window.waitForFunction(() => document.querySelector('#conversation-list [data-role="assistant"]')?.dataset.status === 'done');
@@ -164,15 +164,15 @@ try {
     };
   });
   await window.locator('#microphone-button').click();
-  await window.waitForFunction(() => document.querySelector('#microphone-state').textContent.includes('Говорите'));
+  await window.waitForFunction(() => document.querySelector('#microphone-state').textContent.includes('Speak'));
   await window.locator('#microphone-button').click();
-  await window.waitForFunction(() => document.querySelector('#microphone-state').textContent.includes('Распознавание'));
+  await window.waitForFunction(() => document.querySelector('#microphone-state').textContent.includes('Transcribing'));
   const conversationBeforeAsrSwitch = await window.locator('#brain-conversation').inputValue();
   await window.locator('#new-brain-conversation').click();
   await window.waitForTimeout(500);
   assert.notEqual(await window.locator('#brain-conversation').inputValue(), conversationBeforeAsrSwitch,
     `ASR switch failed: ${await window.locator('#conversation-message').textContent()}`);
-  assert.equal(await window.locator('#microphone-state').textContent(), 'Нажмите, чтобы говорить',
+  assert.equal(await window.locator('#microphone-state').textContent(), 'Press to speak',
     'cancelled ASR must not write an error into the new conversation');
 
   let releaseSend;
@@ -187,7 +187,7 @@ try {
   await window.locator('#send-message').click();
   await sendStarted;
   await window.locator('#message-text').fill('Новый черновик');
-  await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Сообщение принято.');
+  await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Message received.');
   await window.waitForFunction(() => !document.querySelector('#send-message').disabled);
   assert.equal(await window.locator('#message-text').inputValue(), 'Новый черновик',
     'completed send must retain a newer draft');

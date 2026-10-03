@@ -1,6 +1,6 @@
 import { filterAvatars,avatarActionState,buildCreationInput,avatarSnapshotBelongsToRoot } from './avatar-library-state.mjs';
 const models={musetalk:'MuseTalk',wav2lip:'Wav2Lip',ultralight:'Ultralight'};
-const stages={checking:'Проверяем окружение',copying:'Сохраняем исходник',downloading:'Скачиваем модели',normalizing:'Подготавливаем фото или видео',generating:'Создаём аватара',validating:'Проверяем результат',publishing:'Сохраняем аватара'};
+const stages={checking:'Checking environment',copying:'Saving source',downloading:'Downloading models',normalizing:'Preparing photo or video',generating:'Creating avatar',validating:'Checking result',publishing:'Saving avatar'};
 export function mountAvatarLibrary({document,bridge,getProfile,onProfileSelected,prepareSessionChange,getSessionState}) {
  const $=selector=>document.querySelector(selector),cleanups=[];
  let entries=[],job=null,selection=null,pending=false,refreshGeneration=0,disposed=false,catalog=null;
@@ -21,12 +21,12 @@ export function mountAvatarLibrary({document,bridge,getProfile,onProfileSelected
  function modelOptions(){const muse=$('#new-avatar-model').value==='musetalk';$('#musetalk-avatar-options').hidden=!muse;$('#wav2lip-avatar-options').hidden=muse;}
  function renderCurrent(){
   const selected=entries.find(entry=>entry.id===getProfile()?.liveTalking.avatarId);
-  $('#selected-avatar-name').textContent=selected?.name||'Выберите аватара';$('#selected-avatar-model').textContent=selected?models[selected.model]||selected.reason:'';
+  $('#selected-avatar-name').textContent=selected?.name||'Select an avatar';$('#selected-avatar-model').textContent=selected?models[selected.model]||selected.reason:'';
   const image=$('#selected-avatar-image');image.hidden=!selected?.thumbnail;if(selected?.thumbnail)image.src=selected.thumbnail;else image.removeAttribute('src');
  }
  async function select(id,target='#avatar-library-message') {
   await perform(async()=>{
-   if(!action().canSelect)throw new Error('Завершите запись или подготовку перед выбором аватара.');
+   if(!action().canSelect)throw new Error('Finish recording or preparation before selecting an avatar.');
    await prepareSessionChange();
    const profile=await bridge.selectAvatar(getProfile(),id,{stopServices:true});onProfileSelected(profile);
    $('#avatar-library-dialog').close();$('#avatar-create-dialog').close();await refresh();
@@ -35,31 +35,31 @@ export function mountAvatarLibrary({document,bridge,getProfile,onProfileSelected
  function renderCards(){
   const container=$('#avatar-cards');container.replaceChildren();
   const filtered=filterAvatars(entries,$('#avatar-search').value);
-  if(!filtered.length){const empty=document.createElement('p');empty.textContent=entries.length?'Ничего не найдено.':'Пока нет аватаров. Создайте первого из фото или видео.';container.append(empty);}
+  if(!filtered.length){const empty=document.createElement('p');empty.textContent=entries.length?'No results found.':'No avatars yet. Create one from a photo or video.';container.append(empty);}
   for(const entry of filtered){
    const card=document.createElement('article');card.className='avatar-card';card.dataset.avatarId=entry.id;
    const thumbnail=document.createElement('div');thumbnail.className='avatar-card-image';
    if(entry.thumbnail){const image=document.createElement('img');image.src=entry.thumbnail;image.alt='';image.loading='lazy';thumbnail.append(image);}else thumbnail.textContent='◇';
    const name=document.createElement('h3');name.dataset.avatarName='';name.textContent=entry.name;
-   const model=document.createElement('p');model.textContent=models[entry.model]||'Модель не определена';
+   const model=document.createElement('p');model.textContent=models[entry.model]||'Unknown model';
    card.append(thumbnail,name,model);
-   const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent='Сведения';details.append(summary);
+   const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent='Details';details.append(summary);
    const id=document.createElement('small');id.textContent=entry.id;details.append(id);card.append(details);
    if(!entry.ready){const error=document.createElement('p');error.className='avatar-error';error.textContent=entry.reason;card.append(error);}
    const choose=document.createElement('button');choose.type='button';choose.dataset.avatarSelect=entry.id;choose.dataset.ready=String(entry.ready);choose.textContent=action().selectLabel;choose.disabled=!entry.ready||!action().canSelect||pending;choose.addEventListener('click',()=>void select(entry.id));card.append(choose);
-   if(entry.ready){const rename=document.createElement('details'),label=document.createElement('summary');label.textContent='Переименовать';rename.append(label);const input=document.createElement('input');input.value=entry.name;input.maxLength=120;input.setAttribute('aria-label','Новое имя аватара');const save=document.createElement('button');save.type='button';save.textContent='Сохранить имя';save.addEventListener('click',()=>void perform(async()=>{await bridge.renameAvatar({root:getProfile().liveTalking.root,id:entry.id,name:input.value});await refresh();},'#avatar-library-message'));rename.append(input,save);card.append(rename);}
+   if(entry.ready){const rename=document.createElement('details'),label=document.createElement('summary');label.textContent='Rename';rename.append(label);const input=document.createElement('input');input.value=entry.name;input.maxLength=120;input.setAttribute('aria-label','New avatar name');const save=document.createElement('button');save.type='button';save.textContent='Save name';save.addEventListener('click',()=>void perform(async()=>{await bridge.renameAvatar({root:getProfile().liveTalking.root,id:entry.id,name:input.value});await refresh();},'#avatar-library-message'));rename.append(input,save);card.append(rename);}
    container.append(card);
   }
  }
  function renderJob(){
   $('#avatar-job-panel').hidden=!job;$('#open-avatar-job').hidden=!job;
   if(!job)return;
-  const labels={completed:'Аватар готов',failed:'Не удалось создать аватара',cancelled:'Подготовка отменена',interrupted:'Подготовка прервана закрытием приложения',cancelling:'Отменяем подготовку'};
-  const label=labels[job.state]||stages[job.stage]||'Подготовка';
+  const labels={completed:'Avatar ready',failed:'Could not create avatar',cancelled:'Preparation cancelled',interrupted:'Preparation interrupted when the app closed',cancelling:'Cancelling preparation'};
+  const label=labels[job.state]||stages[job.stage]||'Preparing';
   $('#avatar-job-state').textContent=`${job.name}: ${label}`;$('#avatar-job-state').dataset.avatarStage=job.state;
   $('#avatar-job-progress').value=job.progress||0;$('#avatar-job-error').textContent=job.errorMessage||'';
   $('#avatar-job-message').textContent=['checking','running','publishing'].includes(job.state)?job.message||'':'';
-  $('#avatar-job-log').textContent=job.logPath?`Журнал: ${job.logPath}`:'';
+  $('#avatar-job-log').textContent=job.logPath?`Log: ${job.logPath}`:'';
   $('#avatar-summary-message').textContent=label;
  }
  function renderControls(){
@@ -108,7 +108,7 @@ export function mountAvatarLibrary({document,bridge,getProfile,onProfileSelected
   for(const check of checks){const row=document.createElement('li');row.dataset.state=check.state;row.textContent=`${check.state==='ready'?'✓':'○'} ${check.detail}${check.action?' — '+check.action:''}`;list.append(row);}
  }));
  listen($('#avatar-create-form'),'submit',event=>{event.preventDefault();void perform(async()=>{
-  if(!action().canCreate)throw new Error('Сначала завершите запись или подготовку.');
+  if(!action().canCreate)throw new Error('Finish recording or preparation first.');
   const input=buildCreationInput(getProfile(),selection,form());await prepareSessionChange();
   applySnapshot({job:await bridge.createAvatar(input,{stopServices:true})});
  });});

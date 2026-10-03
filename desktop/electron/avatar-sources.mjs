@@ -10,7 +10,7 @@ export function createAvatarSources({chooseFile,inspectPreview=input=>runAvatarC
   async function choose(profile) {
     const chosen=await chooseFile(profile);if(!chosen)return null;
     const root=await realpath(profile.liveTalking.root),file=await realpath(chosen),kind=mediaKind(chosen),info=await stat(file);
-    if(!info.isFile()||info.isSymbolicLink()||info.size==0)throw new Error('Выберите непустой файл исходника.');
+    if(!info.isFile()||info.isSymbolicLink()||info.size==0)throw new Error('Select a nonempty source file.');
     const token=uuid();selections.set(token,{root,file,kind,fingerprint:fingerprint(info),createdAt:now()});
     while(selections.size>32)selections.delete(selections.keys().next().value);
     let preview=null;
@@ -22,9 +22,9 @@ export function createAvatarSources({chooseFile,inspectPreview=input=>runAvatarC
   }
   async function resolve(token,root) {
     const selection=selections.get(token);
-    if(!selection||selection.root!==await realpath(root))throw new Error('Выберите исходник заново для этого каталога.');
-    let info;try{info=await stat(selection.file);}catch{throw new Error('Исходник удалён: выберите файл заново.');}
-    if(!info.isFile()||info.isSymbolicLink()||fingerprint(info)!==selection.fingerprint)throw new Error('Исходник изменился: выберите файл заново.');
+    if(!selection||selection.root!==await realpath(root))throw new Error('Select the source again for this folder.');
+    let info;try{info=await stat(selection.file);}catch{throw new Error('Source was deleted: select the file again.');}
+    if(!info.isFile()||info.isSymbolicLink()||fingerprint(info)!==selection.fingerprint)throw new Error('Source changed: select the file again.');
     return {sourceFile:selection.file,sourceKind:selection.kind,sourceFingerprint:selection.fingerprint};
   }
   return {choose,resolve,forgetAll:()=>selections.clear()};

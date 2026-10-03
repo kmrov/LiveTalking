@@ -8,10 +8,10 @@ export function filterAvatars(entries,query) {
 export function avatarActionState(session={},job) {
  const busy=Boolean(session.generationBusy)||['checking','running','cancelling','publishing'].includes(job?.state);
  const recording=Boolean(session.recording||session.recordingBusy);
- return {canCreate:!busy&&!recording,canSelect:!busy&&!recording,canStart:!busy,canChangeEnvironment:!busy,canCancel:busy&&!['publishing','cancelling'].includes(job?.state),canRetry:!busy&&!recording&&['failed','cancelled','interrupted'].includes(job?.state),createLabel:session.serviceActive?'Остановить и создать':'Создать',selectLabel:session.serviceActive?'Остановить и выбрать':'Выбрать'};
+ return {canCreate:!busy&&!recording,canSelect:!busy&&!recording,canStart:!busy,canChangeEnvironment:!busy,canCancel:busy&&!['publishing','cancelling'].includes(job?.state),canRetry:!busy&&!recording&&['failed','cancelled','interrupted'].includes(job?.state),createLabel:session.serviceActive?'Stop and create':'Create',selectLabel:session.serviceActive?'Stop and select':'Select'};
 }
 export function buildCreationInput(profile,selection,form) {
- if(!selection)throw new Error('Сначала выберите фото или видео.');
+ if(!selection)throw new Error('Select a photo or video first.');
  const value=normalizeAvatarCreation({name:form.name,model:form.model,kind:selection.kind,parameters:form.parameters});
  return {root:profile.liveTalking.root,python:profile.liveTalking.python,sourceToken:selection.token,name:value.name,model:value.model,parameters:value.parameters};
 }

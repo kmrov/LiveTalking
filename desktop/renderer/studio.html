@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -11,165 +11,165 @@
   <div class="app-shell">
     <header class="topbar">
       <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>LIVE<span class="brand-light">TALKING</span></span></div>
-      <div class="topbar-context"><span class="section-label">СТУДИЯ</span><span class="context-divider"></span><span id="profile-name">Новый профиль</span></div>
-      <div class="topbar-state"><button id="start-profile" type="button">Запустить</button><button id="stop-profile" type="button" disabled>Остановить</button><span class="status-dot" aria-hidden="true"></span><span id="runtime-state">Не настроено</span></div>
+      <div class="topbar-context"><span class="section-label">STUDIO</span><span class="context-divider"></span><span id="profile-name">New profile</span></div>
+      <div class="topbar-state"><button id="start-profile" type="button">Start</button><button id="stop-profile" type="button" disabled>Stop</button><span class="status-dot" aria-hidden="true"></span><span id="runtime-state">Not configured</span></div>
     </header>
-    <div id="startup-progress" class="startup-progress" hidden><span class="startup-spinner" aria-hidden="true"></span><span id="startup-progress-text">Подготавливаем сервисы…</span></div>
+    <div id="startup-progress" class="startup-progress" hidden><span class="startup-spinner" aria-hidden="true"></span><span id="startup-progress-text">Preparing services…</span></div>
 
     <main class="workspace">
-      <aside id="profile-panel" class="left-panel" aria-label="Источник и профиль">
-        <div class="panel-heading"><span>ПРОФИЛЬ</span><span class="index">01</span></div>
-        <section class="avatar-summary" aria-label="Выбранный аватар">
-          <div class="avatar-current"><img id="selected-avatar-image" alt="" hidden><div><strong id="selected-avatar-name">Выберите аватара</strong><small id="selected-avatar-model"></small></div></div>
-          <div class="avatar-actions"><button type="button" id="open-avatar-library">Выбрать</button><button type="button" id="open-avatar-create">Создать аватара</button></div>
-          <button type="button" id="open-avatar-job" class="text-button" hidden>Показать подготовку</button>
+      <aside id="profile-panel" class="left-panel" aria-label="Source and profile">
+        <div class="panel-heading"><span>PROFILE</span><span class="index">01</span></div>
+        <section class="avatar-summary" aria-label="Selected avatar">
+          <div class="avatar-current"><img id="selected-avatar-image" alt="" hidden><div><strong id="selected-avatar-name">Select an avatar</strong><small id="selected-avatar-model"></small></div></div>
+          <div class="avatar-actions"><button type="button" id="open-avatar-library">Select</button><button type="button" id="open-avatar-create">Create avatar</button></div>
+          <button type="button" id="open-avatar-job" class="text-button" hidden>Show progress</button>
           <p id="avatar-summary-message" role="status"></p>
         </section>
         <div class="setup-card">
-          <h1 id="setup-title">Проверим окружение</h1>
-          <p id="setup-description">Пути сервисов и параметры голоса можно изменить в настройках окружения.</p>
-          <div class="detected-root"><span>КАТАЛОГ LIVETALKING</span><strong id="root-path">Поиск…</strong><button type="button" class="text-button" id="choose-root">Выбрать другой каталог</button></div>
-          <details id="setup-details" class="setup-details" open><summary>Настройки окружения</summary><form id="setup-form">
-            <h2 class="setup-form-heading">Сервисы и подключение</h2>
-            <label>Python LiveTalking<input id="python-path" autocomplete="off" spellcheck="false" placeholder="/путь/к/.venv/bin/python"></label>
+          <h1 id="setup-title">Check your environment</h1>
+          <p id="setup-description">You can change service paths and voice settings below.</p>
+          <div class="detected-root"><span>LIVETALKING FOLDER</span><strong id="root-path">Searching…</strong><button type="button" class="text-button" id="choose-root">Choose another folder</button></div>
+          <details id="setup-details" class="setup-details" open><summary>Environment settings</summary><form id="setup-form">
+            <h2 class="setup-form-heading">Services and connection</h2>
+            <label>Python LiveTalking<input id="python-path" autocomplete="off" spellcheck="false" placeholder="/path/to/.venv/bin/python"></label>
             <input id="avatar-model" type="hidden"><input id="avatar-id" type="hidden">
-            <label>Порт LiveTalking<input id="server-port" type="number" min="1" max="65535"></label>
-            <label>Режим моделей<select id="speech-mode"><option value="local">Запускать локально</option><option value="external">Внешние серверы</option></select></label>
-            <div id="local-model-fields"><label>vLLM для ASR<input id="asr-vllm" autocomplete="off" spellcheck="false"></label><label>vLLM для TTS<input id="tts-vllm" autocomplete="off" spellcheck="false"></label></div>
+            <label>LiveTalking port<input id="server-port" type="number" min="1" max="65535"></label>
+            <label>Model mode<select id="speech-mode"><option value="local">Run locally</option><option value="external">External servers</option></select></label>
+            <div id="local-model-fields"><label>vLLM for ASR<input id="asr-vllm" autocomplete="off" spellcheck="false"></label><label>vLLM for TTS<input id="tts-vllm" autocomplete="off" spellcheck="false"></label></div>
             <div id="external-model-fields" hidden><label>URL ASR<input id="asr-url" type="url" placeholder="http://127.0.0.1:8092"></label><label>URL TTS<input id="tts-url" type="url" placeholder="http://127.0.0.1:8091"></label></div>
-            <h2 class="setup-form-heading">Голос аватара</h2>
-            <label id="known-voices-label" hidden>Найденные образцы<select id="known-voices"></select></label>
-            <label>Образец голоса WAV<input id="voice-wav" autocomplete="off" spellcheck="false" placeholder="/путь/к/voice.wav"></label>
-            <button type="button" class="text-button" id="choose-voice">Выбрать WAV</button>
-            <label>Текст образца<textarea id="voice-text" rows="2" placeholder="Дословная расшифровка записи"></textarea></label>
-            <label>Мозг аватара<select id="brain-mode"><option value="direct">Прямой LLM</option><option value="batya">Батя · память и разговоры</option></select></label>
+            <h2 class="setup-form-heading">Avatar voice</h2>
+            <label id="known-voices-label" hidden>Detected samples<select id="known-voices"></select></label>
+            <label>Voice sample WAV<input id="voice-wav" autocomplete="off" spellcheck="false" placeholder="/path/to/voice.wav"></label>
+            <button type="button" class="text-button" id="choose-voice">Choose WAV</button>
+            <label>Sample transcript<textarea id="voice-text" rows="2" placeholder="Exact transcript of the recording"></textarea></label>
+            <label>Avatar brain<select id="brain-mode"><option value="direct">Direct LLM</option><option value="batya">Batya · memory and conversations</option></select></label>
             <div id="brain-settings" hidden>
-              <p class="setting-hint">Смена мозга требует остановки и запуска профиля.</p>
-              <label>Сервис Бати<select id="brain-service-mode"><option value="managed">Запускать автоматически</option><option value="external">Уже работающий API</option></select></label>
-              <label>URL Бати<input id="brain-url" type="url" placeholder="http://127.0.0.1:8000"></label>
+              <p class="setting-hint">Changing the brain requires restarting the profile.</p>
+              <label>Batya service<select id="brain-service-mode"><option value="managed">Start automatically</option><option value="external">Existing API</option></select></label>
+              <label>Batya URL<input id="brain-url" type="url" placeholder="http://127.0.0.1:8000"></label>
               <div id="brain-managed-fields">
-                <label>Каталог Бати<input id="brain-root" autocomplete="off" spellcheck="false"></label>
-                <button type="button" class="text-button" id="choose-brain-root">Выбрать каталог</button>
-                <label>Python Бати<input id="brain-python" autocomplete="off" spellcheck="false"></label>
-                <label>PostgreSQL<select id="brain-database-mode"><option value="compose">Docker Compose из Бати</option><option value="external">Работающая база</option></select></label>
-                <label>ID проекта Yandex<input id="brain-folder" autocomplete="off" spellcheck="false"></label>
-                <label>Ключ Yandex<input id="brain-key" type="password" autocomplete="off" placeholder="Оставьте пустым, если уже настроен"></label>
-                <label>Адрес PostgreSQL<input id="brain-database-url" type="password" autocomplete="off" placeholder="Необязательно при настроенном .env"></label>
+                <label>Batya folder<input id="brain-root" autocomplete="off" spellcheck="false"></label>
+                <button type="button" class="text-button" id="choose-brain-root">Choose folder</button>
+                <label>Batya Python<input id="brain-python" autocomplete="off" spellcheck="false"></label>
+                <label>PostgreSQL<select id="brain-database-mode"><option value="compose">Batya Docker Compose</option><option value="external">Existing database</option></select></label>
+                <label>Yandex folder ID<input id="brain-folder" autocomplete="off" spellcheck="false"></label>
+                <label>Yandex API key<input id="brain-key" type="password" autocomplete="off" placeholder="Leave blank if already configured"></label>
+                <label>PostgreSQL URL<input id="brain-database-url" type="password" autocomplete="off" placeholder="Optional if configured in .env"></label>
                 <p id="brain-secret-status" class="setting-hint"></p>
               </div>
             </div>
-            <label class="checkbox-label"><input id="auto-start" type="checkbox"> Запускать при открытии</label>
-            <div class="setup-actions"><button type="button" id="check-setup">Проверить</button><button type="submit" class="primary-button">Сохранить профиль</button></div>
+            <label class="checkbox-label"><input id="auto-start" type="checkbox"> Start on launch</label>
+            <div class="setup-actions"><button type="button" id="check-setup">Check</button><button type="submit" class="primary-button">Save profile</button></div>
           </form></details>
           <p id="setup-message" role="status"></p>
           <p id="setup-recovery" role="alert" hidden></p>
-          <details id="check-details" class="setup-details"><summary>Результаты проверки</summary><ul id="setup-results" aria-label="Результаты проверки"></ul></details>
+          <details id="check-details" class="setup-details"><summary>Check results</summary><ul id="setup-results" aria-label="Check results"></ul></details>
         </div>
         <div class="panel-divider"></div>
-        <div class="panel-heading"><span>СЕРВИСЫ</span><span class="index">02</span></div>
-        <div class="service-list" aria-label="Состояние сервисов">
-          <div class="service-row"><span>LiveTalking</span><span id="livetalking-state">Ожидает</span></div>
-          <div class="service-row"><span>Распознавание</span><span id="asr-state">Ожидает</span></div>
-          <div class="service-row"><span>Синтез речи</span><span id="tts-state">Ожидает</span></div>
-          <div class="service-row brain-service" hidden><span>Батя</span><span id="batya-state">Ожидает</span></div>
-          <div class="service-row brain-service" hidden><span>PostgreSQL</span><span id="database-state">Ожидает</span></div>
+        <div class="panel-heading"><span>SERVICES</span><span class="index">02</span></div>
+        <div class="service-list" aria-label="Service status">
+          <div class="service-row"><span>LiveTalking</span><span id="livetalking-state">Idle</span></div>
+          <div class="service-row"><span>Speech recognition</span><span id="asr-state">Idle</span></div>
+          <div class="service-row"><span>Speech synthesis</span><span id="tts-state">Idle</span></div>
+          <div class="service-row brain-service" hidden><span>Batya</span><span id="batya-state">Idle</span></div>
+          <div class="service-row brain-service" hidden><span>PostgreSQL</span><span id="database-state">Idle</span></div>
         </div>
-        <details class="runtime-logs"><summary>Журнал запуска</summary><pre id="runtime-log"></pre></details>
-        <details id="brain-library" class="setup-details" hidden><summary>Память и документы Бати</summary>
-          <button type="button" id="refresh-memories" class="text-button">Показать память</button>
+        <details class="runtime-logs"><summary>Startup log</summary><pre id="runtime-log"></pre></details>
+        <details id="brain-library" class="setup-details" hidden><summary>Batya memory and documents</summary>
+          <button type="button" id="refresh-memories" class="text-button">Show memory</button>
           <ul id="brain-memories"></ul>
           <form id="brain-document-form">
-            <label>Название документа<input id="brain-document-title" maxlength="500"></label>
-            <label>Источник<input id="brain-document-source" value="LiveTalking Studio" maxlength="1000"></label>
-            <label>Текст<textarea id="brain-document-content" rows="3" placeholder="Текст для памяти Бати"></textarea></label>
-            <button type="submit" class="text-button">Добавить документ</button>
+            <label>Document title<input id="brain-document-title" maxlength="500"></label>
+            <label>Source<input id="brain-document-source" value="LiveTalking Studio" maxlength="1000"></label>
+            <label>Text<textarea id="brain-document-content" rows="3" placeholder="Text for Batya memory"></textarea></label>
+            <button type="submit" class="text-button">Add document</button>
           </form>
           <p id="brain-library-message" role="status"></p>
         </details>
       </aside>
 
-      <div id="left-panel-resizer" class="panel-resizer" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Ширина панели профиля" aria-controls="profile-panel"></div>
+      <div id="left-panel-resizer" class="panel-resizer" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Profile panel width" aria-controls="profile-panel"></div>
 
-      <section class="stage" aria-label="Превью аватара">
-        <div id="model-download-panel" hidden><p id="model-download-state" role="status"></p><progress id="model-download-progress" max="100" value="0" aria-label="Загрузка моделей"></progress></div>
-        <div class="stage-toolbar"><span>Аватар</span><span class="stage-tag">ПРЕВЬЮ</span><button type="button" id="connect-avatar" disabled>Включить превью</button></div>
+      <section class="stage" aria-label="Avatar preview">
+        <div id="model-download-panel" hidden><p id="model-download-state" role="status"></p><progress id="model-download-progress" max="100" value="0" aria-label="Downloading models"></progress></div>
+        <div class="stage-toolbar"><span>Avatar</span><span class="stage-tag">PREVIEW</span><button type="button" id="connect-avatar" disabled>Enable preview</button></div>
         <div class="stage-screen">
           <video id="avatar-video" autoplay playsinline muted hidden></video>
           <audio id="avatar-audio" autoplay hidden></audio>
           <div class="stage-empty">
             <div class="stage-rings" aria-hidden="true"><span></span><span></span><span></span></div>
-            <h2>Аватар появится здесь</h2>
-            <p>Подключите LiveTalking, чтобы увидеть поток WebRTC.</p>
+            <h2>Your avatar will appear here</h2>
+            <p>Connect LiveTalking to view the WebRTC stream.</p>
           </div>
           <div class="stage-corner stage-corner-tl" aria-hidden="true"></div>
           <div class="stage-corner stage-corner-tr" aria-hidden="true"></div>
           <div class="stage-corner stage-corner-bl" aria-hidden="true"></div>
           <div class="stage-corner stage-corner-br" aria-hidden="true"></div>
         </div>
-        <div class="stage-footer"><span class="muted">WebRTC</span><span id="webrtc-state">Нет подключения</span></div>
-        <section class="projection-panel" aria-label="Проекция Head in Jar">
-          <div class="projection-heading"><strong>Head in Jar</strong><span id="projection-state" role="status">Нет подключения</span></div>
-          <label>Head in Jar в локальной сети<select id="projection-discovered"><option value="">Поиск устройств…</option></select></label>
+        <div class="stage-footer"><span class="muted">WebRTC</span><span id="webrtc-state">Disconnected</span></div>
+        <section class="projection-panel" aria-label="Head in Jar projection">
+          <div class="projection-heading"><strong>Head in Jar</strong><span id="projection-state" role="status">Disconnected</span></div>
+          <label>Head in Jar on local network<select id="projection-discovered"><option value="">Searching for devices…</option></select></label>
           <label>WHIP URL<input id="projection-url" type="url" placeholder="http://127.0.0.1:19840/whip" autocomplete="off"></label>
-          <details id="projection-advanced" class="projection-token-details"><summary>Дополнительно · токен</summary><label>Bearer token · необязательно<input id="projection-token" type="password" autocomplete="off"></label><p>Токен нужен только если сервер Head in Jar его запрашивает.</p></details>
-          <button id="connect-projection" type="button" disabled>Подключить проекцию</button>
-          <p id="projection-hint">Сначала запустите сервер подключения в Head in Jar. Проектор включается там отдельно.</p>
+          <details id="projection-advanced" class="projection-token-details"><summary>Advanced · token</summary><label>Bearer token · optional<input id="projection-token" type="password" autocomplete="off"></label><p>A token is only needed if the Head in Jar server requires one.</p></details>
+          <button id="connect-projection" type="button" disabled>Connect projection</button>
+          <p id="projection-hint">Start the connection server in Head in Jar first. Enable the projector there separately.</p>
         </section>
       </section>
 
-      <div id="right-panel-resizer" class="panel-resizer" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Ширина панели диалога" aria-controls="conversation-panel"></div>
+      <div id="right-panel-resizer" class="panel-resizer" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Conversation panel width" aria-controls="conversation-panel"></div>
 
-      <aside id="conversation-panel" class="right-panel" aria-label="Диалог">
-        <div class="panel-heading"><span>ДИАЛОГ</span><span class="index">03</span></div>
+      <aside id="conversation-panel" class="right-panel" aria-label="Conversation">
+        <div class="panel-heading"><span>CONVERSATION</span><span class="index">03</span></div>
         <div id="brain-conversations" hidden>
-          <label>Разговор с Батей<select id="brain-conversation"><option value="">Новый разговор</option></select></label>
-          <div class="brain-actions"><button type="button" id="new-brain-conversation">Новый</button><button type="button" id="refresh-brain-conversations">Обновить</button></div>
-          <p id="brain-turn-state" role="status">Батя ожидает</p>
+          <label>Batya conversation<select id="brain-conversation"><option value="">New conversation</option></select></label>
+          <div class="brain-actions"><button type="button" id="new-brain-conversation">New</button><button type="button" id="refresh-brain-conversations">Refresh</button></div>
+          <p id="brain-turn-state" role="status">Batya is idle</p>
         </div>
-        <div class="conversation-empty"><div class="conversation-glyph" aria-hidden="true">↗</div><p>Подключите аватара и начните разговор.</p></div>
-        <ol id="conversation-list" aria-label="История разговора" hidden></ol>
-        <div class="conversation-tools"><span id="speaking-state">Ожидает</span><button type="button" id="interrupt-avatar" disabled>Прервать</button><button type="button" id="record-avatar" disabled>Записать MP4</button></div>
-        <div class="microphone-tools"><button id="microphone-button" type="button" disabled>Микрофон</button><span id="microphone-state">Нажмите, чтобы говорить</span></div>
-        <div class="handsfree-tools"><button id="handsfree-button" type="button" disabled>Автодиалог</button><label><input id="handsfree-barge-in" type="checkbox">Разрешить перебивание</label></div>
-        <p id="handsfree-state" role="status" data-state="idle">Автодиалог выключен</p>
-        <p id="handsfree-level" class="handsfree-level" hidden>Вход: ожидаем сигнал</p>
-        <p class="voice-mode-hint">Микрофон — запись фразы, автодиалог — разговор без кнопок.</p>
+        <div class="conversation-empty"><div class="conversation-glyph" aria-hidden="true">↗</div><p>Connect an avatar to start a conversation.</p></div>
+        <ol id="conversation-list" aria-label="Conversation history" hidden></ol>
+        <div class="conversation-tools"><span id="speaking-state">Idle</span><button type="button" id="interrupt-avatar" disabled>Interrupt</button><button type="button" id="record-avatar" disabled>Record MP4</button></div>
+        <div class="microphone-tools"><button id="microphone-button" type="button" disabled>Microphone</button><span id="microphone-state">Press to speak</span></div>
+        <div class="handsfree-tools"><button id="handsfree-button" type="button" disabled>Auto conversation</button><label><input id="handsfree-barge-in" type="checkbox">Allow interruption</label></div>
+        <p id="handsfree-state" role="status" data-state="idle">Auto conversation is off</p>
+        <p id="handsfree-level" class="handsfree-level" hidden>Input: waiting for signal</p>
+        <p class="voice-mode-hint">Microphone records one phrase; Auto conversation lets you speak hands-free.</p>
         <form id="conversation-form">
-          <label class="sr-only" for="message-text">Сообщение аватару</label>
-          <textarea id="message-text" rows="3" placeholder="Сообщение аватару"></textarea>
-          <div class="composer-actions"><label class="composer-mode"><span>Режим ответа</span><select id="conversation-mode"><option value="chat">Чат с LLM</option><option value="echo">Озвучить текст</option></select></label><button id="send-message" type="submit" disabled>Отправить</button></div>
+          <label class="sr-only" for="message-text">Message to avatar</label>
+          <textarea id="message-text" rows="3" placeholder="Message to avatar"></textarea>
+          <div class="composer-actions"><label class="composer-mode"><span>Response mode</span><select id="conversation-mode"><option value="chat">Chat with LLM</option><option value="echo">Speak text</option></select></label><button id="send-message" type="submit" disabled>Send</button></div>
         </form>
         <p id="conversation-message" role="status"></p>
-        <button type="button" id="retry-message" class="text-button" hidden>Повторить сообщение</button>
+        <button type="button" id="retry-message" class="text-button" hidden>Retry message</button>
       </aside>
     </main>
 
-    <footer class="statusbar"><div><span class="status-dot" aria-hidden="true"></span><span id="workflow-hint">Профиль готов к запуску</span></div><div class="statusbar-right"><span id="runtime-mode">Локальный режим</span><span class="statusbar-separator"></span><span id="app-version">v0.1</span></div></footer>
+    <footer class="statusbar"><div><span class="status-dot" aria-hidden="true"></span><span id="workflow-hint">Profile ready to start</span></div><div class="statusbar-right"><span id="runtime-mode">Local mode</span><span class="statusbar-separator"></span><span id="app-version">v0.1</span></div></footer>
   </div>
   <dialog id="avatar-library-dialog" class="avatar-dialog" aria-labelledby="avatar-library-title">
-    <div class="avatar-dialog-heading"><h2 id="avatar-library-title">Аватары</h2><button type="button" data-close-avatar="avatar-library-dialog" aria-label="Закрыть библиотеку">×</button></div>
-    <div class="avatar-actions"><label class="avatar-search">Поиск<input id="avatar-search" type="search" placeholder="Имя аватара"></label><button type="button" id="refresh-avatar-library">Обновить</button><button type="button" id="library-create-avatar">Создать аватара</button></div>
+    <div class="avatar-dialog-heading"><h2 id="avatar-library-title">Avatars</h2><button type="button" data-close-avatar="avatar-library-dialog" aria-label="Close library">×</button></div>
+    <div class="avatar-actions"><label class="avatar-search">Search<input id="avatar-search" type="search" placeholder="Avatar name"></label><button type="button" id="refresh-avatar-library">Refresh</button><button type="button" id="library-create-avatar">Create avatar</button></div>
     <div id="avatar-cards" class="avatar-cards"></div><p id="avatar-library-message" role="alert"></p>
   </dialog>
   <dialog id="avatar-create-dialog" class="avatar-dialog" aria-labelledby="avatar-create-title">
-    <div class="avatar-dialog-heading"><h2 id="avatar-create-title">Создать аватара</h2><button type="button" data-close-avatar="avatar-create-dialog" aria-label="Закрыть создание">×</button></div>
-    <p class="setting-hint">Выберите фото или короткое видео с хорошо видимым лицом одного человека. Голос настраивается отдельно в профиле.</p>
+    <div class="avatar-dialog-heading"><h2 id="avatar-create-title">Create avatar</h2><button type="button" data-close-avatar="avatar-create-dialog" aria-label="Close creator">×</button></div>
+    <p class="setting-hint">Choose a photo or short video with one clearly visible face. Configure the voice separately in the profile.</p>
     <form id="avatar-create-form">
-      <div class="avatar-source"><img id="avatar-source-preview" alt="Превью исходника" hidden><div><button type="button" id="choose-avatar-source">Выбрать фото или видео</button><p id="avatar-source-name">Файл не выбран</p></div></div>
-      <label>Название<input id="new-avatar-name" maxlength="120" required placeholder="Например, Батя"></label>
-      <label>Модель<select id="new-avatar-model"><option value="musetalk">MuseTalk · фото или видео</option><option value="wav2lip">Wav2Lip · видео</option></select></label>
-      <details class="setup-details"><summary>Дополнительные настройки</summary>
-        <div id="musetalk-avatar-options" class="avatar-option-grid"><label>Сдвиг лица<input id="new-avatar-bbox" type="number" min="-50" max="50" value="0"></label><label>Отступ<input id="new-avatar-margin" type="number" min="0" max="100" value="10"></label><label>Маска<select id="new-avatar-parsing"><option value="jaw">Челюсть</option><option value="neck">Шея</option><option value="raw">Исходная</option></select></label></div>
-        <div id="wav2lip-avatar-options" class="avatar-option-grid" hidden><label>Отступы: верх, низ, лево, право<input id="new-avatar-pads" value="0 10 0 0"></label><label>Пакет детектора<input id="new-avatar-batch" type="number" min="1" max="128" value="16"></label><label class="checkbox-label"><input id="new-avatar-nosmooth" type="checkbox">Без сглаживания</label></div>
+      <div class="avatar-source"><img id="avatar-source-preview" alt="Source preview" hidden><div><button type="button" id="choose-avatar-source">Choose photo or video</button><p id="avatar-source-name">No file selected</p></div></div>
+      <label>Name<input id="new-avatar-name" maxlength="120" required placeholder="For example, Batya"></label>
+      <label>Model<select id="new-avatar-model"><option value="musetalk">MuseTalk · photo or video</option><option value="wav2lip">Wav2Lip · video</option></select></label>
+      <details class="setup-details"><summary>Advanced settings</summary>
+        <div id="musetalk-avatar-options" class="avatar-option-grid"><label>Face offset<input id="new-avatar-bbox" type="number" min="-50" max="50" value="0"></label><label>Margin<input id="new-avatar-margin" type="number" min="0" max="100" value="10"></label><label>Mask<select id="new-avatar-parsing"><option value="jaw">Jaw</option><option value="neck">Neck</option><option value="raw">Original</option></select></label></div>
+        <div id="wav2lip-avatar-options" class="avatar-option-grid" hidden><label>Padding: top, bottom, left, right<input id="new-avatar-pads" value="0 10 0 0"></label><label>Detector batch size<input id="new-avatar-batch" type="number" min="1" max="128" value="16"></label><label class="checkbox-label"><input id="new-avatar-nosmooth" type="checkbox">No smoothing</label></div>
       </details>
       <ul id="avatar-create-checks" class="avatar-checks"></ul>
       <p id="avatar-create-message" role="alert"></p>
-      <div class="avatar-actions"><button type="button" id="check-avatar-create">Проверить</button><button type="submit" id="submit-avatar-create" class="primary-button">Создать</button></div>
+      <div class="avatar-actions"><button type="button" id="check-avatar-create">Check</button><button type="submit" id="submit-avatar-create" class="primary-button">Create</button></div>
     </form>
-    <section id="avatar-job-panel" hidden aria-label="Последняя подготовка">
-      <p id="avatar-job-state" role="status" data-avatar-stage></p><progress id="avatar-job-progress" max="100" value="0" aria-label="Подготовка аватара"></progress>
+    <section id="avatar-job-panel" hidden aria-label="Latest preparation">
+      <p id="avatar-job-state" role="status" data-avatar-stage></p><progress id="avatar-job-progress" max="100" value="0" aria-label="Preparing avatar"></progress>
       <p id="avatar-job-message" role="status"></p><p id="avatar-job-error" role="alert"></p><p id="avatar-job-log" class="setting-hint"></p>
-      <div class="avatar-actions"><button type="button" id="cancel-avatar-job">Отменить</button><button type="button" id="retry-avatar-job" hidden>Повторить</button><button type="button" id="select-created-avatar" hidden>Выбрать</button></div>
+      <div class="avatar-actions"><button type="button" id="cancel-avatar-job">Cancel</button><button type="button" id="retry-avatar-job" hidden>Retry</button><button type="button" id="select-created-avatar" hidden>Select</button></div>
     </section>
   </dialog>
   <script type="module" src="./studio.js"></script>

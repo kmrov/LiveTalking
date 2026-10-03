@@ -32,7 +32,7 @@ export function mountPanelResizers({ workspace, leftPanel, rightPanel, leftHandl
       handles[side].setAttribute('aria-valuemax', String(Math.round(side === 'left'
         ? available - PANEL_MIN_WIDTH.right : available - left)));
       handles[side].setAttribute('aria-valuenow', String(Math.round(value)));
-      handles[side].setAttribute('aria-valuetext', `${Math.round(value)} пикселей`);
+      handles[side].setAttribute('aria-valuetext', `${Math.round(value)} pixels`);
     }
   }
 

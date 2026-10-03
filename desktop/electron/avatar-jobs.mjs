@@ -19,7 +19,7 @@ export function createAvatarJobs({library,inspectCreation=inspectAvatarPrerequis
     const result=owner.writes.then(operation);
     owner.writes=result.catch(error=>{
       owner.ioError=error;
-      owner.record.errorMessage=`Ошибка сохранения задания: ${error.message}`;
+      owner.record.errorMessage=`Could not save job: ${error.message}`;
       publish(owner);
     });
     return result;
@@ -88,7 +88,7 @@ export function createAvatarJobs({library,inspectCreation=inspectAvatarPrerequis
           if(!['running','prepared','failed'].includes(event.state)||!phases.has(event.stage)||!Number.isFinite(event.progress)||event.progress<0||event.progress>100)return;
           if(event.state==='prepared') {
             if(event.stage==='validating'&&Number.isInteger(event.frameCount)&&event.frameCount>0)owner.prepared=event;
-          }else if(event.state==='failed')owner.workerError=String(event.message||'Подготовка завершилась ошибкой.').slice(0,8192);
+          }else if(event.state==='failed')owner.workerError=String(event.message||'Preparation failed.').slice(0,8192);
           else {
             owner.record.stage=event.stage;owner.record.progress=Math.min(99,event.progress);
             owner.record.message=typeof event.message==='string'?event.message.slice(0,1024):'';
@@ -119,10 +119,10 @@ export function createAvatarJobs({library,inspectCreation=inspectAvatarPrerequis
             await owner.writes;
             if(owner.cancelled)return await finish(owner,'cancelled');
             if(owner.ioError)throw owner.ioError;
-            if(code!==0||owner.workerError||!owner.prepared)throw new Error(owner.workerError||owner.log.slice(-8192)||'Python завершился без подтверждённого результата подготовки.');
+            if(code!==0||owner.workerError||!owner.prepared)throw new Error(owner.workerError||owner.log.slice(-8192)||'Python exited without confirming the preparation result.');
             await update(owner,{state:'publishing',stage:'publishing',frameCount:owner.prepared.frameCount,progress:99});
             const result=await library.publish(owner.record.root,owner.record);
-            if(!result?.ready)throw new Error('Готовый аватар не прошёл проверку.');
+            if(!result?.ready)throw new Error('Prepared avatar failed validation.');
             for(const item of ['input','output'])await rm(await checkedPath(owner.record.jobDir,item),{recursive:true,force:true});
             await finish(owner,'completed');
           }catch(error){await finish(owner,'failed',error.message);}
@@ -132,7 +132,7 @@ export function createAvatarJobs({library,inspectCreation=inspectAvatarPrerequis
     } catch(error) {await finish(owner,owner.cancelled?'cancelled':'failed',owner.cancelled?'':error.message);}
   }
   async function start(input) {
-    if(active)throw new Error('Подготовка уже выполняется. Дождитесь завершения или отмените её.');
+    if(active)throw new Error('Preparation is already running. Wait for it to finish or cancel it.');
     const owner={cancelled:false,child:null,closed:false,controller:new AbortController(),writes:Promise.resolve()};
     owner.finished=new Promise((resolve,reject)=>{owner.resolveFinished=resolve;owner.rejectFinished=reject;});
     void owner.finished.catch(()=>{});active=owner;
@@ -169,8 +169,8 @@ export function createAvatarJobs({library,inspectCreation=inspectAvatarPrerequis
     return owner.stopPromise;
   }
   async function cancel(jobId) {
-    if(!active||active.record?.jobId!==jobId)throw new Error('Активная задача не найдена.');
-    if(active.record.state==='publishing')throw new Error('Аватар уже сохраняется; дождитесь завершения.');
+    if(!active||active.record?.jobId!==jobId)throw new Error('Active job not found.');
+    if(active.record.state==='publishing')throw new Error('Avatar is being saved; wait for it to finish.');
     const owner=active;await stopOwner(owner);return publicRecord(owner.record);
   }
   async function recover(root) {
@@ -180,23 +180,23 @@ export function createAvatarJobs({library,inspectCreation=inspectAvatarPrerequis
       let result;
       try {result=await library.get(record.root,record.avatarId);}catch { /* Broken output must not block other records or setup. */ }
       record.state=result?.ready&&result.origin==='studio'&&result.model===record.model?'completed':'interrupted';
-      record.errorMessage=record.state==='interrupted'?'Подготовка прервана закрытием приложения. Можно повторить.':'';
+      record.errorMessage=record.state==='interrupted'?'Preparation was interrupted when the app closed. You can retry.':'';
       record.updatedAt=timestamp();if(record.state==='completed')record.progress=100;
       try {await atomicJson(path.join(record.jobDir,'job.json'),record);}
-      catch(error){record.errorMessage+=` Не удалось сохранить восстановление: ${error.message}`;}
+      catch(error){record.errorMessage+=` Could not save recovery state: ${error.message}`;}
       recoveredStates.set(record.jobDir,{state:record.state,errorMessage:record.errorMessage,updatedAt:record.updatedAt,progress:record.progress});
     }
     return snapshot(root);
   }
   async function retry({root,python,jobId}) {
     const old=(await readRecords(root)).find(x=>x.jobId===jobId);
-    if(!old||!['failed','cancelled','interrupted'].includes(old.state))throw new Error('Эту задачу нельзя повторить.');
+    if(!old||!['failed','cancelled','interrupted'].includes(old.state))throw new Error('This job cannot be retried.');
     const sourceDir=await checkedPath(old.jobDir,'source');let names;
-    try{names=await readdir(sourceDir);}catch{throw new Error('Копия исходника не сохранена. Выберите файл заново.');}
+    try{names=await readdir(sourceDir);}catch{throw new Error('Source copy was not saved. Select the file again.');}
     const files=names.filter(x=>/^input\.(png|jpe?g|mp4|mov|mkv|avi)$/i.test(x));
-    if(files.length!==1)throw new Error('Копия исходника не сохранена. Выберите файл заново.');
+    if(files.length!==1)throw new Error('Source copy was not saved. Select the file again.');
     const sourceFile=await checkedPath(sourceDir,files[0]);const info=await lstat(sourceFile);
-    if(!info.isFile()||!info.size)throw new Error('Сохранённый исходник повреждён.');
+    if(!info.isFile()||!info.size)throw new Error('Saved source is corrupt.');
     const value=await lstat(sourceFile,{bigint:true}),sourceFingerprint=[value.dev,value.ino,value.size,value.mtimeNs].map(String).join(':');
     return start({root,python,sourceFile,sourceFingerprint,sourceKind:old.sourceKind,name:old.name,model:old.model,parameters:old.parameters});
   }
