@@ -2,6 +2,8 @@ import path from 'node:path';
 import { spawn as nodeSpawn } from 'node:child_process';
 import { normalizeProfile } from '../src/profile.mjs';
 import { realpath } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -49,7 +51,7 @@ export function launcherArguments(input) {
   return args;
 }
 
-export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(process), health = desktopHealth, modelHealth: checkModel = modelHealth, emit = () => {}, sleep = pause, schedule = setTimeout, cancelSchedule = clearTimeout, monitorIntervalMs = 5000, startupTimeoutMs = 900000, shutdownTimeoutMs = 35000 } = {}) {
+export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(process), health = desktopHealth, modelHealth: checkModel = modelHealth, emit = () => {}, sleep = pause, schedule = setTimeout, cancelSchedule = clearTimeout, monitorIntervalMs = 5000, startupTimeoutMs = 900000, shutdownTimeoutMs = 35000, registryDir = '' } = {}) {
   let child = null;
   let startPromise = null;
   let stopPromise = null;
@@ -61,6 +63,7 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
   let stages = { asr: 'stopped', tts: 'stopped', livetalking: 'stopped' };
   let stageStartedAt = { asr: null, tts: null, livetalking: null };
   let logs = [];
+  let keepModelsFile = '';
 
   function snapshot() { return { state, adopted, port, stages: { ...stages }, stageStartedAt: { ...stageStartedAt }, logExcerpt: logs.slice(-30).join('\n') }; }
   function publish() { emit(snapshot()); }
@@ -176,7 +179,10 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
         return snapshot();
       }
       if (token !== generation) return snapshot();
-      child = spawn(profile.liveTalking.python, launcherArguments(profile), {
+      keepModelsFile = registryDir ? path.join(registryDir, `keep-${randomUUID()}`) : '';
+      const args = launcherArguments(profile);
+      if (registryDir) args.splice(args.indexOf('--'), 0, '--model-registry-dir', registryDir, '--keep-models-file', keepModelsFile);
+      child = spawn(profile.liveTalking.python, args, {
         cwd: profile.liveTalking.root,
         env: { ...process.env, HF_HUB_OFFLINE: '1', TRANSFORMERS_OFFLINE: '1' },
         detached: true,
@@ -220,19 +226,24 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
     return startPromise;
   }
 
-  async function stop() {
+  async function stop({ keepModels = false } = {}) {
     if (stopPromise) return stopPromise;
     if (state === 'stopped') return snapshot();
-    cancelMonitor();
-    ++generation;
-    state = 'stopping';
-    publish();
     stopPromise = (async () => {
+      if (keepModels && child && !adopted && keepModelsFile) {
+        await mkdir(registryDir, { recursive: true, mode: 0o700 });
+        await writeFile(keepModelsFile, 'keep', { flag: 'wx', mode: 0o600 });
+      }
+      cancelMonitor();
+      ++generation;
+      state = 'stopping';
+      publish();
       const owned = child;
       if (owned && !adopted) {
         await terminateOwned(owned);
       }
       child = null;
+      keepModelsFile = '';
       adopted = false;
       state = 'stopped';
       stages = { asr: 'stopped', tts: 'stopped', livetalking: 'stopped' };

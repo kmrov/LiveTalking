@@ -116,6 +116,7 @@ function updateConversationControls() {
   $('#record-avatar').disabled = !active || recordingBusy || conversationChangeBusy;
   if (!active) { recording = false; $('#speaking-state').textContent = 'Disconnected'; }
   $('#record-avatar').textContent = recording ? 'Finish recording' : 'Record MP4';
+  if (latestRuntimeSnapshot) updateSpeechStopButtons(latestRuntimeSnapshot);
   avatarUI?.applySnapshot();
 }
 
@@ -291,6 +292,21 @@ function formatElapsed(startedAt) {
   const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
+function updateSpeechStopButtons(snapshot) {
+  const phase = snapshot.service.phase;
+  for (const stage of ['asr', 'tts']) {
+    const owned = snapshot.ownedSpeechModels?.some(model => model.stage === stage);
+    const button = $(`#stop-${stage}`);
+    button.hidden = !owned;
+    button.disabled = !owned || ['checking', 'starting'].includes(phase) || (snapshot.supervisor?.adopted && phase === 'ready') || recording || recordingBusy;
+    if (owned && snapshot.supervisor?.stages?.[stage] !== 'starting' && phase !== 'ready') {
+      const label = $(`#${stage}-state`);
+      const failed = snapshot.supervisor?.stages?.[stage] === 'failed';
+      label.dataset.state = failed ? 'failed' : 'waiting';
+      label.textContent = failed ? 'Process remains' : 'Process running';
+    }
+  }
+}
 function renderStartupProgress(snapshot) {
   const phase = snapshot.service.phase;
   const active = [];
@@ -305,6 +321,7 @@ function renderStartupProgress(snapshot) {
       : stageLabels[state] || state;
     if (state === 'starting') active.push(stageNames[stage]);
   }
+  updateSpeechStopButtons(snapshot);
   const isStarting = phase === 'checking' || phase === 'starting';
   $('#startup-progress').hidden = !isStarting;
   if (!isStarting) return;
@@ -698,6 +715,11 @@ $('#stop-profile').addEventListener('click', async () => {
   if (recording || recordingBusy) { $('#conversation-message').textContent = 'Finish recording before stopping the profile.'; return; }
   try { await disconnectProjection(); } catch (error) { $('#projection-state').textContent = error.message; }
   try { await bridge.stopProfile(); } catch (error) { message(error.message); }
+});
+for (const stage of ['asr', 'tts']) $(`#stop-${stage}`).addEventListener('click', async () => {
+  if (recording || recordingBusy) { $('#conversation-message').textContent = 'Finish recording before stopping a speech server.'; return; }
+  try { await bridge.stopSpeechModel(stage); }
+  catch (error) { message(error.message); }
 });
 $('#connect-avatar').addEventListener('click', async () => {
   if (webRtcClient?.sessionId()) {

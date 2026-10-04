@@ -71,6 +71,8 @@ def parse_args(argv=None):
     parser.add_argument("--external-models", action="store_true", help="only wait for existing model servers")
     parser.add_argument("--dry-run", action="store_true", help="print commands without starting processes")
     parser.add_argument("--json-status", action="store_true", help="emit LT_STATUS JSON lifecycle lines")
+    parser.add_argument("--model-registry-dir", default="", help="Studio-owned model process records")
+    parser.add_argument("--keep-models-file", default="", help="Studio shutdown request to retain owned models")
     args = parser.parse_args(argv)
     args.app_args = extra
     return args
@@ -236,6 +238,34 @@ def stop_processes(processes):
         _stop_processes(processes)
 
 
+def record_owned_model(directory, stage, process):
+    if not directory:
+        return
+    registry = Path(directory)
+    registry.mkdir(mode=0o700, parents=True, exist_ok=True)
+    stat = Path(f"/proc/{process.pid}/stat").read_text(encoding="utf-8")
+    start_time = stat[stat.rfind(")") + 2:].split()[19]
+    destination = registry / f"{process.pid}.json"
+    temporary = registry / f".{process.pid}.{os.getpid()}.tmp"
+    temporary.write_text(json.dumps({"stage": stage, "pid": process.pid, "startTime": start_time}), encoding="utf-8")
+    temporary.replace(destination)
+
+
+def cleanup_owned_processes(models, avatar, keep_file=None, registry_dir=""):
+    marker = Path(keep_file) if keep_file else None
+    keep_models = bool(marker and marker.is_file())
+    if marker:
+        marker.unlink(missing_ok=True)
+    if avatar:
+        stop_processes([avatar])
+    if not keep_models:
+        stop_processes(models)
+        if registry_dir:
+            for process in models:
+                (Path(registry_dir) / f"{process.pid}.json").unlink(missing_ok=True)
+    return keep_models
+
+
 def _stop_processes(processes):
     for process in reversed(processes):
         try:
@@ -319,7 +349,8 @@ def main(argv=None):
     log_dir = Path(tempfile.mkdtemp(prefix="livetalking-qwen-"))
     env = child_environment()
     print(f"Model logs: {log_dir}", flush=True)
-    processes = []
+    model_processes = []
+    app = None
     owned_stages = []
     owned_models = []
     stage = "asr"
@@ -337,7 +368,8 @@ def main(argv=None):
                                                start_new_session=True, env=model_environment(env, name))
                 finally:
                     log.close()
-                processes.append(process)
+                model_processes.append(process)
+                record_owned_model(args.model_registry_dir, stage, process)
                 owned_stages.append(stage)
                 owned_models.append((stage, process))
             else:
@@ -347,7 +379,6 @@ def main(argv=None):
         emit_status(args, stage, "starting", "launching avatar server")
         print("Starting LiveTalking. Press Ctrl+C to stop.", flush=True)
         app = subprocess.Popen(avatar, cwd=ROOT, start_new_session=True, env=env)
-        processes.append(app)
         owned_stages.append(stage)
         return wait_for_services(args, app, owned_models)
     except KeyboardInterrupt:
@@ -356,8 +387,10 @@ def main(argv=None):
         emit_status(args, getattr(error, "stage", stage), "failed", str(error))
         raise
     finally:
-        stop_processes(processes)
+        kept = cleanup_owned_processes(model_processes, app, args.keep_models_file, args.model_registry_dir)
         for stopped_stage in reversed(owned_stages):
+            if kept and stopped_stage != 'livetalking':
+                continue
             emit_status(args, stopped_stage, "stopped", "owned process stopped")
 
 

@@ -69,8 +69,8 @@
         <div class="panel-heading"><span>SERVICES</span><span class="index">02</span></div>
         <div class="service-list" aria-label="Service status">
           <div class="service-row"><span>LiveTalking</span><span id="livetalking-state">Idle</span></div>
-          <div class="service-row"><span>Speech recognition</span><span id="asr-state">Idle</span></div>
-          <div class="service-row"><span>Speech synthesis</span><span id="tts-state">Idle</span></div>
+          <div class="service-row"><span>Speech recognition</span><div class="service-controls"><span id="asr-state">Idle</span><button id="stop-asr" type="button" title="Stop Studio-owned ASR server" hidden disabled>Stop ASR</button></div></div>
+          <div class="service-row"><span>Speech synthesis</span><div class="service-controls"><span id="tts-state">Idle</span><button id="stop-tts" type="button" title="Stop Studio-owned TTS server" hidden disabled>Stop TTS</button></div></div>
           <div class="service-row brain-service" hidden><span>Persona</span><span id="persona-state">Idle</span></div>
           <div class="service-row brain-service" hidden><span>PostgreSQL</span><span id="database-state">Idle</span></div>
         </div>

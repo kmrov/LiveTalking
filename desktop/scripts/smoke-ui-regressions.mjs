@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { _electron as electron } from 'playwright';
 import { createRequire } from 'node:module';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +16,7 @@ const userData = await mkdtemp(path.join(os.tmpdir(), 'livetalking-ui-regression
 const screenshots = path.join(root, 'test-results', 'ui-audit');
 await mkdir(screenshots, { recursive: true });
 let application;
+const speechChildren = [];
 try {
   application = await electron.launch({ executablePath, args: [root], env: {
     ...process.env, LIVETALKING_DESKTOP_TEST_FIXTURE: '1',
@@ -207,9 +209,52 @@ try {
   assert.ok(narrowWidths.right <= initialWidths.right - 70, 'the conversation panel can be made narrower');
   assert.ok(narrowWidths.stage >= 320, 'the stage remains usable with narrow side panels');
   fixture.finishTurn();
+  await application.close();
+  application = null;
+
+  const registry = path.join(userData, 'speech-models');
+  await mkdir(registry, { recursive: true });
+  for (const stage of ['asr', 'tts']) {
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });
+    speechChildren.push(child);
+    const stat = await readFile(`/proc/${child.pid}/stat`, 'utf8');
+    const startTime = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+    await writeFile(path.join(registry, `${child.pid}.json`), JSON.stringify({ stage, pid: child.pid, startTime }));
+  }
+  const launchWithSameProfile = () => electron.launch({ executablePath, args: [root], env: {
+    ...process.env, LIVETALKING_DESKTOP_TEST_FIXTURE: '1',
+    LIVETALKING_DESKTOP_TEST_PORT: String(fixture.port), LIVETALKING_DESKTOP_TEST_USER_DATA: userData,
+  } });
+  application = await launchWithSameProfile();
+  let ownedWindow = await application.firstWindow();
+  await ownedWindow.locator('#stop-asr').waitFor({ state: 'visible' });
+  await ownedWindow.locator('#stop-tts').waitFor({ state: 'visible' });
+  await ownedWindow.locator('#stop-asr').click();
+  await ownedWindow.locator('#stop-asr').waitFor({ state: 'hidden' });
+  assert.equal(speechChildren[0].signalCode, 'SIGTERM', 'Stop ASR must terminate only ASR');
+  assert.equal(speechChildren[1].signalCode, null, 'Stop ASR must leave TTS running');
+
+  await application.evaluate(({ BrowserWindow, dialog }) => { dialog.showMessageBox = async () => ({ response: 2 }); BrowserWindow.getAllWindows()[0].close(); });
+  await ownedWindow.waitForTimeout(250);
+  assert.equal(await ownedWindow.locator('#stop-tts').isVisible(), true, 'Cancel keeps the Studio window open');
+  let closed = application.waitForEvent('close');
+  await application.evaluate(({ BrowserWindow, dialog }) => { dialog.showMessageBox = async () => ({ response: 0 }); BrowserWindow.getAllWindows()[0].close(); });
+  await closed;
+  application = null;
+  assert.equal(speechChildren[1].signalCode, null, 'Keep running preserves TTS after Studio exits');
+
+  application = await launchWithSameProfile();
+  ownedWindow = await application.firstWindow();
+  await ownedWindow.locator('#stop-tts').waitFor({ state: 'visible' });
+  closed = application.waitForEvent('close');
+  await application.evaluate(({ app, dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); app.quit(); });
+  await closed;
+  application = null;
+  assert.equal(speechChildren[1].signalCode, 'SIGTERM', 'Shut down terminates retained TTS');
   console.log('UI regressions: passed');
 } finally {
   await application?.close();
+  for (const child of speechChildren) { try { process.kill(-child.pid, 'SIGKILL'); } catch {} }
   await fixture.close();
   await rm(userData, { recursive: true, force: true });
 }

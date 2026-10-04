@@ -24,6 +24,7 @@ import { inspectAvatarPrerequisites, runAvatarCommand } from './avatar-prerequis
 import { createAvatarRuntime } from './avatar-runtime.mjs';
 import { createModelDownloads, prepareProfileModels } from './model-downloads.mjs';
 import { createProjectionApi } from './projection-api.mjs';
+import { listOwnedSpeechModels, stopOwnedSpeechModel } from './speech-model-registry.mjs';
 
 const studioFile = fileURLToPath(new URL('../dist/studio.html', import.meta.url));
 const studioUrl = pathToFileURL(studioFile).href;
@@ -50,10 +51,18 @@ let runGeneration = 0;
 let autoStarted = false;
 let quitAfterStop = false;
 let quitJob;
+let speechModelRegistryDir;
+let ownedSpeechModels = [];
 
-function runtimeSnapshot() { return { service: serviceState, supervisor: supervisor?.snapshot() ?? null, brain: personaSupervisor?.snapshot() ?? null, downloads: modelDownloads?.snapshot() ?? null }; }
+function runtimeSnapshot() { return { service: serviceState, supervisor: supervisor?.snapshot() ?? null, brain: personaSupervisor?.snapshot() ?? null, downloads: modelDownloads?.snapshot() ?? null, ownedSpeechModels }; }
 function publishSnapshot() {
   if (studioWindow && !studioWindow.isDestroyed()) studioWindow.webContents.send('desktop:snapshot', runtimeSnapshot());
+}
+async function refreshOwnedSpeechModels() {
+  if (!speechModelRegistryDir) return ownedSpeechModels;
+  ownedSpeechModels = await listOwnedSpeechModels(speechModelRegistryDir);
+  publishSnapshot();
+  return ownedSpeechModels;
 }
 const setupChecks = async profile => fixtureMode
   ? avatarFixture?.inspectSetup(profile) ?? Promise.resolve([{ id: 'fixture', state: 'ready', detail: 'Smoke fixture ready', action: '' }])
@@ -99,14 +108,15 @@ async function startProfile(id) {
   return startJob;
 }
 
-async function stopProfile() {
+async function stopProfile({ keepModels = false } = {}) {
   ++runGeneration;
   await projectionApi?.release().catch(() => {});
   await modelDownloads?.stop();
-  await supervisor.stop();
+  await supervisor.stop({ keepModels });
   await personaSupervisor.stop();
   serviceState = transitionServiceState(serviceState, { type: 'STOP' });
   publishSnapshot();
+  await refreshOwnedSpeechModels();
   return runtimeSnapshot();
 }
 
@@ -220,6 +230,17 @@ function registerSetupIpc() {
   }));
   ipcMain.handle('desktop:start-profile', trusted(id => avatarRuntime.runLifecycle(() => startProfile(id))));
   ipcMain.handle('desktop:stop-profile', trusted(stopProfile));
+  ipcMain.handle('desktop:stop-speech-model', trusted(async stage => {
+    if (!['asr', 'tts'].includes(stage)) throw new Error('Unknown speech service');
+    if (['checking', 'starting'].includes(serviceState.phase)) throw new Error('Wait for startup to finish before stopping a speech server.');
+    const owned = await refreshOwnedSpeechModels();
+    if (!owned.some(model => model.stage === stage)) return runtimeSnapshot();
+    if (supervisor.snapshot().adopted) throw new Error('Stop the external LiveTalking service before stopping a speech server.');
+    if (serviceState.phase !== 'not-configured') await stopProfile({ keepModels: true });
+    await stopOwnedSpeechModel(speechModelRegistryDir, stage);
+    await refreshOwnedSpeechModels();
+    return runtimeSnapshot();
+  }));
   ipcMain.handle('desktop:projection-request', trusted((id, action, input) => projectionApi.request(id, action, input)));
   ipcMain.handle('desktop:avatar-library', trusted(profile => avatarRuntime.list(profile)));
   ipcMain.handle('desktop:avatar-source', trusted(profile => avatarRuntime.chooseSource(profile)));
@@ -277,11 +298,17 @@ export function createStudioWindow() {
   window.on('closed', () => {
     if (studioWindow === window) studioWindow = undefined;
   });
+  window.on('close', event => {
+    if (quitAfterStop) return;
+    event.preventDefault();
+    app.quit();
+  });
   void window.loadFile(studioFile);
   return window;
 }
 
 app.whenReady().then(async () => {
+  speechModelRegistryDir = path.join(app.getPath('userData'), 'speech-models');
   if (fixtureMode && process.env.LIVETALKING_DESKTOP_TEST_AVATAR_ROOT) {
     const { avatarFixtureOptions } = await import('../scripts/avatar-fixture-worker.mjs');
     avatarFixture = await avatarFixtureOptions(process.env.LIVETALKING_DESKTOP_TEST_AVATAR_ROOT, app.getPath('userData'));
@@ -295,11 +322,12 @@ app.whenReady().then(async () => {
     }
     publishSnapshot();
   } });
-  supervisor = createSupervisor({ emit: snapshot => {
+  supervisor = createSupervisor({ registryDir: speechModelRegistryDir, emit: snapshot => {
     if (snapshot.state === 'failed' && !['failed', 'not-configured'].includes(serviceState.phase)) {
       serviceState = transitionServiceState(serviceState, { type: 'CHILD_EXIT', detail: snapshot.logExcerpt || 'Service exited' });
     }
     publishSnapshot();
+    void refreshOwnedSpeechModels().catch(() => {});
   } });
   avatarLibrary = createAvatarLibrary({
     readThumbnailBytes: false,
@@ -330,6 +358,7 @@ app.whenReady().then(async () => {
     callback(mayUseMicrophone({ sender: webContents }, permission, studioWindow, studioUrl, details));
   });
   createStudioWindow();
+  void refreshOwnedSpeechModels().catch(() => {});
   app.on('activate', () => {
     if (!studioWindow) createStudioWindow();
   });
@@ -337,7 +366,31 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', event => {
-  if (quitAfterStop || !supervisor || (supervisor.snapshot().state === 'stopped' && personaSupervisor?.snapshot().state === 'stopped' && !startJob && !avatarJobs?.isBusy())) return;
+  if (quitAfterStop) return;
   event.preventDefault();
-  if (!quitJob) quitJob = Promise.all([avatarRuntime?.shutdown(), stopProfile()]).finally(() => { quitAfterStop = true; app.quit(); });
+  if (quitJob) return;
+  quitJob = (async () => {
+    const owned = await refreshOwnedSpeechModels();
+    let keepModels = false;
+    if (owned.length) {
+      const names = [...new Set(owned.map(model => model.stage.toUpperCase()))].join(' and ');
+      const options = { type: 'question', title: 'Close LiveTalking Studio',
+        message: `Studio-owned ${names} server${owned.length === 1 ? '' : 's'} are running.`,
+        detail: 'Keep them running for the next launch, or shut them down now?',
+        buttons: ['Keep running', 'Shut down', 'Cancel'], defaultId: 1, cancelId: 2, noLink: true };
+      const parent = studioWindow && !studioWindow.isDestroyed() ? studioWindow : null;
+      const { response } = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options);
+      if (response === 2) return;
+      keepModels = response === 0;
+    }
+    await avatarRuntime?.shutdown();
+    if (supervisor) await stopProfile({ keepModels });
+    if (!keepModels) {
+      for (const stage of ['asr', 'tts']) await stopOwnedSpeechModel(speechModelRegistryDir, stage);
+    }
+    quitAfterStop = true;
+    app.quit();
+  })().catch(error => {
+    void dialog.showMessageBox({ type: 'error', title: 'Could not close Studio', message: error.message, buttons: ['OK'] });
+  }).finally(() => { quitJob = null; });
 });

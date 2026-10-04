@@ -71,6 +71,9 @@ body.is-resizing-panels, body.is-resizing-panels * { cursor: col-resize !importa
 .panel-divider { height: 1px; margin: 29px 0 25px; background: #2a3134; }
 .service-list { margin-top: 21px; }
 .service-row { display: flex; justify-content: space-between; gap: 8px; padding: 11px 0; border-bottom: 1px solid #252c2e; color: #c6d0cb; font-size: 12px; }
+.service-controls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; text-align: right; }
+.service-controls button { padding: 3px 6px; border: 1px solid #5d5144; border-radius: 4px; background: #2e251e; color: #e1c3a7; font: inherit; font-size: 10px; cursor: pointer; }
+.service-controls button:disabled { opacity: .4; cursor: default; }
 .service-row span:last-child:not([data-state]) { color: #71807a; }
 .service-row [data-state="starting"] { display: inline-flex; align-items: center; gap: 6px; color: #bbd9c2 !important; white-space: nowrap; }
 .service-row [data-state="waiting"] { color: #7f8e86; }

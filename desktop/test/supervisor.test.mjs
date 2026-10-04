@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { createSupervisor } from '../electron/supervisor.mjs';
 import { normalizeProfile } from '../src/profile.mjs';
 
@@ -95,6 +99,24 @@ test('supervisor stops only the process it owns', async () => {
   await supervisor.stop();
   assert.deepEqual(signals, [[-123, 'SIGTERM']]);
   assert.equal(supervisor.snapshot().state, 'stopped');
+});
+
+test('supervisor tells launcher to retain speech models before stopping its group', async () => {
+  const registryDir = await mkdtemp(path.join(os.tmpdir(), 'supervisor-models-'));
+  const child = fakeChild();
+  let healthChecks = 0;
+  let keepFile;
+  try {
+    const supervisor = createSupervisor({ registryDir,
+      spawn: (_python, args) => { keepFile = args[args.indexOf('--keep-models-file') + 1]; return child; },
+      health: async () => ++healthChecks > 1, sleep: async () => {},
+      kill: (pid, signal) => { assert.equal(pid, -123); assert.equal(signal, 'SIGTERM'); assert.equal(readFileSync(keepFile, 'utf8'), 'keep'); child.emit('exit', 0); },
+    });
+    await supervisor.start(profile);
+    await supervisor.stop({ keepModels: true });
+    assert.equal(await readFile(keepFile, 'utf8'), 'keep');
+    assert.equal(supervisor.snapshot().state, 'stopped');
+  } finally { await rm(registryDir, { recursive: true, force: true }); }
 });
 
 test('supervisor adopts a compatible existing service without spawning or killing', async () => {

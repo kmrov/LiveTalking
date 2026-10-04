@@ -1,4 +1,6 @@
 import io
+import json
+import os
 import signal
 import sys
 import tempfile
@@ -29,6 +31,33 @@ class StartQwenAvatarTest(unittest.TestCase):
         with patch('scripts.start_qwen_avatar.os.killpg', side_effect=self.empty_group):
             start_qwen_avatar.stop_processes([Process()])
         self.assertEqual(signal.getsignal(signal.SIGTERM), previous)
+
+    def test_keep_request_preserves_owned_models_but_stops_avatar(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            keep = root / 'keep'
+            keep.write_text('keep', encoding='utf-8')
+            class Process:
+                def __init__(self, pid):
+                    self.pid = pid
+                def wait(self, timeout=None):
+                    return 0
+            models = [Process(101), Process(102)]
+            avatar = Process(103)
+            with patch('scripts.start_qwen_avatar.os.killpg', side_effect=self.empty_group) as killpg:
+                start_qwen_avatar.cleanup_owned_processes(models, avatar, keep)
+            self.assertEqual([call.args[0] for call in killpg.call_args_list if call.args[1] == signal.SIGTERM], [103])
+            self.assertFalse(keep.exists())
+
+    def test_model_record_identifies_the_running_process_for_later_shutdown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            class Process:
+                pid = os.getpid()
+            start_qwen_avatar.record_owned_model(directory, 'tts', Process())
+            record = json.loads((Path(directory) / f'{os.getpid()}.json').read_text(encoding='utf-8'))
+            self.assertEqual(record['stage'], 'tts')
+            self.assertEqual(record['pid'], os.getpid())
+            self.assertEqual(record['startTime'], Path(f'/proc/{os.getpid()}/stat').read_text().split(') ')[1].split()[19])
 
     def test_owned_model_exit_fails_its_stage_and_stops_waiting_for_avatar(self):
         class Process:

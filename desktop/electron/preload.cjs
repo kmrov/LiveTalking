@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('liveTalkingDesktop', Object.freeze({
   brainDocument: (id, input) => ipcRenderer.invoke('desktop:brain-document', id, input),
   startProfile: id => ipcRenderer.invoke('desktop:start-profile', id),
   stopProfile: () => ipcRenderer.invoke('desktop:stop-profile'),
+  stopSpeechModel: stage => ipcRenderer.invoke('desktop:stop-speech-model', stage),
   projectionRequest: (id, action, input) => ipcRenderer.invoke('desktop:projection-request', id, action, input),
   getSnapshot: () => ipcRenderer.invoke('desktop:get-snapshot'),
   saveRecording: sessionId => ipcRenderer.invoke('desktop:save-recording', sessionId),
