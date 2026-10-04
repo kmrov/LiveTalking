@@ -39,10 +39,10 @@ async def desktop_health(request):
     opt = request.app.get('opt') if request is not None else None
     if opt is not None:
         data['avatar']={'model':getattr(opt,'model',''),'root':os.path.realpath(os.getcwd())}
-        mode = 'batya' if getattr(opt, 'llm_provider', '') == 'batya' else 'direct'
+        mode = 'persona' if getattr(opt, 'llm_provider', '') == 'persona' else 'direct'
         data['brain'] = {'mode': mode}
-        if mode == 'batya':
-            data['brain']['url'] = getattr(opt, 'batya_url', '')
+        if mode == 'persona':
+            data['brain']['url'] = getattr(opt, 'persona_url', '')
     return json_ok(data)
 
 
@@ -74,8 +74,8 @@ async def human(request):
         kind = params.get('type')
         if kind not in ('echo', 'chat'):
             return json_error('Invalid conversation mode')
-        batya = kind == 'chat' and getattr(request.app.get('opt'), 'llm_provider', '') == 'batya'
-        if params.get('interrupt') and not batya:
+        persona = kind == 'chat' and getattr(request.app.get('opt'), 'llm_provider', '') == 'persona'
+        if params.get('interrupt') and not persona:
             avatar_session.flush_talk()
 
         datainfo = {}
@@ -85,8 +85,8 @@ async def human(request):
         if params['type'] == 'echo':
             avatar_session.put_msg_txt(params['text'], datainfo)
         elif params['type'] == 'chat':
-            if batya:
-                accepted = await request.app['batya_brain'].submit(
+            if persona:
+                accepted = await request.app['persona_brain'].submit(
                     avatar_session, text, params.get('request_id'), datainfo, interrupt=bool(params.get('interrupt'))
                 )
                 return json_ok(accepted)
@@ -184,8 +184,8 @@ async def brain_session(request):
     avatar = get_session(request, request.query.get('sessionid', ''))
     if avatar is None:
         return json_error('session not found')
-    brain = request.app.get('batya_brain')
-    return json_ok({'conversation_id': getattr(avatar.opt, 'batya_conversation_id', ''),
+    brain = request.app.get('persona_brain')
+    return json_ok({'conversation_id': getattr(avatar.opt, 'persona_conversation_id', ''),
                     'pending': brain.pending(avatar) if brain else 0})
 
 
@@ -193,23 +193,23 @@ async def set_brain_session(request):
     try:
         params = await request.json()
         avatar = get_session(request, params.get('sessionid', ''))
-        brain = request.app.get('batya_brain')
+        brain = request.app.get('persona_brain')
         if avatar is None:
             return json_error('session not found')
         if brain is None:
-            return json_error('Batya is not active')
-        from server.batya_brain import conversation_id
+            return json_error('Persona is not active')
+        from server.persona_brain import conversation_id
         identifier = conversation_id(params.get('conversation_id'))
         if not identifier:
             return json_error('conversation_id is required')
-        if not hasattr(avatar, '_batya_lock'):
-            avatar._batya_lock = asyncio.Lock()
-        async with avatar._batya_lock:
-            if getattr(avatar.opt, 'batya_conversation_id', '') != identifier:
+        if not hasattr(avatar, '_persona_lock'):
+            avatar._persona_lock = asyncio.Lock()
+        async with avatar._persona_lock:
+            if getattr(avatar.opt, 'persona_conversation_id', '') != identifier:
                 avatar.flush_talk()
-                avatar.opt.batya_conversation_id = identifier
+                avatar.opt.persona_conversation_id = identifier
             pending = brain.pending(avatar)
-            avatar.batya_pending = pending
+            avatar.persona_pending = pending
         return json_ok({'conversation_id': identifier, 'pending': pending})
     except Exception as error:
         logger.exception('set_brain_session exception:')
@@ -237,7 +237,7 @@ async def sse_handler(request):
     import queue
     msgqueue = queue.Queue()
     avatar_session.add_msgqueue(msgqueue)
-    brain = request.app.get('batya_brain')
+    brain = request.app.get('persona_brain')
     unsubscribe = brain.subscribe(avatar_session, msgqueue.put) if brain else lambda: None
 
     try:
@@ -280,8 +280,8 @@ async def admin_sessions(request):
                     "sessionid": sid,
                     "speaking": avatar_session.is_speaking() if hasattr(avatar_session, 'is_speaking') else False,
                     "recording": getattr(avatar_session, 'recording', False),
-                    "batya_conversation_id": getattr(s_opt, 'batya_conversation_id', ''),
-                    "brain_pending": getattr(avatar_session, 'batya_pending', 0),
+                    "persona_conversation_id": getattr(s_opt, 'persona_conversation_id', ''),
+                    "brain_pending": getattr(avatar_session, 'persona_pending', 0),
                 }
                 if s_opt:
                     s_data.update({
@@ -377,14 +377,16 @@ async def whip_connect(request):
             raise ValueError("WHIP session ID and lease must be supplied together")
     except ValueError as exc:
         return _whip_json(400, message=str(exc))
-    limits = {"avatar": 255, "refaudio": 4096, "reftext": 20_000, "batya_conversation_id": 36}
+    if "persona_conversation_id" not in params and "batya_conversation_id" in params:
+        params["persona_conversation_id"] = params["batya_conversation_id"]
+    limits = {"avatar": 255, "refaudio": 4096, "reftext": 20_000, "persona_conversation_id": 36}
     session_params = {key: params[key] for key in limits if key in params}
     if any(not isinstance(value, str) or len(value) > limits[key] for key, value in session_params.items()):
         return _whip_json(400, message="Invalid avatar, voice, or conversation parameter")
-    if session_params.get("batya_conversation_id"):
+    if session_params.get("persona_conversation_id"):
         try:
-            from server.batya_brain import conversation_id
-            session_params["batya_conversation_id"] = conversation_id(session_params["batya_conversation_id"])
+            from server.persona_brain import conversation_id
+            session_params["persona_conversation_id"] = conversation_id(session_params["persona_conversation_id"])
         except ValueError:
             return _whip_json(400, message="Invalid conversation ID")
     try:
@@ -432,11 +434,11 @@ async def index(request):
 
 def setup_routes(app):
     """注册所有路由到 aiohttp app"""
-    if getattr(app.get('opt'), 'llm_provider', '') == 'batya':
-        from server.batya_brain import BatyaBrain
-        app['batya_brain'] = BatyaBrain(app['opt'].batya_url)
+    if getattr(app.get('opt'), 'llm_provider', '') == 'persona':
+        from server.persona_brain import PersonaBrain
+        app['persona_brain'] = PersonaBrain(app['opt'].persona_url)
         async def close_brain(application):
-            await application['batya_brain'].close()
+            await application['persona_brain'].close()
         app.on_cleanup.append(close_brain)
     app.router.add_get("/", index)
     app.router.add_post("/human", human)

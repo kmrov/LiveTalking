@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { readFileSync } from 'node:fs';
 
-const keys = new Set(['YANDEX_AISTUDIO_KEY', 'YANDEX_FOLDER_ID', 'BATYA_DATABASE_URL', 'BATYA_SPEECH_MODEL', 'COMPOSE_PROJECT_NAME']);
+const keys = new Set(['YANDEX_AISTUDIO_KEY', 'YANDEX_FOLDER_ID', 'PERSONA_DATABASE_URL', 'PERSONA_SPEECH_MODEL', 'BATYA_DATABASE_URL', 'BATYA_SPEECH_MODEL', 'COMPOSE_PROJECT_NAME']);
 
 export function parseEnv(text) {
   const result = {};
@@ -32,13 +32,17 @@ export function serviceEnvironment({ values = {}, inherited = process.env, secre
     if (!result[key] && values[key]) result[key] = values[key];
     if (secrets[key]) result[key] = secrets[key];
   }
+  result.PERSONA_DATABASE_URL ||= result.BATYA_DATABASE_URL;
+  result.PERSONA_SPEECH_MODEL ||= result.BATYA_SPEECH_MODEL;
+  // Preserve the Compose project name and existing PostgreSQL volume after the checkout moves.
+  result.COMPOSE_PROJECT_NAME ||= 'batya';
   if (folderId) result.YANDEX_FOLDER_ID = folderId;
   return result;
 }
 
 export function redactServiceText(text, environment = {}) {
   let result = String(text);
-  for (const key of ['YANDEX_AISTUDIO_KEY', 'BATYA_DATABASE_URL']) {
+  for (const key of ['YANDEX_AISTUDIO_KEY', 'PERSONA_DATABASE_URL', 'BATYA_DATABASE_URL']) {
     const secret = environment[key];
     if (secret) result = result.split(secret).join('[redacted]');
   }

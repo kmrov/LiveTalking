@@ -25,7 +25,7 @@ test('WebRTC client sends avatar and voice parameters and retains returned sessi
   assert.equal(body.avatar, 'avatar_1');
   assert.equal(body.refaudio, '/tmp/голос.wav');
   assert.equal(body.reftext, 'Привет');
-  assert.equal(body.batya_conversation_id, 'persistent-conversation');
+  assert.equal(body.persona_conversation_id, 'persistent-conversation');
   assert.equal(client.sessionId(), '123');
   assert.deepEqual(client.peer().transceivers, [['video', 'recvonly'], ['audio', 'recvonly']]);
   assert.equal(client.peer().remoteDescription.sdp, 'remote-sdp');

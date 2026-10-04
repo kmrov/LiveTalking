@@ -6,23 +6,23 @@ import { redactServiceText } from './service-environment.mjs';
 const execute = promisify(execFile);
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-export async function batyaHealth(url) {
+export async function personaHealth(url) {
   try {
     const options = { signal: AbortSignal.timeout(3000) };
     const health = await fetch(`${url}/api/v1/health`, options);
     if (!health.ok || (await health.json()).status !== 'ok') return false;
     const response = await fetch(`${url}/api/v1/capabilities`, { signal: AbortSignal.timeout(3000) });
     const data = await response.json();
-    return response.ok && data.service === 'batya' && data.speech_stream === 1;
+    return response.ok && ['persona', 'batya'].includes(data.service) && data.speech_stream === 1;
   } catch { return false; }
 }
 
-export function createBatyaSupervisor({ spawn = nodeSpawn, run = execute, kill = process.kill.bind(process), health = batyaHealth, sleep = pause, emit = () => {}, startupTimeoutMs = 120000, shutdownTimeoutMs = 10000, schedule = setTimeout, cancelSchedule = clearTimeout } = {}) {
+export function createPersonaSupervisor({ spawn = nodeSpawn, run = execute, kill = process.kill.bind(process), health = personaHealth, sleep = pause, emit = () => {}, startupTimeoutMs = 120000, shutdownTimeoutMs = 10000, schedule = setTimeout, cancelSchedule = clearTimeout } = {}) {
   let state = 'stopped', adopted = false, ownedDatabase = false, child = null;
   let generation = 0, startJob = null, stopJob = null, monitorTimer = null;
   let profile, environment = {}, logs = [];
-  let stages = { batya: 'stopped', database: 'stopped' };
-  let stageStartedAt = { batya: null, database: null };
+  let stages = { persona: 'stopped', database: 'stopped' };
+  let stageStartedAt = { persona: null, database: null };
   const snapshot = () => ({ state, adopted, ownedDatabase, stages: { ...stages }, stageStartedAt: { ...stageStartedAt }, logExcerpt: logs.slice(-20).join('\n') });
   const publish = () => emit(snapshot());
   const log = value => { logs.push(redactServiceText(value, environment)); logs = logs.slice(-60); publish(); };
@@ -34,7 +34,7 @@ export function createBatyaSupervisor({ spawn = nodeSpawn, run = execute, kill =
       if (token !== generation || state !== 'ready') return;
       const ready = await health(profile.brain.url);
       if (token !== generation || state !== 'ready') return;
-      if (!ready) { state = 'failed'; stages.batya = 'failed'; stageStartedAt.batya = null; log('Batya or its database is unavailable. Check the service and try again.'); }
+      if (!ready) { state = 'failed'; stages.persona = 'failed'; stageStartedAt.persona = null; log('Persona or its database is unavailable. Check the service and try again.'); }
       else monitor(token);
     }, 5000);
     monitorTimer?.unref?.();
@@ -56,19 +56,19 @@ export function createBatyaSupervisor({ spawn = nodeSpawn, run = execute, kill =
     environment = { ...env, PYTHONUNBUFFERED: '1' };
     const token = ++generation;
     state = 'starting'; adopted = false; logs = [];
-    stages = { batya: 'waiting', database: 'starting' };
-    stageStartedAt = { batya: null, database: Date.now() };
+    stages = { persona: 'waiting', database: 'starting' };
+    stageStartedAt = { persona: null, database: Date.now() };
     publish();
     startJob = (async () => {
       try {
         const ready = await health(profile.brain.url);
         if (token !== generation) return snapshot();
         if (ready) {
-          adopted = true; state = 'ready'; stages = { batya: 'ready', database: 'ready' };
-          stageStartedAt = { batya: null, database: null };
+          adopted = true; state = 'ready'; stages = { persona: 'ready', database: 'ready' };
+          stageStartedAt = { persona: null, database: null };
           publish(); monitor(token); return snapshot();
         }
-        if (!profile.brain.managed) throw new Error('External Batya is unavailable or does not support speech_stream. Update the service and check the URL.');
+        if (!profile.brain.managed) throw new Error('External Persona is unavailable or does not support speech_stream. Update the service and check the URL.');
         if (profile.brain.databaseMode === 'compose') {
           const running = await databaseRunning();
           if (token !== generation) return snapshot();
@@ -79,9 +79,9 @@ export function createBatyaSupervisor({ spawn = nodeSpawn, run = execute, kill =
           if (token !== generation) return snapshot();
         }
         stages.database = 'ready'; stageStartedAt.database = null;
-        stages.batya = 'starting'; stageStartedAt.batya = Date.now(); publish();
+        stages.persona = 'starting'; stageStartedAt.persona = Date.now(); publish();
         const url = new URL(profile.brain.url);
-        child = spawn(profile.brain.python, ['-m', 'uvicorn', 'batya.main:app', '--host', url.hostname.replace(/[\[\]]/g, ''), '--port', url.port || '80'], {
+        child = spawn(profile.brain.python, ['-m', 'uvicorn', 'persona.main:app', '--host', url.hostname.replace(/[\[\]]/g, ''), '--port', url.port || '80'], {
           cwd: profile.brain.root, env: environment, detached: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'],
         });
         for (const stream of [child.stdout, child.stderr]) {
@@ -93,26 +93,26 @@ export function createBatyaSupervisor({ spawn = nodeSpawn, run = execute, kill =
           });
           stream?.on('end', () => { if (pending) log(pending); });
         }
-        child.on('error', error => { if (token === generation && state !== 'stopping') { state = 'failed'; stages.batya = 'failed'; stageStartedAt.batya = null; log(error.message); } });
+        child.on('error', error => { if (token === generation && state !== 'stopping') { state = 'failed'; stages.persona = 'failed'; stageStartedAt.persona = null; log(error.message); } });
         child.on('exit', code => {
           child = null;
-          if (token === generation && !['stopping', 'stopped'].includes(state)) { state = 'failed'; stages.batya = 'failed'; stageStartedAt.batya = null; log(`Batya exited: ${code}`); }
+          if (token === generation && !['stopping', 'stopped'].includes(state)) { state = 'failed'; stages.persona = 'failed'; stageStartedAt.persona = null; log(`Persona exited: ${code}`); }
         });
         const deadline = Date.now() + startupTimeoutMs;
         while (token === generation && Date.now() < deadline) {
-          if (state === 'failed') throw new Error(snapshot().logExcerpt || 'Batya did not start');
+          if (state === 'failed') throw new Error(snapshot().logExcerpt || 'Persona did not start');
           if (await health(profile.brain.url)) {
             if (token !== generation) return snapshot();
-            state = 'ready'; stages.batya = 'ready'; stageStartedAt.batya = null; publish(); monitor(token); return snapshot();
+            state = 'ready'; stages.persona = 'ready'; stageStartedAt.persona = null; publish(); monitor(token); return snapshot();
           }
           await sleep(500);
         }
-        if (token === generation) throw new Error('Batya did not become ready: check PostgreSQL, the Yandex key, and the startup log.');
+        if (token === generation) throw new Error('Persona did not become ready: check PostgreSQL, the Yandex key, and the startup log.');
         return snapshot();
       } catch (error) {
         if (token !== generation) return snapshot();
         if (stages.database === 'starting') { stages.database = 'failed'; stageStartedAt.database = null; }
-        state = 'failed'; stages.batya = 'failed'; stageStartedAt.batya = null; log(error.message);
+        state = 'failed'; stages.persona = 'failed'; stageStartedAt.persona = null; log(error.message);
         throw new Error(redactServiceText(error.message, environment));
       }
     })().finally(() => { startJob = null; });
@@ -144,8 +144,8 @@ export function createBatyaSupervisor({ spawn = nodeSpawn, run = execute, kill =
       if (child && !adopted) await terminate(child);
       child = null;
       if (ownedDatabase) { await compose(['stop', 'db']); ownedDatabase = false; }
-      adopted = false; state = 'stopped'; stages = { batya: 'stopped', database: 'stopped' };
-      stageStartedAt = { batya: null, database: null }; publish();
+      adopted = false; state = 'stopped'; stages = { persona: 'stopped', database: 'stopped' };
+      stageStartedAt = { persona: null, database: null }; publish();
       return snapshot();
     })().finally(() => { stopJob = null; });
     return stopJob;

@@ -12,7 +12,7 @@ export async function startFixtureServer() {
     if (!control.pendingTurn) return;
     const turn = control.pendingTurn;
     if (event === 'delta') turn.text += fields.text;
-    const body = JSON.stringify({ brain: 'batya', event, conversation_id: turn.conversation, request_id: turn.request, ...fields });
+    const body = JSON.stringify({ brain: 'persona', event, conversation_id: turn.conversation, request_id: turn.request, ...fields });
     for (const stream of streams) stream.write(`data: ${body}\n\n`);
   }
   function finishTurn() {
@@ -34,7 +34,7 @@ export async function startFixtureServer() {
       streams.add(response); response.once('close', () => streams.delete(response));
       if (control.pendingTurn) {
         const turn = control.pendingTurn;
-        response.write(`data: ${JSON.stringify({ brain: 'batya', event: 'snapshot', conversation_id: turn.conversation, request_id: turn.request,
+        response.write(`data: ${JSON.stringify({ brain: 'persona', event: 'snapshot', conversation_id: turn.conversation, request_id: turn.request,
           status: turn.text ? 'delta' : 'queued', text: turn.text, user_text: turn.userText, pending: 1 })}\n\n`);
       }
       return;
@@ -50,7 +50,7 @@ export async function startFixtureServer() {
     if (request.url === '/api/desktop/health') result = { code: 0, msg: 'ok', data: { service: 'livetalking', api_version: 1,
       avatar:{model:control.avatarModel,root:control.avatarRoot},brain: { mode: control.brainMode, url: `http://127.0.0.1:${server.address().port}` } } };
     else if (request.url === '/api/v1/health') result = { status: 'ok' };
-    else if (request.url === '/api/v1/capabilities') result = { service: 'batya', speech_stream: 1 };
+    else if (request.url === '/api/v1/capabilities') result = { service: 'persona', speech_stream: 1 };
     else if (request.url === '/api/v1/conversations' && request.method === 'POST') {
       result = { id: randomUUID(), created_at: new Date().toISOString() };
       conversations.unshift(result); history.set(result.id, []);
@@ -63,7 +63,7 @@ export async function startFixtureServer() {
     else if (request.url === '/api/whip/connect' && request.method === 'POST') {
       if (control.delayWhipMs) await new Promise(resolve => setTimeout(resolve, control.delayWhipMs));
       control.whip = { state: 'connected', url: body.url, sessionid: body.sessionid, lease: body.lease };
-      control.currentConversation = body.batya_conversation_id || '';
+      control.currentConversation = body.persona_conversation_id || '';
       result = { code: 0, data: control.whip };
     }
     else if (request.url.startsWith('/api/whip/status?')) {
@@ -89,10 +89,10 @@ export async function startFixtureServer() {
     }
     else if (request.url === '/offer') {
       if (control.delayOfferMs) await new Promise(resolve => setTimeout(resolve, control.delayOfferMs));
-      control.currentConversation = body.batya_conversation_id || '';
+      control.currentConversation = body.persona_conversation_id || '';
       result = { type: 'answer', sdp: 'fixture-answer', sessionid: 'fixture-session' };
     }
-    else if (request.url === '/human' && body.type === 'chat' && control.brainMode === 'batya') {
+    else if (request.url === '/human' && body.type === 'chat' && control.brainMode === 'persona') {
       const messages = history.get(control.currentConversation);
       if (!messages) { response.writeHead(400); response.end(JSON.stringify({code:-1,msg:'conversation not found'})); return; }
       if (!messages.some(item => item.role === 'user' && item.request_id === body.request_id)) messages.push({ id: randomUUID(), role: 'user', text: body.text, request_id: body.request_id });

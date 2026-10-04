@@ -4,12 +4,12 @@ import unittest
 from types import SimpleNamespace
 from uuid import uuid4
 
-from server.batya_brain import BatyaBrain
+from server.persona_brain import PersonaBrain
 
 
 class Avatar:
     def __init__(self, conversation_id=''):
-        self.opt = SimpleNamespace(batya_conversation_id=conversation_id)
+        self.opt = SimpleNamespace(persona_conversation_id=conversation_id)
         self.talk_generation = 0
         self.events, self.speech = [], []
         self.msgqueues = []
@@ -47,10 +47,10 @@ class Transport:
         pass
 
 
-class BatyaBrainTest(unittest.IsolatedAsyncioTestCase):
+class PersonaBrainTest(unittest.IsolatedAsyncioTestCase):
     async def test_reconnect_restores_pending_turn_and_receives_completion_without_speaking(self):
         transport, original = Transport(), Avatar()
-        brain = BatyaBrain('http://127.0.0.1:8000', transport=transport)
+        brain = PersonaBrain('http://127.0.0.1:8000', transport=transport)
         await brain.submit(original, 'Привет', 'one')
         await transport.started.wait()
         original.flush_talk()
@@ -92,7 +92,7 @@ class BatyaBrainTest(unittest.IsolatedAsyncioTestCase):
                     yield 'delta', {'text': 'Следующее.'}
                     yield 'done', {'text': 'Следующее.'}
         transport, avatar = FailingFirst(), Avatar()
-        brain = BatyaBrain('http://127.0.0.1:8000', transport=transport)
+        brain = PersonaBrain('http://127.0.0.1:8000', transport=transport)
         await brain.submit(avatar, 'Первый', 'one')
         await transport.started.wait()
         await brain.submit(avatar, 'Второй', 'two')
@@ -105,7 +105,7 @@ class BatyaBrainTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_duplicate_network_retry_does_not_interrupt_original_turn(self):
         transport, avatar = Transport(), Avatar()
-        brain = BatyaBrain('http://127.0.0.1:8000', transport=transport)
+        brain = PersonaBrain('http://127.0.0.1:8000', transport=transport)
         await brain.submit(avatar, 'Привет', 'one', interrupt=True)
         await transport.started.wait()
         generation = avatar.talk_generation
@@ -126,7 +126,7 @@ class BatyaBrainTest(unittest.IsolatedAsyncioTestCase):
                     yield 'delta', {'text': 'Получилось.'}
                     yield 'done', {'text': 'Получилось.'}
         transport, avatar = FailingOnce(), Avatar()
-        brain = BatyaBrain('http://127.0.0.1:8000', transport=transport)
+        brain = PersonaBrain('http://127.0.0.1:8000', transport=transport)
         await brain.submit(avatar, 'Привет', 'one')
         await brain.wait_idle()
         await brain.submit(avatar, 'Привет', 'one')
@@ -135,7 +135,7 @@ class BatyaBrainTest(unittest.IsolatedAsyncioTestCase):
         await brain.close()
     async def test_streamed_phrase_is_spoken_before_done_and_final_is_not_duplicated(self):
         transport, avatar = Transport(), Avatar()
-        brain = BatyaBrain('http://127.0.0.1:8000', transport=transport)
+        brain = PersonaBrain('http://127.0.0.1:8000', transport=transport)
         accepted = await brain.submit(avatar, 'Привет', 'one')
         await transport.started.wait()
         self.assertEqual(avatar.speech, ['Привет, сынок.'])
@@ -144,12 +144,12 @@ class BatyaBrainTest(unittest.IsolatedAsyncioTestCase):
         await brain.wait_idle()
         self.assertEqual(avatar.speech, ['Привет, сынок.', 'Как дела?'])
         self.assertTrue(transport.calls[0][1]['speech_stream'])
-        self.assertEqual(accepted['conversation_id'], avatar.opt.batya_conversation_id)
+        self.assertEqual(accepted['conversation_id'], avatar.opt.persona_conversation_id)
         await brain.close()
 
     async def test_interrupt_suppresses_old_audio_and_shared_conversation_turns_are_ordered(self):
         transport, first = Transport(), Avatar()
-        brain = BatyaBrain('http://127.0.0.1:8000', transport=transport)
+        brain = PersonaBrain('http://127.0.0.1:8000', transport=transport)
         await brain.submit(first, 'Первый', 'one')
         await transport.started.wait()
         first.flush_talk()
@@ -165,7 +165,7 @@ class BatyaBrainTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_duplicate_request_is_shared_and_conflicting_text_is_rejected(self):
         transport, avatar = Transport(), Avatar()
-        brain = BatyaBrain('http://127.0.0.1:8000', transport=transport)
+        brain = PersonaBrain('http://127.0.0.1:8000', transport=transport)
         accepted = await brain.submit(avatar, 'Привет', 'one')
         self.assertEqual(await brain.submit(avatar, 'Привет', 'one'), accepted)
         with self.assertRaisesRegex(ValueError, 'request_id'):
@@ -187,7 +187,7 @@ class BatyaBrainTest(unittest.IsolatedAsyncioTestCase):
                 yield 'delta', {'text': 'сынок. Как дела?'}
                 yield 'done', {'text': 'Привет, сынок. Как дела?'}
         transport, avatar = Retrying(), Avatar()
-        brain = BatyaBrain('http://127.0.0.1:8000', transport=transport)
+        brain = PersonaBrain('http://127.0.0.1:8000', transport=transport)
         await brain.submit(avatar, 'Привет', 'one')
         await brain.wait_idle()
         self.assertEqual(avatar.speech, ['Привет, сынок.', 'Как дела?'])
@@ -202,7 +202,7 @@ class BatyaBrainTest(unittest.IsolatedAsyncioTestCase):
                     if failure != 'eof':
                         yield failure, {'code': 'generation_failed'}
             avatar = Avatar()
-            brain = BatyaBrain('http://127.0.0.1:8000', transport=Failing())
+            brain = PersonaBrain('http://127.0.0.1:8000', transport=Failing())
             await brain.submit(avatar, 'Привет')
             await brain.wait_idle()
             self.assertEqual(avatar.speech, [], failure)

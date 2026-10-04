@@ -1,8 +1,8 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import { filterAvatars,avatarActionState,buildCreationInput,avatarSnapshotBelongsToRoot } from '../renderer/avatar-library-state.mjs';
 test('search uses display names and technical IDs without case sensitivity',()=>{
- const entries=[{id:'portrait',name:'Батя',ready:true},{id:'other',name:'Другой',ready:false}];
- assert.deepEqual(filterAvatars(entries,'БАТЯ').map(x=>x.id),['portrait']);assert.deepEqual(filterAvatars(entries,'PORTRAIT').map(x=>x.id),['portrait']);
+ const entries=[{id:'portrait',name:'Персона',ready:true},{id:'other',name:'Другой',ready:false}];
+ assert.deepEqual(filterAvatars(entries,'ПЕРСОНА').map(x=>x.id),['portrait']);assert.deepEqual(filterAvatars(entries,'PORTRAIT').map(x=>x.id),['portrait']);
 });
 test('recording blocks a destructive session change and keeps the explicit label',()=>{
  const action=avatarActionState({serviceActive:true,recording:true,recordingBusy:false,generationBusy:false},null);

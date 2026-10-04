@@ -42,16 +42,16 @@
             <label>Voice sample WAV<input id="voice-wav" autocomplete="off" spellcheck="false" placeholder="/path/to/voice.wav"></label>
             <button type="button" class="text-button" id="choose-voice">Choose WAV</button>
             <label>Sample transcript<textarea id="voice-text" rows="2" placeholder="Exact transcript of the recording"></textarea></label>
-            <label>Avatar brain<select id="brain-mode"><option value="direct">Direct LLM</option><option value="batya">Batya · memory and conversations</option></select></label>
+            <label>Avatar brain<select id="brain-mode"><option value="direct">Direct LLM</option><option value="persona">Persona · memory and conversations</option></select></label>
             <div id="brain-settings" hidden>
               <p class="setting-hint">Changing the brain requires restarting the profile.</p>
-              <label>Batya service<select id="brain-service-mode"><option value="managed">Start automatically</option><option value="external">Existing API</option></select></label>
-              <label>Batya URL<input id="brain-url" type="url" placeholder="http://127.0.0.1:8000"></label>
+              <label>Persona service<select id="brain-service-mode"><option value="managed">Start automatically</option><option value="external">Existing API</option></select></label>
+              <label>Persona URL<input id="brain-url" type="url" placeholder="http://127.0.0.1:8000"></label>
               <div id="brain-managed-fields">
-                <label>Batya folder<input id="brain-root" autocomplete="off" spellcheck="false"></label>
+                <label>Persona folder<input id="brain-root" autocomplete="off" spellcheck="false"></label>
                 <button type="button" class="text-button" id="choose-brain-root">Choose folder</button>
-                <label>Batya Python<input id="brain-python" autocomplete="off" spellcheck="false"></label>
-                <label>PostgreSQL<select id="brain-database-mode"><option value="compose">Batya Docker Compose</option><option value="external">Existing database</option></select></label>
+                <label>Persona Python<input id="brain-python" autocomplete="off" spellcheck="false"></label>
+                <label>PostgreSQL<select id="brain-database-mode"><option value="compose">Persona Docker Compose</option><option value="external">Existing database</option></select></label>
                 <label>Yandex folder ID<input id="brain-folder" autocomplete="off" spellcheck="false"></label>
                 <label>Yandex API key<input id="brain-key" type="password" autocomplete="off" placeholder="Leave blank if already configured"></label>
                 <label>PostgreSQL URL<input id="brain-database-url" type="password" autocomplete="off" placeholder="Optional if configured in .env"></label>
@@ -71,17 +71,17 @@
           <div class="service-row"><span>LiveTalking</span><span id="livetalking-state">Idle</span></div>
           <div class="service-row"><span>Speech recognition</span><span id="asr-state">Idle</span></div>
           <div class="service-row"><span>Speech synthesis</span><span id="tts-state">Idle</span></div>
-          <div class="service-row brain-service" hidden><span>Batya</span><span id="batya-state">Idle</span></div>
+          <div class="service-row brain-service" hidden><span>Persona</span><span id="persona-state">Idle</span></div>
           <div class="service-row brain-service" hidden><span>PostgreSQL</span><span id="database-state">Idle</span></div>
         </div>
         <details class="runtime-logs"><summary>Startup log</summary><pre id="runtime-log"></pre></details>
-        <details id="brain-library" class="setup-details" hidden><summary>Batya memory and documents</summary>
+        <details id="brain-library" class="setup-details" hidden><summary>Persona memory and documents</summary>
           <button type="button" id="refresh-memories" class="text-button">Show memory</button>
           <ul id="brain-memories"></ul>
           <form id="brain-document-form">
             <label>Document title<input id="brain-document-title" maxlength="500"></label>
             <label>Source<input id="brain-document-source" value="LiveTalking Studio" maxlength="1000"></label>
-            <label>Text<textarea id="brain-document-content" rows="3" placeholder="Text for Batya memory"></textarea></label>
+            <label>Text<textarea id="brain-document-content" rows="3" placeholder="Text for Persona memory"></textarea></label>
             <button type="submit" class="text-button">Add document</button>
           </form>
           <p id="brain-library-message" role="status"></p>
@@ -122,9 +122,9 @@
       <aside id="conversation-panel" class="right-panel" aria-label="Conversation">
         <div class="panel-heading"><span>CONVERSATION</span><span class="index">03</span></div>
         <div id="brain-conversations" hidden>
-          <label>Batya conversation<select id="brain-conversation"><option value="">New conversation</option></select></label>
+          <label>Persona conversation<select id="brain-conversation"><option value="">New conversation</option></select></label>
           <div class="brain-actions"><button type="button" id="new-brain-conversation">New</button><button type="button" id="refresh-brain-conversations">Refresh</button></div>
-          <p id="brain-turn-state" role="status">Batya is idle</p>
+          <p id="brain-turn-state" role="status">Persona is idle</p>
         </div>
         <div class="conversation-empty"><div class="conversation-glyph" aria-hidden="true">↗</div><p>Connect an avatar to start a conversation.</p></div>
         <ol id="conversation-list" aria-label="Conversation history" hidden></ol>
@@ -156,7 +156,7 @@
     <p class="setting-hint">Choose a photo or short video with one clearly visible face. Configure the voice separately in the profile.</p>
     <form id="avatar-create-form">
       <div class="avatar-source"><img id="avatar-source-preview" alt="Source preview" hidden><div><button type="button" id="choose-avatar-source">Choose photo or video</button><p id="avatar-source-name">No file selected</p></div></div>
-      <label>Name<input id="new-avatar-name" maxlength="120" required placeholder="For example, Batya"></label>
+      <label>Name<input id="new-avatar-name" maxlength="120" required placeholder="For example, Viktor"></label>
       <label>Model<select id="new-avatar-model"><option value="musetalk">MuseTalk · photo or video</option><option value="wav2lip">Wav2Lip · video</option></select></label>
       <details class="setup-details"><summary>Advanced settings</summary>
         <div id="musetalk-avatar-options" class="avatar-option-grid"><label>Face offset<input id="new-avatar-bbox" type="number" min="-50" max="50" value="0"></label><label>Margin<input id="new-avatar-margin" type="number" min="0" max="100" value="10"></label><label>Mask<select id="new-avatar-parsing"><option value="jaw">Jaw</option><option value="neck">Neck</option><option value="raw">Original</option></select></label></div>

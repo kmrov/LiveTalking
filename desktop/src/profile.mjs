@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 
 export class ProfileError extends Error {
   constructor(field, message) {
@@ -52,15 +53,20 @@ export function normalizeProfile(input) {
   if (typeof autoStart !== 'boolean') throw new ProfileError('autoStart', 'expected a boolean');
   const avatarId = string(lt.avatarId, 'liveTalking.avatarId', 'wav2lip256_avatar1');
   if (!/^[\p{L}\p{N}_-]{1,128}$/u.test(avatarId)) throw new ProfileError('liveTalking.avatarId', 'use letters, numbers, _ or -');
-  const brainMode = string(brain.mode, 'brain.mode', 'direct');
-  if (!['direct', 'batya'].includes(brainMode)) throw new ProfileError('brain.mode', 'expected direct or batya');
-  const brainRoot = absolutePath(brain.root, 'brain.root');
+  const requestedBrainMode = string(brain.mode, 'brain.mode', 'direct');
+  const brainMode = requestedBrainMode === 'batya' ? 'persona' : requestedBrainMode;
+  if (!['direct', 'persona'].includes(brainMode)) throw new ProfileError('brain.mode', 'expected direct or persona');
+  let brainRoot = absolutePath(brain.root, 'brain.root');
+  if (path.basename(brainRoot) === 'batya' && !existsSync(brainRoot)) {
+    const movedRoot = path.join(path.dirname(brainRoot), 'persona');
+    if (existsSync(path.join(movedRoot, 'src/persona/main.py'))) brainRoot = movedRoot;
+  }
   const managed = brain.managed ?? true;
   if (typeof managed !== 'boolean') throw new ProfileError('brain.managed', 'expected a boolean');
   const brainUrl = url(brain.url, 'brain.url') || 'http://127.0.0.1:8000';
   const address = new URL(brainUrl);
   if (address.search || address.hash) throw new ProfileError('brain.url', 'query and fragment are not supported');
-  if (managed && (address.protocol !== 'http:' || !['localhost', '127.0.0.1', '[::1]'].includes(address.hostname) || address.pathname !== '/')) throw new ProfileError('brain.url', 'managed Batya requires a loopback HTTP URL');
+  if (managed && (address.protocol !== 'http:' || !['localhost', '127.0.0.1', '[::1]'].includes(address.hostname) || address.pathname !== '/')) throw new ProfileError('brain.url', 'managed Persona requires a loopback HTTP URL');
   const databaseMode = string(brain.databaseMode, 'brain.databaseMode', 'compose');
   if (!['compose', 'external'].includes(databaseMode)) throw new ProfileError('brain.databaseMode', 'expected compose or external');
   const conversationId = string(brain.conversationId, 'brain.conversationId');
@@ -92,7 +98,8 @@ export function normalizeProfile(input) {
     },
     brain: {
       mode: brainMode, root: brainRoot,
-      python: absolutePath(brain.python, 'brain.python', brainRoot ? path.join(brainRoot, '.venv/bin/python') : ''),
+      python: absolutePath(brain.python === path.join(path.dirname(brainRoot), 'batya/.venv/bin/python') ? undefined : brain.python,
+        'brain.python', brainRoot ? path.join(brainRoot, '.venv/bin/python') : ''),
       url: brainUrl.replace(/\/$/, ''), managed, databaseMode,
       folderId: string(brain.folderId, 'brain.folderId'), conversationId,
     },

@@ -44,8 +44,8 @@ test('incomplete, conflicting, duplicate and nonnumeric artifacts cannot be sele
 test('renaming preserves original data and permits duplicate display names',async t=>{
  const root=await fixture(t),lib=createAvatarLibrary();
  const a=await avatar(root,'a'),b=await avatar(root,'b');
- await lib.rename(root,'a','Батя');await lib.rename(root,'b','Батя');
- assert.equal((await lib.get(root,'a')).name,'Батя');
+ await lib.rename(root,'a','Персона');await lib.rename(root,'b','Персона');
+ assert.equal((await lib.get(root,'a')).name,'Персона');
  assert.equal(await readFile(path.join(a,'coords.pkl'),'utf8'),'coords');
  const manifest=JSON.parse(await readFile(path.join(b,'studio-avatar.json'),'utf8'));
  assert.equal(manifest.sourceFile,null);assert.equal(manifest.origin,'existing');

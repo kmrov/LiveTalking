@@ -160,7 +160,7 @@ class RTCManager:
                 "sdp": pc.localDescription.sdp,
                 "type": pc.localDescription.type,
                 "sessionid": sessionid,
-                "batya_conversation_id": getattr(session_manager.get_session(sessionid).opt, 'batya_conversation_id', ''),
+                "persona_conversation_id": getattr(session_manager.get_session(sessionid).opt, 'persona_conversation_id', ''),
             }),
         )
 

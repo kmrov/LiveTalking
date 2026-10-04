@@ -13,10 +13,10 @@ import { normalizeProfile } from '../src/profile.mjs';
 import { createSupervisor } from './supervisor.mjs';
 import { initialServiceState, transitionServiceState } from '../src/service-state.mjs';
 import { createSecretStore, createFileSecretBackend } from './secret-store.mjs';
-import { createBatyaApi } from './batya-api.mjs';
+import { createPersonaApi } from './persona-api.mjs';
 import { readServiceEnvironment, serviceEnvironment } from './service-environment.mjs';
-import { createBatyaSupervisor } from './batya-supervisor.mjs';
-import { inspectBatyaPrerequisites } from './batya-prerequisites.mjs';
+import { createPersonaSupervisor } from './persona-supervisor.mjs';
+import { inspectPersonaPrerequisites } from './persona-prerequisites.mjs';
 import { createAvatarLibrary } from './avatar-library.mjs';
 import { createAvatarJobs } from './avatar-jobs.mjs';
 import { createAvatarSources } from './avatar-sources.mjs';
@@ -35,7 +35,7 @@ if (fixtureMode && process.env.LIVETALKING_DESKTOP_TEST_USER_DATA) app.setPath('
 let studioWindow;
 let profileStore;
 let supervisor;
-let batyaSupervisor;
+let personaSupervisor;
 let secrets;
 let avatarRuntime;
 let avatarJobs;
@@ -51,13 +51,13 @@ let autoStarted = false;
 let quitAfterStop = false;
 let quitJob;
 
-function runtimeSnapshot() { return { service: serviceState, supervisor: supervisor?.snapshot() ?? null, brain: batyaSupervisor?.snapshot() ?? null, downloads: modelDownloads?.snapshot() ?? null }; }
+function runtimeSnapshot() { return { service: serviceState, supervisor: supervisor?.snapshot() ?? null, brain: personaSupervisor?.snapshot() ?? null, downloads: modelDownloads?.snapshot() ?? null }; }
 function publishSnapshot() {
   if (studioWindow && !studioWindow.isDestroyed()) studioWindow.webContents.send('desktop:snapshot', runtimeSnapshot());
 }
 const setupChecks = async profile => fixtureMode
   ? avatarFixture?.inspectSetup(profile) ?? Promise.resolve([{ id: 'fixture', state: 'ready', detail: 'Smoke fixture ready', action: '' }])
-  : [...await inspectPrerequisites(profile), ...await inspectBatyaPrerequisites(profile, brainEnvironment(profile))];
+  : [...await inspectPrerequisites(profile), ...await inspectPersonaPrerequisites(profile, brainEnvironment(profile))];
 
 async function startProfile(id) {
   if (!fixtureMode) await avatarRuntime.assertCanStart(profileStore.get(id));
@@ -73,13 +73,13 @@ async function startProfile(id) {
   publishSnapshot();
   startJob = (async () => {
     try {
-      if (wasFailed) { await supervisor.stop(); await batyaSupervisor.stop(); }
+      if (wasFailed) { await supervisor.stop(); await personaSupervisor.stop(); }
       await prepareProfileModels(profile, { inspect: setupChecks, download: value => modelDownloads.prepare(value), cancelled: () => token !== runGeneration });
       if (token !== runGeneration) return runtimeSnapshot();
       if (supervisor.snapshot().state === 'failed') await supervisor.stop();
       serviceState = transitionServiceState(serviceState, { type: 'START', profileId: id });
       publishSnapshot();
-      if (profile.brain.mode === 'batya') await batyaSupervisor.start(profile, brainEnvironment(profile));
+      if (profile.brain.mode === 'persona') await personaSupervisor.start(profile, brainEnvironment(profile));
       if (token !== runGeneration) return runtimeSnapshot();
       const snapshot = await supervisor.start(profile);
       if (token !== runGeneration) return runtimeSnapshot();
@@ -104,7 +104,7 @@ async function stopProfile() {
   await projectionApi?.release().catch(() => {});
   await modelDownloads?.stop();
   await supervisor.stop();
-  await batyaSupervisor.stop();
+  await personaSupervisor.stop();
   serviceState = transitionServiceState(serviceState, { type: 'STOP' });
   publishSnapshot();
   return runtimeSnapshot();
@@ -141,8 +141,8 @@ function initialProfile() {
 
 function discoverBrain(profile) {
   if (!profile.brain.root) {
-    const roots = [path.join(path.dirname(profile.liveTalking.root || app.getAppPath()), 'batya'), path.join(os.homedir(), 'batya')];
-    const root = roots.find(value => existsSync(path.join(value, 'src/batya/main.py')));
+    const roots = [path.join(path.dirname(profile.liveTalking.root || app.getAppPath()), 'persona'), path.join(os.homedir(), 'persona')];
+    const root = roots.find(value => existsSync(path.join(value, 'src/persona/main.py')));
     if (root) { profile.brain.root = root; profile.brain.python = path.join(root, '.venv/bin/python'); }
   }
   if (!profile.brain.folderId) profile.brain.folderId = readServiceEnvironment(profile).YANDEX_FOLDER_ID || '';
@@ -151,18 +151,21 @@ function discoverBrain(profile) {
 
 function brainEnvironment(profile) {
   return serviceEnvironment({ values: readServiceEnvironment(profile), folderId: profile.brain.folderId,
-    secrets: { YANDEX_AISTUDIO_KEY: secrets.get(`batya:${profile.id}:key`), BATYA_DATABASE_URL: secrets.get(`batya:${profile.id}:database`) } });
+    secrets: {
+      YANDEX_AISTUDIO_KEY: secrets.get(`persona:${profile.id}:key`) || secrets.get(`batya:${profile.id}:key`),
+      PERSONA_DATABASE_URL: secrets.get(`persona:${profile.id}:database`) || secrets.get(`batya:${profile.id}:database`),
+    } });
 }
 
 function secretStatus(profile) {
   const env = brainEnvironment(profile);
-  return { persistent: secrets.persistent, apiKeyConfigured: Boolean(env.YANDEX_AISTUDIO_KEY), databaseConfigured: Boolean(env.BATYA_DATABASE_URL) };
+  return { persistent: secrets.persistent, apiKeyConfigured: Boolean(env.YANDEX_AISTUDIO_KEY), databaseConfigured: Boolean(env.PERSONA_DATABASE_URL) };
 }
 
 function brainApi(id) {
   const profile = profileStore.get(id);
-  if (!profile || profile.brain.mode !== 'batya') throw new Error('Select and save Batya mode first.');
-  return createBatyaApi({ baseUrl: profile.brain.url });
+  if (!profile || profile.brain.mode !== 'persona') throw new Error('Select and save Persona mode first.');
+  return createPersonaApi({ baseUrl: profile.brain.url });
 }
 
 function registerSetupIpc() {
@@ -186,7 +189,7 @@ function registerSetupIpc() {
       if (value === undefined || value === '') continue;
       if (typeof value !== 'string' || value.includes('\0') || value.length > 8192) throw new Error(`Invalid ${field}`);
       if (field === 'databaseUrl' && !/^postgres(?:ql)?:\/\//.test(value)) throw new Error('Database URL must use PostgreSQL');
-      secrets.set(`batya:${id}:${name}`, value);
+      secrets.set(`persona:${id}:${name}`, value);
     }
     return secretStatus(profile);
   }));
@@ -202,7 +205,7 @@ function registerSetupIpc() {
   ipcMain.handle('desktop:brain-memories', trusted(id => brainApi(id).memories()));
   ipcMain.handle('desktop:brain-document', trusted((id, input) => brainApi(id).document(input)));
   ipcMain.handle('desktop:choose-brain-root', trusted(async () => {
-    const result = await dialog.showOpenDialog(studioWindow, { title: 'Choose Batya', properties: ['openDirectory'] });
+    const result = await dialog.showOpenDialog(studioWindow, { title: 'Choose Persona', properties: ['openDirectory'] });
     return result.canceled ? null : result.filePaths[0];
   }));
   ipcMain.handle('desktop:choose-root', trusted(async () => {
@@ -286,9 +289,9 @@ app.whenReady().then(async () => {
   profileStore = createProfileStore(app.getPath('userData'));
   modelDownloads = createModelDownloads({ ...(avatarFixture ? { spawn: avatarFixture.spawnModels } : {}), emit: publishSnapshot });
   secrets = createSecretStore({ safeStorage, backend: createFileSecretBackend(app.getPath('userData')) });
-  batyaSupervisor = createBatyaSupervisor({ emit: snapshot => {
+  personaSupervisor = createPersonaSupervisor({ emit: snapshot => {
     if (snapshot.state === 'failed' && !['failed', 'not-configured'].includes(serviceState.phase)) {
-      serviceState = transitionServiceState(serviceState, { type: 'CHILD_EXIT', detail: snapshot.logExcerpt || 'Batya is unavailable' });
+      serviceState = transitionServiceState(serviceState, { type: 'CHILD_EXIT', detail: snapshot.logExcerpt || 'Persona is unavailable' });
     }
     publishSnapshot();
   } });
@@ -334,7 +337,7 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', event => {
-  if (quitAfterStop || !supervisor || (supervisor.snapshot().state === 'stopped' && batyaSupervisor?.snapshot().state === 'stopped' && !startJob && !avatarJobs?.isBusy())) return;
+  if (quitAfterStop || !supervisor || (supervisor.snapshot().state === 'stopped' && personaSupervisor?.snapshot().state === 'stopped' && !startJob && !avatarJobs?.isBusy())) return;
   event.preventDefault();
   if (!quitJob) quitJob = Promise.all([avatarRuntime?.shutdown(), stopProfile()]).finally(() => { quitAfterStop = true; app.quit(); });
 });

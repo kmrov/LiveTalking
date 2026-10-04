@@ -1,4 +1,4 @@
-"""Ordered Batya turns and incremental speech over its stable SSE protocol."""
+"""Ordered Persona turns and incremental speech over its stable SSE protocol."""
 import asyncio
 from collections import OrderedDict
 import json
@@ -10,11 +10,11 @@ import aiohttp
 
 def conversation_id(value):
     if not isinstance(value, str):
-        raise ValueError('batya_conversation_id must be a UUID')
+        raise ValueError('persona_conversation_id must be a UUID')
     return str(UUID(value)) if value else ''
 
 
-class BatyaTransport:
+class PersonaTransport:
     def __init__(self, base_url):
         self.url = base_url.rstrip('/')
         self.client = None
@@ -33,7 +33,7 @@ class BatyaTransport:
         async with self.session().post(f'{self.url}/api/v1/conversations/{identifier}/messages', json=body) as response:
             response.raise_for_status()
             if 'text/event-stream' not in response.headers.get('Content-Type', ''):
-                raise ValueError('Batya did not return a speech stream')
+                raise ValueError('Persona did not return a speech stream')
             event, lines, size = 'message', [], 0
             async for raw in response.content:
                 line = raw.decode('utf-8').rstrip('\r\n')
@@ -47,7 +47,7 @@ class BatyaTransport:
                     data = line[5:].lstrip(' ')
                     size += len(data)
                     if size > 1_000_000:
-                        raise ValueError('Batya stream event is too large')
+                        raise ValueError('Persona stream event is too large')
                     lines.append(data)
 
     async def close(self):
@@ -79,9 +79,9 @@ class PhraseBuffer:
         return phrases
 
 
-class BatyaBrain:
+class PersonaBrain:
     def __init__(self, base_url, transport=None):
-        self.transport = transport or BatyaTransport(base_url)
+        self.transport = transport or PersonaTransport(base_url)
         self.tails = {}
         self.requests = OrderedDict()
         self.turns = OrderedDict()
@@ -91,20 +91,20 @@ class BatyaBrain:
 
     async def submit(self, avatar, text, request_id=None, datainfo=None, interrupt=False):
         if self.closed:
-            raise ValueError('Batya brain is stopped')
+            raise ValueError('Persona brain is stopped')
         if not isinstance(text, str) or not text.strip() or len(text) > 20_000:
             raise ValueError('Message must contain 1–20000 characters')
         text = text.strip()
         request_id = str(uuid4()) if request_id is None else request_id
         if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 200:
             raise ValueError('request_id must contain 1–200 characters')
-        if not hasattr(avatar, '_batya_lock'):
-            avatar._batya_lock = asyncio.Lock()
-        async with avatar._batya_lock:
-            identifier = conversation_id(getattr(avatar.opt, 'batya_conversation_id', ''))
+        if not hasattr(avatar, '_persona_lock'):
+            avatar._persona_lock = asyncio.Lock()
+        async with avatar._persona_lock:
+            identifier = conversation_id(getattr(avatar.opt, 'persona_conversation_id', ''))
             if not identifier:
                 identifier = await self.transport.create_conversation()
-                avatar.opt.batya_conversation_id = identifier
+                avatar.opt.persona_conversation_id = identifier
         accepted = {'conversation_id': identifier, 'request_id': request_id}
         key = (identifier, request_id)
         if key in self.requests:
@@ -136,20 +136,20 @@ class BatyaBrain:
         return accepted
 
     def pending(self, avatar):
-        identifier = getattr(avatar.opt, 'batya_conversation_id', '')
+        identifier = getattr(avatar.opt, 'persona_conversation_id', '')
         return sum(turn['active'] for turn in self.turns.values() if turn['conversation_id'] == identifier)
 
     def subscribe(self, avatar, send):
         """Observe conversation state; observation never grants speech ownership."""
         token = object()
         self.listeners[token] = (avatar, send)
-        identifier = getattr(avatar.opt, 'batya_conversation_id', '')
-        avatar.batya_pending = self.pending(avatar)
+        identifier = getattr(avatar.opt, 'persona_conversation_id', '')
+        avatar.persona_pending = self.pending(avatar)
         for turn in self.turns.values():
             if turn['conversation_id'] == identifier:
-                send(json.dumps({'brain': 'batya', 'event': 'snapshot',
+                send(json.dumps({'brain': 'persona', 'event': 'snapshot',
                                  **{key: value for key, value in turn.items() if key != 'active'},
-                                 'pending': avatar.batya_pending}, ensure_ascii=False))
+                                 'pending': avatar.persona_pending}, ensure_ascii=False))
         return lambda: self.listeners.pop(token, None)
 
     def emit(self, avatar, event, accepted, **fields):
@@ -165,12 +165,12 @@ class BatyaBrain:
         else:
             turn['status'] = event
         pending = self.pending(avatar)
-        avatar.batya_pending = pending
-        message = json.dumps({'brain': 'batya', 'event': event, **accepted, **fields, 'pending': pending}, ensure_ascii=False)
+        avatar.persona_pending = pending
+        message = json.dumps({'brain': 'persona', 'event': event, **accepted, **fields, 'pending': pending}, ensure_ascii=False)
         avatar.send_msg(message)
         for target, send in list(self.listeners.values()):
-            if target is not avatar and getattr(target.opt, 'batya_conversation_id', '') == accepted['conversation_id']:
-                target.batya_pending = pending
+            if target is not avatar and getattr(target.opt, 'persona_conversation_id', '') == accepted['conversation_id']:
+                target.persona_pending = pending
                 send(message)
 
     @staticmethod
@@ -193,12 +193,12 @@ class BatyaBrain:
                         if event == 'delta':
                             delta = data.get('text')
                             if not isinstance(delta, str):
-                                raise ValueError('Invalid Batya delta')
+                                raise ValueError('Invalid Persona delta')
                             replay += delta
                             if prefix.startswith(replay):
                                 continue
                             if not replay.startswith(prefix):
-                                raise ValueError('Batya retry returned a different answer; speech stopped')
+                                raise ValueError('Persona retry returned a different answer; speech stopped')
                             fresh = replay[len(received):]
                             received = replay
                             if fresh:
@@ -209,7 +209,7 @@ class BatyaBrain:
                         elif event == 'done':
                             final = data.get('text')
                             if not isinstance(final, str) or not final.strip() or final.strip() != received.strip():
-                                raise ValueError('Batya final answer differs from its speech stream')
+                                raise ValueError('Persona final answer differs from its speech stream')
                             for phrase in buffer.feed('', final=True):
                                 if self.may_speak(avatar, generation):
                                     avatar.put_msg_txt(phrase, {**datainfo, **accepted})
@@ -217,11 +217,11 @@ class BatyaBrain:
                             self.emit(avatar, 'done', accepted, text=final, speech_suppressed=not self.may_speak(avatar, generation))
                             break
                         elif event == 'reset':
-                            raise ValueError('Batya speech protocol reset: update Batya before retrying')
+                            raise ValueError('Persona speech protocol reset: update Persona before retrying')
                         elif event == 'error':
-                            raise ValueError(f"Batya generation error: {data.get('code', 'generation_failed')}")
+                            raise ValueError(f"Persona generation error: {data.get('code', 'generation_failed')}")
                     if not done:
-                        raise ConnectionError('Batya stream ended without done')
+                        raise ConnectionError('Persona stream ended without done')
                     break
                 except (aiohttp.ClientError, TimeoutError, ConnectionError):
                     if attempt:

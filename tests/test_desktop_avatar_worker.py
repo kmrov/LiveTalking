@@ -12,7 +12,7 @@ class DesktopAvatarWorkerTest(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name);self.source=self.root/'Фото.jpg';Image.new('RGB',(100,100)).save(self.source)
-        self.request={'schemaVersion':1,'jobId':'a'*32,'avatarId':'studio_'+'b'*32,'root':str(self.root),'jobDir':str(self.root/'data/.studio-avatar-work'/('a'*32)),'sourceFile':str(self.source),'sourceKind':'image','name':'Батя','model':'musetalk','parameters':{}}
+        self.request={'schemaVersion':1,'jobId':'a'*32,'avatarId':'studio_'+'b'*32,'root':str(self.root),'jobDir':str(self.root/'data/.studio-avatar-work'/('a'*32)),'sourceFile':str(self.source),'sourceKind':'image','name':'Персона','model':'musetalk','parameters':{}}
         self.request['sourceFingerprint']=self.fingerprint()
     def fingerprint(self):
         value=self.source.stat();return ':'.join(str(x) for x in (value.st_dev,value.st_ino,value.st_size,value.st_mtime_ns))

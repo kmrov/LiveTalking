@@ -16,7 +16,7 @@ export async function isCompatibleDesktopHealth(payload,profile) {
   const compatible=payload.code===0 && payload.data?.service==='livetalking' && payload.data?.api_version===1;
   if(!compatible||!profile)return compatible;
   const mode=payload.data.brain?.mode||'direct';
-  if(mode!==profile.brain.mode || (mode==='batya' && payload.data.brain.url?.replace(/\/$/,'')!==profile.brain.url))return false;
+  if(mode!==profile.brain.mode || (mode==='persona' && payload.data.brain.url?.replace(/\/$/,'')!==profile.brain.url))return false;
   try{return payload.data.avatar?.model===profile.liveTalking.model && payload.data.avatar.root===await realpath(profile.liveTalking.root);}
   catch{return false;}
 }
@@ -45,7 +45,7 @@ export function launcherArguments(input) {
   }
   if (profile.llm.promptFile) args.push('--llm-prompt-file', profile.llm.promptFile);
   args.push('--', '--transport', 'webrtc', '--listenhost', '127.0.0.1', '--listenport', String(lt.port), '--model', lt.model, '--avatar_id', lt.avatarId);
-  if (profile.brain.mode === 'batya') args.push('--llm_provider', 'batya', '--batya_url', profile.brain.url);
+  if (profile.brain.mode === 'persona') args.push('--llm_provider', 'persona', '--persona_url', profile.brain.url);
   return args;
 }
 

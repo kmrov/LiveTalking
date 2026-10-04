@@ -85,10 +85,10 @@ def parse_args():
     parser.add_argument('--ASR_MODEL', type=str, default='Qwen/Qwen3-ASR-0.6B')
 
     # ─── LLM ──────────────────────────────────────────────────────────
-    parser.add_argument('--batya_url', type=str, default='http://127.0.0.1:8000',
-                        help='Batya API URL when llm_provider is batya')
+    parser.add_argument('--persona_url', '--batya_url', dest='persona_url', type=str, default='http://127.0.0.1:8000',
+                        help='Persona API URL when llm_provider is persona')
     parser.add_argument('--llm_provider', type=str, default='dashscope',
-                        help="llm provider: dashscope/orcarouter/yandex")
+                        help="llm provider: dashscope/orcarouter/yandex/persona")
     parser.add_argument('--llm_model', type=str, default='',
                         help="llm model override, empty = provider default")
     parser.add_argument('--llm_project', type=str, default='',
@@ -128,6 +128,8 @@ def parse_args():
                 yaml_cfg = yaml.safe_load(f)
             if yaml_cfg and isinstance(yaml_cfg, dict):
                 yaml_defaults = _yaml_to_args(yaml_cfg)
+                if 'batya_url' in yaml_defaults and 'persona_url' not in yaml_defaults:
+                    yaml_defaults['persona_url'] = yaml_defaults['batya_url']
                 parser.set_defaults(**yaml_defaults)
     else:
         print("[config] PyYAML is not installed; skipping the YAML configuration file. "
@@ -135,6 +137,8 @@ def parse_args():
 
     # ─── 正式解析 CLI 参数 ─────────────────────────────────────────────
     opt = parser.parse_args()
+    if opt.llm_provider == 'batya':
+        opt.llm_provider = 'persona'
 
     if opt.llm_system_prompt_file:
         opt.llm_system_prompt = Path(opt.llm_system_prompt_file).expanduser().read_text(encoding='utf-8').strip()

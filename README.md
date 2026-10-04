@@ -38,7 +38,7 @@ For local speech, Studio uses `Qwen/Qwen3-ASR-0.6B` with vLLM and `Qwen/Qwen3-TT
 - Browse prepared avatars, or create MuseTalk avatars from an image or video and Wav2Lip avatars from video. Avatar preparation can happen before speech or conversation is configured.
 - Preview the avatar over WebRTC, send text to an LLM or directly to TTS, speak through the microphone, interrupt speech, and save MP4 recordings.
 - Use continuous voice conversation: Studio detects the end of a spoken phrase, sends it to ASR, and resumes listening after the avatar answers. Optional interruption during playback depends on microphone echo cancellation.
-- Connect to an optional **Batya** service for persistent conversations, memory, and documents. Batya is a separate project with its own Python environment, PostgreSQL with pgvector, and Yandex AI Studio setup.
+- Connect to an optional **Persona** service for persistent conversations, memory, and documents. Persona is a separate project with its own Python environment, PostgreSQL with pgvector, and Yandex AI Studio setup.
 - Send the avatar to **Head in Jar** over WHIP. Discovery, connection, and the physical projection step are described in the [Studio guide](./desktop/README.md#проекция-через-head-in-jar).
 
 Studio stops only the processes and database containers it started. Already running compatible services are left running. Profiles live in Electron user data; secrets use the Linux keyring when available and otherwise remain in memory until the app closes.
@@ -76,7 +76,7 @@ For a Qwen voice setup without Studio, see the [Qwen ASR/TTS avatar guide](./doc
 
 | Guide | Covers |
 | --- | --- |
-| [Studio guide](./desktop/README.md) | Setup, avatars, speech, Batya, projection, troubleshooting, and checks (Russian) |
+| [Studio guide](./desktop/README.md) | Setup, avatars, speech, Persona, projection, troubleshooting, and checks (Russian) |
 | [API reference](./docs/api-en.md) | WebRTC, text and audio input, recording, and actions |
 | [Avatar API](./docs/avatar_api-en.md) | Avatar creation jobs and status |
 | [Admin API](./docs/admin_api-en.md) | Configuration and session monitoring |

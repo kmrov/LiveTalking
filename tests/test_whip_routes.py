@@ -110,13 +110,13 @@ class WhipControlRoutesTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.requests, [("POST", "Bearer same-port-secret"),
                                          ("DELETE", "Bearer same-port-secret")])
 
-    async def test_connect_uses_selected_avatar_voice_and_batya_conversation(self):
+    async def test_connect_uses_selected_avatar_voice_and_persona_conversation(self):
         self.opt.transport = "webrtc"
         url = str(self.receiver.make_url("/whip"))
         params = {
-            "url": url, "token": "secret-for-test", "avatar": "batya_wrap_details_v4",
+            "url": url, "token": "secret-for-test", "avatar": "persona_wrap_details_v4",
             "refaudio": "/voices/example.wav", "reftext": "Привет",
-            "batya_conversation_id": "c0166cbc-a705-4d29-a34b-5be696608315",
+            "persona_conversation_id": "c0166cbc-a705-4d29-a34b-5be696608315",
         }
         response = await self.client.post("/api/whip/connect", json=params)
         self.assertEqual(response.status, 200)
@@ -124,7 +124,7 @@ class WhipControlRoutesTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(body["data"]["sessionid"], "0")
         self.assertNotIn("secret-for-test", str(body))
         self.assertEqual(self.sessions.created, [("0", {
-            key: params[key] for key in ("avatar", "refaudio", "reftext", "batya_conversation_id")
+            key: params[key] for key in ("avatar", "refaudio", "reftext", "persona_conversation_id")
         })])
 
     async def test_stale_lease_cannot_disconnect_a_replacement_stream(self):

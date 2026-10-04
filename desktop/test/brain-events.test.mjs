@@ -4,7 +4,7 @@ import { reduceBrainEvent } from '../renderer/brain-events.mjs';
 
 test('brain response streams provisionally, resets, reconciles done and ignores other conversations', () => {
   let state = { conversationId: 'selected', turns: {}, pending: 0 };
-  const event = (kind, text) => ({ brain: 'batya', conversation_id: 'selected', request_id: 'one', event: kind, text });
+  const event = (kind, text) => ({ brain: 'persona', conversation_id: 'selected', request_id: 'one', event: kind, text });
   state = reduceBrainEvent(state, event('delta', 'Начало'));
   assert.equal(state.turns.one.text, 'Начало');
   state = reduceBrainEvent(state, event('reset'));
@@ -23,7 +23,7 @@ test('brain response streams provisionally, resets, reconciles done and ignores 
 });
 
 test('conversation snapshot replaces replayed partial text without duplication', () => {
-  const event = { brain: 'batya', conversation_id: 'selected', request_id: 'one', event: 'snapshot', status: 'delta', text: 'Привет. ', pending: 1 };
+  const event = { brain: 'persona', conversation_id: 'selected', request_id: 'one', event: 'snapshot', status: 'delta', text: 'Привет. ', pending: 1 };
   let state = { conversationId: 'selected', turns: { one: { text: 'Привет. ', status: 'delta', error: '' } }, pending: 0 };
   state = reduceBrainEvent(state, event);
   assert.equal(state.turns.one.status, 'delta');
@@ -33,4 +33,10 @@ test('conversation snapshot replaces replayed partial text without duplication',
   assert.equal(state.turns.one.status, 'done');
   assert.equal(state.turns.one.text, 'Привет. Как дела?');
   assert.equal(state.pending, 0);
+});
+
+test('older Batya event names remain readable in saved sessions', () => {
+  const state = { conversationId: 'selected', turns: {}, pending: 0 };
+  const updated = reduceBrainEvent(state, { brain: 'batya', conversation_id: 'selected', request_id: 'old', event: 'done', text: 'Ответ', pending: 0 });
+  assert.equal(updated.turns.old.text, 'Ответ');
 });

@@ -10,14 +10,14 @@ test('projection uses the selected avatar, voice and conversation as one active 
   };
   const client = createProjectionClient({ fetch, baseUrl: 'http://127.0.0.1:8010' });
   const sessionId = await client.connect({
-    url: 'http://127.0.0.1:19840/whip', token: 'private-token', avatarId: 'batya_wrap_details_v4',
+    url: 'http://127.0.0.1:19840/whip', token: 'private-token', avatarId: 'persona_wrap_details_v4',
     referenceWav: '/voice.wav', referenceText: 'Привет', conversationId: 'conversation-id',
   });
   assert.equal(sessionId, '0');
   assert.equal(client.sessionId(), '0');
   assert.deepEqual(JSON.parse(calls[0][1].body), {
-    url: 'http://127.0.0.1:19840/whip', token: 'private-token', avatar: 'batya_wrap_details_v4',
-    refaudio: '/voice.wav', reftext: 'Привет', batya_conversation_id: 'conversation-id',
+    url: 'http://127.0.0.1:19840/whip', token: 'private-token', avatar: 'persona_wrap_details_v4',
+    refaudio: '/voice.wav', reftext: 'Привет', persona_conversation_id: 'conversation-id',
   });
   await client.disconnect();
   assert.equal(client.sessionId(), null);

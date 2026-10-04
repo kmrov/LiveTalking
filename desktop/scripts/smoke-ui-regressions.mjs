@@ -10,7 +10,7 @@ import { startFixtureServer } from './fixture-server.mjs';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const executablePath = createRequire(import.meta.url)('electron');
 const fixture = await startFixtureServer();
-fixture.control.brainMode = 'batya';
+fixture.control.brainMode = 'persona';
 const userData = await mkdtemp(path.join(os.tmpdir(), 'livetalking-ui-regressions-'));
 const screenshots = path.join(root, 'test-results', 'ui-audit');
 await mkdir(screenshots, { recursive: true });
@@ -71,7 +71,7 @@ try {
   const expandedWidths = await panelWidths();
   assert.ok(Math.abs(expandedWidths.left - restoredWidths.left) < 1, 'the preferred left width returns after expanding the window');
   assert.ok(Math.abs(expandedWidths.right - restoredWidths.right) < 1, 'the preferred right width returns after expanding the window');
-  await window.locator('#brain-mode').selectOption('batya');
+  await window.locator('#brain-mode').selectOption('persona');
   await window.locator('#brain-service-mode').selectOption('external');
   await window.locator('#brain-url').fill(`http://127.0.0.1:${fixture.port}`);
   await window.locator('#start-profile').click();
@@ -123,7 +123,7 @@ try {
   await window.locator('#send-message').click();
   await window.waitForFunction(() => document.querySelector('#conversation-list [data-status="delta"]')?.textContent.includes('Привет, сынок.'));
   await window.evaluate(() => { document.querySelector('.left-panel').scrollTop = 0; });
-  await window.screenshot({ path: path.join(screenshots, '02-batya.png') });
+  await window.screenshot({ path: path.join(screenshots, '02-persona.png') });
   await window.setViewportSize({ width: 960, height: 680 });
   await window.evaluate(() => { document.querySelector('.left-panel').scrollTop = 0; });
   await window.screenshot({ path: path.join(screenshots, '03-compact.png') });

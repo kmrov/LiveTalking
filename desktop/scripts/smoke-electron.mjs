@@ -156,7 +156,7 @@ try {
   await runCase(true);
   await runMissingRootCase();
   await runAvatarCase();
-  await runBatyaCase();
+  await runPersonaCase();
   assert.equal(logs.some(line => line.includes('Renderer error')), false);
 } finally {
   await fixture.close();
@@ -303,10 +303,10 @@ async function runAvatarCase() {
     await writeFile(path.join(existing, 'face_imgs/00000000.png'), png);
     await writeFile(path.join(existing, 'coords.pkl'), 'fixture');
     await window.locator('#setup-details').evaluate(details => { details.open = true; });
-    await window.locator('#brain-mode').selectOption('batya');
+    await window.locator('#brain-mode').selectOption('persona');
     await window.locator('#brain-service-mode').selectOption('external');
     await window.locator('#brain-url').fill(`http://127.0.0.1:${fixture.port}`);
-    fixture.control.brainMode = 'batya';
+    fixture.control.brainMode = 'persona';
     fixture.control.avatarModel = 'musetalk';
     await window.locator('#start-profile').click();
     await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Running');
@@ -370,7 +370,7 @@ async function runAvatarCase() {
     await launch();
     await window.locator('#open-avatar-job').click(); await state('interrupted');
     assert.equal(await window.locator('#retry-avatar-job').isEnabled(), true);
-    console.log('Avatar create → progress/reopen → source independence → restart → rename/search → fail/retry → recording/selection/Batya history → cancel/close/crash recovery: passed');
+    console.log('Avatar create → progress/reopen → source independence → restart → rename/search → fail/retry → recording/selection/Persona history → cancel/close/crash recovery: passed');
   } catch (error) {
     if (window && !window.isClosed()) {
       await window.screenshot({ path: path.join(artifactDirectory, 'smoke-avatar-failure.png') });
@@ -381,9 +381,9 @@ async function runAvatarCase() {
   } finally { await application?.close(); await rm(userData, { recursive: true, force: true }); fixture.control.brainMode = 'direct';fixture.control.avatarRoot=previousRoot;fixture.control.avatarModel='wav2lip'; }
 }
 
-async function runBatyaCase() {
-  fixture.control.brainMode = 'batya';
-  const userData = await mkdtemp(path.join(os.tmpdir(), 'livetalking-batya-smoke-'));
+async function runPersonaCase() {
+  fixture.control.brainMode = 'persona';
+  const userData = await mkdtemp(path.join(os.tmpdir(), 'livetalking-persona-smoke-'));
   let application;
   const launch = () => electron.launch({ executablePath, args: [root],
     env: { ...process.env, LIVETALKING_DESKTOP_TEST_FIXTURE: '1', LIVETALKING_DESKTOP_TEST_PORT: String(fixture.port), LIVETALKING_DESKTOP_TEST_USER_DATA: userData }, timeout: 30000 });
@@ -392,7 +392,7 @@ async function runBatyaCase() {
     const window = await application.firstWindow();
     window.on('pageerror', error => logs.push(`Renderer error: ${error.stack}`));
     await window.locator('#setup-results li').first().waitFor({ state: 'attached' });
-    await window.locator('#brain-mode').selectOption('batya');
+    await window.locator('#brain-mode').selectOption('persona');
     await window.locator('#brain-service-mode').selectOption('external');
     await window.locator('#brain-url').fill(`http://127.0.0.1:${fixture.port}`);
     await window.locator('#start-profile').click();
@@ -402,7 +402,7 @@ async function runBatyaCase() {
     let id = await window.locator('#brain-conversation').inputValue();
     await window.locator('#connect-avatar').click();
     await window.waitForFunction(() => document.querySelector('#brain-turn-state').dataset.stream === 'connected');
-    await window.locator('#message-text').fill('Привет из теста Бати');
+    await window.locator('#message-text').fill('Привет из теста Персоны');
     await window.locator('#send-message').click();
     await window.waitForFunction(() => document.querySelector('#conversation-list [data-role="assistant"]')?.textContent.includes('Привет, сынок.'));
     assert.equal(await window.locator('#conversation-list [data-role="assistant"]').getAttribute('data-status'), 'delta');
@@ -434,14 +434,14 @@ async function runBatyaCase() {
     await window.locator('#connect-avatar').click();
     await window.locator('#projection-url').fill('http://127.0.0.1:19840/whip');
     await window.locator('#projection-advanced > summary').click();
-    await window.locator('#projection-token').fill('batya-fixture-secret');
+    await window.locator('#projection-token').fill('persona-fixture-secret');
     await window.locator('#connect-projection').click();
     await window.waitForFunction(() => Boolean(document.querySelector('#projection-state').dataset.sessionId));
-    const batyaProjectionId = await window.locator('#projection-state').getAttribute('data-session-id');
-    assert.equal(fixture.commands.findLast(c => c.path === '/api/whip/connect').body.batya_conversation_id, id);
-    await window.locator('#message-text').fill('Батя на проекции'); await window.locator('#send-message').click();
+    const personaProjectionId = await window.locator('#projection-state').getAttribute('data-session-id');
+    assert.equal(fixture.commands.findLast(c => c.path === '/api/whip/connect').body.persona_conversation_id, id);
+    await window.locator('#message-text').fill('Персона на проекции'); await window.locator('#send-message').click();
     await window.waitForFunction(() => [...document.querySelectorAll('#conversation-list [data-role="assistant"]')].at(-1)?.dataset.status === 'delta');
-    assert.equal(fixture.commands.findLast(c => c.path === '/human').body.sessionid, batyaProjectionId);
+    assert.equal(fixture.commands.findLast(c => c.path === '/human').body.sessionid, personaProjectionId);
     fixture.finishTurn();
     await window.waitForFunction(() => [...document.querySelectorAll('#conversation-list [data-role="assistant"]')].at(-1)?.dataset.status === 'done');
     const previousId = id;
@@ -449,24 +449,24 @@ async function runBatyaCase() {
     await window.locator('#new-brain-conversation').click();
     await window.waitForFunction(previous => document.querySelector('#brain-conversation').value !== previous, id);
     id = await window.locator('#brain-conversation').inputValue();
-    assert.equal(await window.locator('#projection-state').getAttribute('data-session-id'), batyaProjectionId);
+    assert.equal(await window.locator('#projection-state').getAttribute('data-session-id'), personaProjectionId);
     assert.equal(fixture.commands.filter(c => c.path === '/api/whip/disconnect').length, disconnects);
     await window.locator('#message-text').fill('Новая тема на проекции'); await window.locator('#send-message').click();
     await window.waitForFunction(() => document.querySelector('#conversation-list [data-role="assistant"]')?.dataset.status === 'delta');
-    assert.equal(fixture.commands.findLast(c => c.path === '/human').body.sessionid, batyaProjectionId);
+    assert.equal(fixture.commands.findLast(c => c.path === '/human').body.sessionid, personaProjectionId);
     assert.equal(fixture.control.currentConversation, id);
     fixture.finishTurn();
     await window.waitForFunction(() => document.querySelector('#conversation-list [data-role="assistant"]')?.dataset.status === 'done');
     await window.locator('#brain-conversation').selectOption(previousId);
     await window.waitForFunction(() => document.querySelectorAll('#conversation-list [data-role="assistant"]').length === 3);
     assert.equal(fixture.control.currentConversation, previousId);
-    assert.equal(await window.locator('#projection-state').getAttribute('data-session-id'), batyaProjectionId);
+    assert.equal(await window.locator('#projection-state').getAttribute('data-session-id'), personaProjectionId);
     await window.locator('#brain-conversation').selectOption(id);
     await window.waitForFunction(() => document.querySelectorAll('#conversation-list [data-role="assistant"]').length === 1);
     assert.equal(fixture.control.currentConversation, id);
-    assert.equal(await window.locator('#projection-state').getAttribute('data-session-id'), batyaProjectionId);
+    assert.equal(await window.locator('#projection-state').getAttribute('data-session-id'), personaProjectionId);
     await window.locator('#connect-projection').click();
-    await window.screenshot({ path: path.join(artifactDirectory, 'smoke-batya.png') });
+    await window.screenshot({ path: path.join(artifactDirectory, 'smoke-persona.png') });
     await application.close(); application = await launch();
     const reopened = await application.firstWindow();
     await reopened.locator('#setup-results li').first().waitFor({ state: 'attached' });
@@ -481,6 +481,6 @@ async function runBatyaCase() {
     await reopened.locator('#start-profile').click();
     await reopened.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Running');
     assert.equal(await reopened.locator('#brain-conversations').isHidden(), true);
-    console.log('Batya streaming → interrupt → reconnect/history → error/retry → restart → direct mode: passed');
+    console.log('Persona streaming → interrupt → reconnect/history → error/retry → restart → direct mode: passed');
   } finally { await application?.close(); await rm(userData, { recursive: true, force: true }); fixture.control.brainMode = 'direct'; }
 }

@@ -58,7 +58,7 @@ export function createWebRtcClient({ RTCPeerConnection, fetch, baseUrl, onState 
         body: JSON.stringify({
           sdp: peer.localDescription.sdp, type: peer.localDescription.type,
           avatar: avatarId, refaudio: referenceWav, reftext: referenceText,
-          ...(conversationId ? { batya_conversation_id: conversationId } : {}),
+          ...(conversationId ? { persona_conversation_id: conversationId } : {}),
         }),
       });
       const answer = await response.json();

@@ -44,7 +44,7 @@ export function createProjectionClient({ fetch, send, baseUrl, onState = () => {
       const data = await request('/api/whip/connect', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url, token, avatar: avatarId, refaudio: referenceWav,
-          reftext: referenceText, batya_conversation_id: conversationId }),
+          reftext: referenceText, persona_conversation_id: conversationId }),
       });
       if (attempt !== generation) throw new Error('Projection connection cancelled');
       connecting = false;

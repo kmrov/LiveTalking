@@ -20,7 +20,7 @@ test('the next phrase waits until the avatar has spoken and become quiet', async
   assert.ok(time >= 1500);
 });
 
-test('Batya pending and avatar speech are both observed before listening resumes', async () => {
+test('Persona pending and avatar speech are both observed before listening resumes', async () => {
   assert.equal(typeof waitForAvatarReply, 'function');
   let time = 0;
   let checks = 0;
@@ -31,7 +31,7 @@ test('Batya pending and avatar speech are both observed before listening resumes
     now: () => time, sleep: async ms => { time += ms; }, quietMs: 500,
   });
   assert.equal(result, 'finished');
-  assert.ok(polls >= 6, 'speech must be polled even while Batya is preparing a reply');
+  assert.ok(polls >= 6, 'speech must be polled even while Persona is preparing a reply');
   assert.equal(polls, checks);
 });
 
