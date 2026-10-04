@@ -237,7 +237,8 @@ class GenerativeAvatar(BaseAvatar):
     def _publish_video(self, frame, generated=False):
         if generated:
             if frame.shape[:2] != (self.height, self.width):
-                frame = cv2.resize(frame, (self.width, self.height), interpolation=cv2.INTER_LINEAR)
+                interpolation = cv2.INTER_LANCZOS4 if self.opt.model == 'soulx' else cv2.INTER_LINEAR
+                frame = cv2.resize(frame, (self.width, self.height), interpolation=interpolation)
             self._target_frame = frame
             if not self._seen_generated:
                 self._seen_generated = True
