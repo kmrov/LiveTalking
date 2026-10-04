@@ -65,10 +65,15 @@ class PhraseBuffer:
         while self.text:
             match = re.search(r'[.!?;\n](?:["»”]*)', self.text)
             end = match.end() if match else 0
-            if not end and len(self.text) >= 180:
-                end = self.text.rfind(' ', 60, 180)
+            if not end and len(self.text) >= 90:
+                clauses = [item.end() for item in re.finditer(r'[,，:—–](?:["»”]*)', self.text[:110])
+                           if item.end() >= 45]
+                if clauses:
+                    end = clauses[-1]
+            if not end and len(self.text) >= 110:
+                end = self.text.rfind(' ', 60, 110)
                 if end < 0:
-                    end = 180
+                    end = 110
             if not end:
                 if not final:
                     break

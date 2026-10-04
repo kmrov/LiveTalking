@@ -47,6 +47,7 @@ export function launcherArguments(input) {
   }
   if (profile.llm.promptFile) args.push('--llm-prompt-file', profile.llm.promptFile);
   args.push('--', '--transport', 'webrtc', '--listenhost', '127.0.0.1', '--listenport', String(lt.port), '--model', lt.model, '--avatar_id', lt.avatarId);
+  if (['ditto', 'soulx'].includes(lt.model)) args.push('--max_session', '1');
   if (profile.brain.mode === 'persona') args.push('--llm_provider', 'persona', '--persona_url', profile.brain.url);
   return args;
 }

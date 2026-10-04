@@ -20,9 +20,10 @@ def normalized_creation(request):
     if not isinstance(name, str) or not name.strip() or len(name.strip()) > 120 or any(ord(c) < 32 or ord(c) == 127 for c in name):
         raise ValueError('Name must contain 1 to 120 characters.')
     kind, model = request.get('sourceKind'), request.get('model')
-    if kind not in ('image', 'video') or model not in ('musetalk', 'wav2lip') or (kind == 'image' and model != 'musetalk'):
-        raise ValueError('Use MuseTalk for a photo; MuseTalk or Wav2Lip for a video.')
-    defaults = dict(bbox_shift=0, extra_margin=10, parsing_mode='jaw') if model == 'musetalk' else dict(pads=[0,10,0,0], nosmooth=False, face_det_batch_size=16)
+    generative = model in ('ditto', 'soulx')
+    if kind not in ('image', 'video') or model not in ('musetalk', 'wav2lip', 'ditto', 'soulx') or (kind == 'image' and model == 'wav2lip') or (kind == 'video' and generative):
+        raise ValueError('Use MuseTalk, Ditto or SoulX for a photo; MuseTalk or Wav2Lip for a video.')
+    defaults = {} if generative else dict(bbox_shift=0, extra_margin=10, parsing_mode='jaw') if model == 'musetalk' else dict(pads=[0,10,0,0], nosmooth=False, face_det_batch_size=16)
     parameters = request.get('parameters', {})
     if not isinstance(parameters, dict) or set(parameters) - set(defaults):
         raise ValueError('Invalid preparation parameters.')
@@ -35,7 +36,7 @@ def normalized_creation(request):
         number('bbox_shift', -50, 50); number('extra_margin', 0, 100)
         if parameters['parsing_mode'] not in ('jaw','neck','raw'):
             raise ValueError('Invalid mask mode.')
-    else:
+    elif model == 'wav2lip':
         pads = parameters['pads']
         if not isinstance(pads, list) or len(pads) != 4 or any(type(x) is not int or not 0 <= x <= 200 for x in pads):
             raise ValueError('Four integer padding values from 0 to 200 are required.')
@@ -78,20 +79,22 @@ def inspect_creation(request):
         results.append(dict(id=id,state='ready' if ready else 'missing',detail=detail,action='' if ready else action))
     check('source',source.is_file() and source.stat().st_size>0,'Source is available' if source.is_file() else 'Source not found','Select the file again.')
     check('checkout',(root/'app.py').is_file() and (root/'avatars').is_dir(),'LiveTalking folder','Select a compatible LiveTalking checkout.')
-    modules=['torch','cv2','PIL','numpy','scipy'] + (['diffusers','transformers','face_recognition'] if request['model']=='musetalk' else [])
+    generative = request['model'] in ('ditto','soulx')
+    modules=['PIL'] if generative else ['torch','cv2','PIL','numpy','scipy'] + (['diffusers','transformers','face_recognition'] if request['model']=='musetalk' else [])
     missing = [x for x in modules if importlib.util.find_spec(x) is None]
     check('python',not missing,'Preparation modules: '+(', '.join(missing) if missing else 'available'),'Install LiveTalking dependencies in the selected Python environment.')
-    try:
-        import torch
-        available=torch.cuda.is_available()
-        detector=detector_file(root,request['model'])
-    except (ImportError,OSError):
-        available=False;detector=None
-    check('gpu',available,'NVIDIA CUDA is available' if available else 'NVIDIA CUDA is unavailable for the selected Python','Check the NVIDIA driver and CUDA in the LiveTalking environment.')
-    weights=['models/sd-vae/config.json','models/sd-vae/diffusion_pytorch_model.bin','models/musetalkV15/musetalk.json','models/musetalkV15/unet.pth','models/face-parse-bisent/resnet18-5c106cde.pth','models/face-parse-bisent/79999_iter.pth'] if request['model']=='musetalk' else []
-    absent=[x for x in weights if not (root/x).is_file() or not (root/x).stat().st_size]
-    if not detector:absent.append('s3fd.pth (face detector)')
-    check('weights',not absent,'Preparation weights found' if not absent else 'Weights to download: '+', '.join(absent),'Press Create: Studio will download missing weights from Hugging Face.')
+    if not generative:
+        try:
+            import torch
+            available=torch.cuda.is_available()
+            detector=detector_file(root,request['model'])
+        except (ImportError,OSError):
+            available=False;detector=None
+        check('gpu',available,'NVIDIA CUDA is available' if available else 'NVIDIA CUDA is unavailable for the selected Python','Check the NVIDIA driver and CUDA in the LiveTalking environment.')
+        weights=['models/sd-vae/config.json','models/sd-vae/diffusion_pytorch_model.bin','models/musetalkV15/musetalk.json','models/musetalkV15/unet.pth','models/face-parse-bisent/resnet18-5c106cde.pth','models/face-parse-bisent/79999_iter.pth'] if request['model']=='musetalk' else []
+        absent=[x for x in weights if not (root/x).is_file() or not (root/x).stat().st_size]
+        if not detector:absent.append('s3fd.pth (face detector)')
+        check('weights',not absent,'Preparation weights found' if not absent else 'Weights to download: '+', '.join(absent),'Press Create: Studio will download missing weights from Hugging Face.')
     if request['sourceKind']=='video':check('ffmpeg',bool(shutil.which('ffmpeg')),'FFmpeg for video','Install FFmpeg or create an avatar from a photo.')
     try:
         target = root/'data'
@@ -161,12 +164,19 @@ def run_job(request, emit, generator_loader=None):
     event('normalizing')
     normalized=normalize_media(own,request['sourceKind'],safe_path(job_dir,'input'))
     output=safe_path(job_dir,'output');output.mkdir(exist_ok=True)
-    generator=(generator_loader(request['model']) if generator_loader else local_generator(request['model'],request['root']))
-    args=dict(video_path=str(normalized),avatar_id=request['avatarId'],save_path=str(output),progress_callback=lambda p:event('generating',max(0,min(100,int(p)))))
-    args.update(request['parameters'])
-    if request['model']=='wav2lip':args['img_size']=256
-    else:args['version']='v15'
-    event('generating');generator(**args)
+    if request['model'] in ('ditto','soulx'):
+        event('generating')
+        avatar=safe_path(output,request['avatarId'])
+        frames=safe_path(avatar,'full_imgs');frames.mkdir(parents=True,exist_ok=True)
+        shutil.copyfile(normalized,safe_path(frames,'00000000.png'))
+        safe_path(avatar,'generative-avatar.json').write_text(json.dumps({'version':1,'model':request['model']})+'\n')
+    else:
+        generator=(generator_loader(request['model']) if generator_loader else local_generator(request['model'],request['root']))
+        args=dict(video_path=str(normalized),avatar_id=request['avatarId'],save_path=str(output),progress_callback=lambda p:event('generating',max(0,min(100,int(p)))))
+        args.update(request['parameters'])
+        if request['model']=='wav2lip':args['img_size']=256
+        else:args['version']='v15'
+        event('generating');generator(**args)
     event('validating')
     avatar=safe_path(output,request['avatarId']);count=validate_generated_avatar(avatar,request['model'])
     first=sorted((avatar/'full_imgs').iterdir(),key=lambda x:int(x.stem))[0]

@@ -5,9 +5,9 @@ import { createAvatarLibrary } from '../electron/avatar-library.mjs';
 import { createAvatarSources } from '../electron/avatar-sources.mjs';
 import { writeFile,rename } from 'node:fs/promises';
 import { createProfileStore } from '../electron/profile-store.mjs';import { normalizeProfile } from '../src/profile.mjs';
-async function fixture(t){const root=await mkdtemp(path.join(os.tmpdir(),'studio-runtime-'));t.after(()=>rm(root,{recursive:true,force:true}));const profiles=createProfileStore(root);const profile=normalizeProfile({liveTalking:{root},speech:{referenceWav:path.join(root,'voice.wav'),referenceText:'Новое поле'}});profiles.save(profile);let busy=false,state={phase:'not-configured'},stops=0;
+async function fixture(t,model='musetalk'){const root=await mkdtemp(path.join(os.tmpdir(),'studio-runtime-'));t.after(()=>rm(root,{recursive:true,force:true}));const profiles=createProfileStore(root);const profile=normalizeProfile({liveTalking:{root},speech:{referenceWav:path.join(root,'voice.wav'),referenceText:'Новое поле'}});profiles.save(profile);let busy=false,state={phase:'not-configured'},stops=0;
  const jobs={isBusy:()=>busy,start:async input=>{busy=true;return{jobId:'job',root:input.root};},retry:async()=>{busy=true;return{jobId:'retry'};},shutdown:async()=>{busy=false;},snapshot:async()=>null};
- const runtime=createAvatarRuntime({profiles,jobs,library:{get:async(_root,id)=>id==='portrait'?{id,name:'Портрет',ready:true,model:'musetalk'}:null,list:async()=>[],rename:async()=>null},sources:{resolve:async(token,root)=>{if(token!=='selected')throw Error('source');return{sourceFile:path.join(root,'source.png'),sourceKind:'image'};},choose:async()=>null},inspectCreation:async()=>[{id:'gpu',state:'ready',detail:'CUDA',action:''}],getServiceState:()=>state,stopProfile:async()=>{stops++;state={phase:'not-configured'};}});
+ const runtime=createAvatarRuntime({profiles,jobs,library:{get:async(_root,id)=>id==='portrait'?{id,name:'Портрет',ready:true,model}:null,list:async()=>[],rename:async()=>null},sources:{resolve:async(token,root)=>{if(token!=='selected')throw Error('source');return{sourceFile:path.join(root,'source.png'),sourceKind:'image'};},choose:async()=>null},inspectCreation:async()=>[{id:'gpu',state:'ready',detail:'CUDA',action:''}],getServiceState:()=>state,stopProfile:async()=>{stops++;state={phase:'not-configured'};}});
  return{root,profile,profiles,jobs,runtime,setState:x=>{state=x;},getStops:()=>stops};}
 test('selection derives model and preserves unsaved voice fields',async t=>{
  const f=await fixture(t),profile={...f.profile,speech:{...f.profile.speech,referenceText:'Несохранённый текст'}};
@@ -51,4 +51,13 @@ test('source replacement while stopping services is refused before starting a wo
  const runtime=createAvatarRuntime({sources,jobs:{isBusy:()=>false,start:async()=>{starts++;}},getServiceState:()=>({phase:'ready'}),stopProfile:async()=>{await rename(file,file+'.old');await writeFile(file,'replacement');}});
  await assert.rejects(runtime.create({root:f.root,python:f.profile.liveTalking.python,sourceToken:selection.token,name:'Фото',model:'musetalk',parameters:{}},{stopServices:true}),/again|changed/i);
  assert.equal(starts,0);
+});
+
+test('selecting a generative reference persists its model with the avatar ID',async t=>{
+ for(const model of ['ditto','soulx']) {
+  const f=await fixture(t,model);
+  const selected=await f.runtime.select(f.profile,'portrait',{stopServices:false});
+  assert.deepEqual([selected.liveTalking.model,selected.liveTalking.avatarId],[model,'portrait']);
+  assert.equal(f.profiles.get(selected.id).liveTalking.model,model);
+ }
 });

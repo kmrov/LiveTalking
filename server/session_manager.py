@@ -98,6 +98,8 @@ class SessionManager:
                 if avatar_session is not None and getattr(avatar_session, 'quit_event', None) is not None:
                     avatar_session.flush_talk()
                     avatar_session.quit_event.set()
+                if avatar_session is not None and callable(getattr(avatar_session, 'close', None)):
+                    avatar_session.close()
             except Exception:
                 logger.exception(f"session {sessionid} cleanup error")
 

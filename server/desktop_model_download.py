@@ -251,11 +251,14 @@ def _weights_ready(folder):
 
 def model_download_plan(root, model, *, scope, speech_mode='external', torch_hub=None, speech_hub=None):
     root = Path(root).resolve(strict=True)
-    if scope not in ('creation','start') or model not in ('musetalk','wav2lip','ultralight') or speech_mode not in ('local','external'):
+    if scope not in ('creation','start') or model not in ('musetalk','wav2lip','ultralight','ditto','soulx') or speech_mode not in ('local','external'):
         raise ValueError('Invalid model download parameters.')
     if scope=='creation' and model=='ultralight':
         raise ValueError('Ultralight creation is not supported.')
-    selected = (['s3fd','musetalk','vae','face-parsing'] if model=='musetalk' else ['s3fd']) if scope=='creation' else {'musetalk':['musetalk','vae','whisper'],'wav2lip':['wav2lip'],'ultralight':['hubert']}[model]
+    if model in ('ditto','soulx'):
+        selected = []
+    else:
+        selected = (['s3fd','musetalk','vae','face-parsing'] if model=='musetalk' else ['s3fd']) if scope=='creation' else {'musetalk':['musetalk','vae','whisper'],'wav2lip':['wav2lip'],'ultralight':['hubert']}[model]
     if scope=='start' and speech_mode=='local':
         selected += ['asr','tts']
     torch_hub = Path(torch_hub) if torch_hub is not None else Path(os.environ.get('TORCH_HOME', Path(os.environ.get('XDG_CACHE_HOME',Path.home()/'.cache'))/'torch'))/'hub'

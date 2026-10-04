@@ -157,8 +157,9 @@
     <form id="avatar-create-form">
       <div class="avatar-source"><img id="avatar-source-preview" alt="Source preview" hidden><div><button type="button" id="choose-avatar-source">Choose photo or video</button><p id="avatar-source-name">No file selected</p></div></div>
       <label>Name<input id="new-avatar-name" maxlength="120" required placeholder="For example, Viktor"></label>
-      <label>Model<select id="new-avatar-model"><option value="musetalk">MuseTalk · photo or video</option><option value="wav2lip">Wav2Lip · video</option></select></label>
-      <details class="setup-details"><summary>Advanced settings</summary>
+      <label>Model<select id="new-avatar-model"><option value="musetalk">MuseTalk · photo or video</option><option value="wav2lip">Wav2Lip · video</option><option value="ditto">Ditto · photo · experimental</option><option value="soulx">SoulX FlashHead Lite · photo · experimental</option></select></label>
+      <p id="generative-avatar-hint" class="setting-hint" hidden></p>
+      <details id="avatar-preparation-options" class="setup-details"><summary>Advanced settings</summary>
         <div id="musetalk-avatar-options" class="avatar-option-grid"><label>Face offset<input id="new-avatar-bbox" type="number" min="-50" max="50" value="0"></label><label>Margin<input id="new-avatar-margin" type="number" min="0" max="100" value="10"></label><label>Mask<select id="new-avatar-parsing"><option value="jaw">Jaw</option><option value="neck">Neck</option><option value="raw">Original</option></select></label></div>
         <div id="wav2lip-avatar-options" class="avatar-option-grid" hidden><label>Padding: top, bottom, left, right<input id="new-avatar-pads" value="0 10 0 0"></label><label>Detector batch size<input id="new-avatar-batch" type="number" min="1" max="128" value="16"></label><label class="checkbox-label"><input id="new-avatar-nosmooth" type="checkbox">No smoothing</label></div>
       </details>

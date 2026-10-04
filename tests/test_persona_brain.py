@@ -4,7 +4,18 @@ import unittest
 from types import SimpleNamespace
 from uuid import uuid4
 
-from server.persona_brain import PersonaBrain
+from server.persona_brain import PersonaBrain, PhraseBuffer
+
+
+class PhraseBufferTest(unittest.TestCase):
+    def test_emits_a_complete_clause_before_waiting_for_long_sentence(self):
+        buffer = PhraseBuffer()
+        text = ('Когда модель уже выдаёт первые слова ответа, мы можем начать синтез речи, '
+                'пока оставшаяся часть предложения ещё продолжает поступать из модели')
+        phrases = buffer.feed(text[:90])
+        self.assertEqual(phrases, ['Когда модель уже выдаёт первые слова ответа, мы можем начать синтез речи,'])
+        self.assertEqual(buffer.feed(text[90:]), [])
+        self.assertEqual(''.join(phrases) + buffer.text, text)
 
 
 class Avatar:

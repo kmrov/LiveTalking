@@ -200,7 +200,14 @@ class HumanPlayer:
         self.__audio._queue.put((new_frame, eventpoint))
 
     def get_buffer_size(self) -> int:
-        return self.__video._queue.qsize()
+        return max(self.__video._queue.qsize(), (self.__audio._queue.qsize() + 1) // 2)
+
+    def clear_buffers(self):
+        """Discard already queued media after a generative speech interruption."""
+        for track in (self.__audio, self.__video):
+            if track is not None:
+                with track._queue.mutex:
+                    track._queue.queue.clear()
 
     def notify(self,eventpoint):
         if self.__container is not None:

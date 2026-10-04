@@ -89,3 +89,44 @@ test('thumbnail decoding receives a bounded file and the selected interpreter ou
  const entries=await createAvatarLibrary({readThumbnailBytes:false,makeThumbnail:async(bytes,options)=>{assert.equal(bytes,null);context=options;return null;}}).list(root,{python:'/usr/bin/python3'});
  assert.equal(entries[0].ready,true);assert.deepEqual(context,{root,python:'/usr/bin/python3',sourceFile:path.join(dir,'full_imgs/2.png')});
 });
+
+async function referenceAvatar(root,id,model) {
+ const dir=path.join(root,'data/avatars',id);await mkdir(path.join(dir,'full_imgs'),{recursive:true});
+ await writeFile(path.join(dir,'full_imgs/00000000.png'),'image');
+ await writeFile(path.join(dir,'generative-avatar.json'),JSON.stringify({version:1,model}));return dir;
+}
+test('reference avatars identify their engine and preserve it when renamed',async t=>{
+ const root=await fixture(t),lib=createAvatarLibrary();
+ for(const model of ['ditto','soulx']) {
+  await referenceAvatar(root,model,model);
+  const entry=await lib.get(root,model);assert.equal(entry.ready,true,entry.reason);assert.equal(entry.model,model);assert.equal(entry.frameCount,1);
+  const renamed=await lib.rename(root,model,'Reference');assert.equal(renamed.model,model);assert.equal(renamed.ready,true);
+ }
+});
+test('reference markers reject incompatible metadata, legacy artifacts, versions and symlinks',async t=>{
+ const root=await fixture(t);
+ for(const [id,edit] of [
+  ['metadata',async dir=>writeFile(path.join(dir,'studio-avatar.json'),JSON.stringify({schemaVersion:1,avatarId:'metadata',model:'soulx',origin:'existing',frameCount:1,name:'A'}))],
+  ['coords',async dir=>writeFile(path.join(dir,'coords.pkl'),'legacy')],
+  ['version',async dir=>writeFile(path.join(dir,'generative-avatar.json'),JSON.stringify({version:2,model:'ditto'}))],
+  ['link',async dir=>{await rm(path.join(dir,'generative-avatar.json'));await symlink(path.join(root,'outside.json'),path.join(dir,'generative-avatar.json'));}],
+  ['extra',async dir=>writeFile(path.join(dir,'full_imgs/00000001.png'),'image')],
+ ]){const dir=await referenceAvatar(root,id,'ditto');await edit(dir);}
+ await writeFile(path.join(root,'outside.json'),JSON.stringify({version:1,model:'ditto'}));
+ for(const entry of await createAvatarLibrary().list(root))assert.equal(entry.ready,false,entry.id);
+});
+
+test('publishing reference avatars preserves source, marker and selected engine',async t=>{
+ for(const model of ['ditto','soulx']) {
+  const root=await fixture(t),jobId='a'.repeat(32),id='studio_'+'b'.repeat(32),jobDir=path.join(root,'data/.studio-avatar-work',jobId);
+  const staged=await referenceAvatar(root,'staged',model);
+  await mkdir(path.join(jobDir,'output'),{recursive:true});await rename(staged,path.join(jobDir,'output',id));
+  await mkdir(path.join(jobDir,'source'));await writeFile(path.join(jobDir,'source/input.png'),'original');
+  const library=createAvatarLibrary({moveDirectoryNoReplace:rename});
+  const entry=await library.publish(root,{jobId,jobDir,avatarId:id,model,name:'Reference',frameCount:1,parameters:{}});
+  assert.equal(entry.ready,true,entry.reason);assert.equal(entry.model,model);
+  const final=path.join(root,'data/avatars',id);
+  assert.equal(await readFile(path.join(final,'source/input.png'),'utf8'),'original');
+  assert.deepEqual(JSON.parse(await readFile(path.join(final,'generative-avatar.json'),'utf8')),{version:1,model});
+ }
+});

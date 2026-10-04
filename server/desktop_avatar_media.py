@@ -1,6 +1,7 @@
 """Media operations for the desktop worker; no inference imports at module load."""
 import ctypes
 import errno
+import json
 import math
 import os
 import pickle
@@ -95,6 +96,21 @@ def validate_generated_avatar(output, model):
     output = Path(output)
     if output.is_symlink():
         raise ValueError('Invalid result directory.')
+    if model in ('ditto','soulx'):
+        marker=safe_path(output,'generative-avatar.json')
+        if not marker.is_file() or not 0 < marker.stat().st_size <= 65536:
+            raise ValueError('Missing or invalid generative avatar marker.')
+        declaration=json.loads(marker.read_text())
+        if not isinstance(declaration,dict) or type(declaration.get('version')) is not int or declaration['version'] != 1 or declaration.get('model') != model:
+            raise ValueError('Generative avatar marker does not match the selected model.')
+        if any((output/name).exists() or (output/name).is_symlink() for name in ('coords.pkl','face_imgs','latents.pt','mask','mask_coords.pkl','ultralight.pth')):
+            raise ValueError('Conflicting files from different models.')
+        full=_images(safe_path(output,'full_imgs'))
+        if len(full)!=1 or not safe_path(output,'full_imgs','00000000.png').is_file():
+            raise ValueError('Generative avatars require one reference image: full_imgs/00000000.png.')
+        return 1
+    if model not in ('musetalk','wav2lip'):
+        raise ValueError('Unsupported avatar model.')
     required = ['coords.pkl', 'full_imgs'] + (['mask', 'mask_coords.pkl', 'latents.pt'] if model == 'musetalk' else ['face_imgs'])
     for item in required:
         file = safe_path(output, item)

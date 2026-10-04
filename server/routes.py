@@ -43,6 +43,11 @@ async def desktop_health(request):
         data['brain'] = {'mode': mode}
         if mode == 'persona':
             data['brain']['url'] = getattr(opt, 'persona_url', '')
+        if getattr(opt, 'model', '') in ('ditto', 'soulx'):
+            failed = next((s.render_error for s in session_manager.sessions.values()
+                           if s is not None and getattr(s, 'render_error', None)), None)
+            if failed:
+                return web.json_response({'code': -1, 'msg': failed, 'data': data}, status=503)
     return json_ok(data)
 
 

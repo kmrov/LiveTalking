@@ -30,6 +30,13 @@ class DesktopHealthTest(unittest.IsolatedAsyncioTestCase):
             {"code": 0, "msg": "ok", "data": {"service": "livetalking", "api_version": 1}},
         )
 
+    async def test_generative_inference_failure_marks_service_unhealthy(self):
+        request = SimpleNamespace(app={'opt': SimpleNamespace(model='ditto', llm_provider='direct')})
+        with patch.object(routes.session_manager, 'sessions', {'test': SimpleNamespace(render_error='GPU inference failed')}):
+            response = await routes.desktop_health(request)
+        self.assertEqual(response.status, 503)
+        self.assertEqual(json.loads(response.text)['msg'], 'GPU inference failed')
+
     def test_health_is_registered_before_static_files(self):
         app = web.Application()
         routes.setup_routes(app)

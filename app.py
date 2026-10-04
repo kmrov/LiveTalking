@@ -107,6 +107,8 @@ async def whep(request):
 
 async def on_shutdown(app):
     await rtc_manager.shutdown()
+    if opt.model in ('ditto', 'soulx') and model is not None:
+        await asyncio.to_thread(model.close)
 
 async def download_record(request):
     sessionid = request.match_info.get('sessionid')
@@ -132,6 +134,8 @@ def main():
         'musetalk':   'avatars.musetalk_avatar',
         'wav2lip':    'avatars.wav2lip_avatar',
         'ultralight': 'avatars.ultralight_avatar',
+        'ditto':      'avatars.generative_avatar',
+        'soulx':      'avatars.generative_avatar',
     }
     import importlib
     avatar_mod = importlib.import_module(_avatar_modules[opt.model])
@@ -152,6 +156,9 @@ def main():
         model = load_model(opt)
         global_avatars[opt.avatar_id] = load_avatar(opt.avatar_id)
         warm_up(opt.batch_size,global_avatars[opt.avatar_id],160)
+    elif opt.model in ('ditto', 'soulx'):
+        model = load_model(opt)
+        global_avatars[opt.avatar_id] = load_avatar(opt.avatar_id)
 
     # init rtc manager
     session_manager.set_max_session(opt.max_session)

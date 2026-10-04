@@ -72,3 +72,17 @@ test('avatar preparation completeness and model compatibility block startup', as
   assert.match(results.find(x=>x.id==='avatar').action,/select/i);
  }
 });
+
+test('generative runtime readiness is separate from downloadable speech models', async () => {
+ for(const model of ['ditto','soulx']) {
+  const profile={...base,liveTalking:{...base.liveTalking,model}};
+  for(const ok of [false,true]) {
+   const results=await inspectPrerequisites(profile,probes({generativeRuntime:async lt=>{assert.equal(lt.model,model);return {ok,detail:'Runtime checked'};},cachedModelReady:()=>false}));
+   const runtime=results.find(x=>x.id==='avatar-runtime');assert.equal(runtime.state,ok?'ready':'missing');
+   if(!ok)assert.match(runtime.action,new RegExp(`models/${model}/runtime.json`));
+   assert.equal(results.some(x=>x.id==='avatar-model'),false);
+   assert.equal(results.find(x=>x.id==='asr-model').state,'missing');
+   assert.equal(results.find(x=>x.id==='tts-model').state,'missing');
+  }
+ }
+});

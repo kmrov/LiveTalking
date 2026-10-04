@@ -128,3 +128,22 @@ class DesktopAvatarWorkerTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'Face not found'):
                 genavatar.generate_avatar('unused','no_face',save_path=str(self.root))
         self.assertFalse((self.root/'no_face/coords.pkl').exists())
+
+    def test_reference_engines_prepare_without_gpu_weights_or_generator(self):
+        (self.root/'app.py').touch();(self.root/'avatars').mkdir()
+        for index,model in enumerate(('ditto','soulx')):
+            request={**self.request,'model':model,'jobId':str(index)*32,'jobDir':str(self.root/'data/.studio-avatar-work'/(str(index)*32))}
+            with patch('scripts.prepare_desktop_avatar.detector_file',side_effect=AssertionError('detector used')),patch('scripts.prepare_desktop_avatar.ensure_creation_models',side_effect=AssertionError('download used')),patch('scripts.prepare_desktop_avatar.local_generator',side_effect=AssertionError('generator used')):
+                checks=inspect_creation(request)
+                self.assertTrue(all(x['state']=='ready' for x in checks),checks)
+                self.assertFalse(any(x['id'] in ('gpu','weights') for x in checks))
+                result=run_job(request,lambda _:None)
+            avatar=Path(request['jobDir'])/'output'/request['avatarId']
+            self.assertEqual(result['frameCount'],1)
+            self.assertEqual(json.loads((avatar/'generative-avatar.json').read_text()),{'version':1,'model':model})
+            self.assertFalse((avatar/'coords.pkl').exists())
+            with Image.open(avatar/'full_imgs/00000000.png') as image:self.assertEqual(image.size,(100,100))
+            self.assertTrue((avatar/'thumbnail.jpg').is_file())
+            self.assertEqual((Path(request['jobDir'])/'source/input.jpg').read_bytes(),self.source.read_bytes())
+            for changes in ({'sourceKind':'video'},{'parameters':{'bbox_shift':0}}):
+                with self.assertRaises(ValueError):validate_request({**request,**changes})

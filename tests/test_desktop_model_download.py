@@ -121,3 +121,11 @@ class DesktopModelDownloadTest(unittest.TestCase):
         plan=model_download_plan(self.root,'wav2lip',scope='start',speech_mode='local',speech_hub=hub)
         self.assertEqual([entry['relative'] for entry in plan],['models/wav2lip.pth'])
         for folder in hub.iterdir():self.assertEqual((folder/'refs/main').read_text(),revision)
+
+    def test_reference_engines_need_no_creation_weights_and_keep_local_qwen_downloads(self):
+        hubs=dict(torch_hub=self.root/'torch',speech_hub=self.root/'speech')
+        for model in ('ditto','soulx'):
+            self.assertEqual(model_download_plan(self.root,model,scope='creation',speech_mode='local',**hubs),[])
+            self.assertEqual(model_download_plan(self.root,model,scope='start',speech_mode='external',**hubs),[])
+            local=model_download_plan(self.root,model,scope='start',speech_mode='local',**hubs)
+            self.assertEqual({entry['repo'] for entry in local},{'Qwen/Qwen3-ASR-0.6B','Qwen/Qwen3-TTS-12Hz-1.7B-Base'})

@@ -21,3 +21,11 @@ test('invalid names and out-of-range or unknown parameters are rejected', () => 
   assert.equal(normalizeAvatarCreation({...base,parameters:{bbox_shift:-50,extra_margin:100,parsing_mode:'neck'}}).parameters.bbox_shift,-50);
   for (const parameters of [{pads:[0,0,0]},{pads:[0,0,0,201]},{nosmooth:'false'},{face_det_batch_size:0},{face_det_batch_size:129}]) assert.throws(()=>normalizeAvatarCreation({...base,model:'wav2lip',kind:'video',parameters}));
 });
+
+test('generative engines accept image references without face detector parameters', () => {
+ for (const model of ['ditto','soulx']) {
+  assert.deepEqual(normalizeAvatarCreation({name:'Reference',model,kind:'image'}).parameters,{});
+  assert.throws(()=>normalizeAvatarCreation({name:'Reference',model,kind:'video'}),/photo|image/i);
+  assert.throws(()=>normalizeAvatarCreation({name:'Reference',model,kind:'image',parameters:{pads:[0,0,0,0]}}));
+ }
+});

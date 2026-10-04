@@ -56,10 +56,22 @@ export function createAvatarLibrary({makeThumbnail=async()=>null,readThumbnailBy
       const muse=await present(path.join(dir,'latents.pt')) || await present(path.join(dir,'mask_coords.pkl')) || await present(path.join(dir,'mask'));
       const ultra=await present(path.join(dir,'ultralight.pth'));
       if(muse&&ultra)throw new Error('Conflicting files from different models.');
-      entry.model=muse?'musetalk':ultra?'ultralight':'wav2lip';
-      await regular(await checkedPath(base,id,'coords.pkl'));
+      const marker=await checkedPath(base,id,'generative-avatar.json');
+      const generative=await present(marker);
+      if(generative) {
+        await regular(marker,65536);
+        const declaration=JSON.parse(await readFile(marker,'utf8'));
+        if(declaration?.version!==1 || !['ditto','soulx'].includes(declaration.model))throw new Error('Invalid generative avatar marker.');
+        if(muse||ultra||await present(path.join(dir,'coords.pkl'))||await present(path.join(dir,'face_imgs')))throw new Error('Conflicting files from different models.');
+        entry.model=declaration.model;
+      } else {
+        entry.model=muse?'musetalk':ultra?'ultralight':'wav2lip';
+        await regular(await checkedPath(base,id,'coords.pkl'));
+      }
       const full=await frames(await checkedPath(base,id,'full_imgs'));
-      if(muse) {
+      if(generative) {
+        if(full.names.length!==1 || full.names[0]!=='00000000.png')throw new Error('Generative avatars require one reference image: full_imgs/00000000.png.');
+      } else if(muse) {
         await regular(await checkedPath(base,id,'latents.pt'));await regular(await checkedPath(base,id,'mask_coords.pkl'));
         sameIndices(full,await frames(await checkedPath(base,id,'mask')));
         if(await present(path.join(dir,'face_imgs')))throw new Error('Conflicting files from different models.');
@@ -75,7 +87,7 @@ export function createAvatarLibrary({makeThumbnail=async()=>null,readThumbnailBy
           if(meta.schemaVersion!==1 || meta.avatarId!==id || meta.model!==entry.model || !['studio','existing'].includes(meta.origin) || meta.frameCount!==full.names.length) throw new Error('Schema or model does not match the files.');
           entry.name=normalizeAvatarName(meta.name);entry.origin=meta.origin;
           if(meta.sourceFile!==null && meta.sourceFile!==undefined) {
-            if(!/^source\/input\.(png|jpg|jpeg|mp4|mov|mkv|avi)$/i.test(meta.sourceFile))throw new Error('Invalid source path.');
+            if(!/^source\/input\.(png|jpg|jpeg|mp4|mov|mkv|avi)$/i.test(meta.sourceFile) || (generative && !/^source\/input\.(png|jpg|jpeg)$/i.test(meta.sourceFile)))throw new Error('Invalid source path.');
             await regular(await checkedPath(base,id,meta.sourceFile));
           }
         }catch(e){throw new Error(`Invalid metadata: ${e.message}`);}
@@ -126,6 +138,7 @@ export function createAvatarLibrary({makeThumbnail=async()=>null,readThumbnailBy
       const sourceDir=await checkedPath(expected,'source');
       const sources=(await readdir(sourceDir)).filter(x=>/^input\.(png|jpe?g|mp4|mov|mkv|avi)$/i.test(x));
       if(sources.length!==1)throw new Error('Saved source copy not found.');
+      if(['ditto','soulx'].includes(job.model) && !/^input\.(png|jpe?g)$/i.test(sources[0]))throw new Error('Generative avatars require a photo source.');
       const source=await checkedPath(sourceDir,sources[0]);await regular(source);
       await mkdir(await checkedPath(staged,'source'),{recursive:true});
       const sourceFile=`source/${sources[0]}`;await copyFile(source,await checkedPath(staged,sourceFile));

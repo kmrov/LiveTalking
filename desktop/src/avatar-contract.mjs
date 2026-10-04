@@ -14,15 +14,16 @@ function integer(value, name, min, max) {
 }
 export function normalizeAvatarCreation({ name, model, kind, parameters = {} }) {
   name = normalizeAvatarName(name);
-  if (!['image','video'].includes(kind) || !['musetalk','wav2lip'].includes(model) || (kind === 'image' && model !== 'musetalk')) throw new Error('Choose MuseTalk for a photo; MuseTalk or Wav2Lip for a video.');
+  const generative = ['ditto','soulx'].includes(model);
+  if (!['image','video'].includes(kind) || !['musetalk','wav2lip','ditto','soulx'].includes(model) || (kind === 'image' && model === 'wav2lip') || (kind === 'video' && generative)) throw new Error('Choose MuseTalk, Ditto or SoulX for a photo; MuseTalk or Wav2Lip for a video.');
   if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) throw new Error('Invalid preparation parameters.');
-  const defaults = model === 'musetalk' ? {bbox_shift:0,extra_margin:10,parsing_mode:'jaw'} : {pads:[0,10,0,0],nosmooth:false,face_det_batch_size:16};
+  const defaults = generative ? {} : model === 'musetalk' ? {bbox_shift:0,extra_margin:10,parsing_mode:'jaw'} : {pads:[0,10,0,0],nosmooth:false,face_det_batch_size:16};
   if (Object.keys(parameters).some(key => !Object.hasOwn(defaults,key))) throw new Error('Unknown preparation parameter.');
   const result = {...defaults,...parameters};
   if (model === 'musetalk') {
     integer(result.bbox_shift,'Face offset',-50,50); integer(result.extra_margin,'Margin',0,100);
     if (!['jaw','neck','raw'].includes(result.parsing_mode)) throw new Error('Unsupported face mask mode.');
-  } else {
+  } else if (model === 'wav2lip') {
     if (!Array.isArray(result.pads) || result.pads.length !== 4) throw new Error('Four padding values are required: top, bottom, left, right.');
     result.pads = result.pads.map(value => integer(value,'Margin',0,200));
     if (typeof result.nosmooth !== 'boolean') throw new Error('nosmooth must be a boolean.');

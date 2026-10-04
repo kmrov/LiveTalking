@@ -98,6 +98,14 @@ export const defaultProbes = {
       ? { ok: true, detail: 'Python, aiohttp, aiortc, and torch are available' }
       : { ok: false, detail: (result.stderr || result.error?.message || 'Could not import modules').trim().split('\n').at(-1) };
   },
+  async generativeRuntime(lt) {
+    const result = spawnSync(lt.python, [path.join(lt.root, 'scripts/check_generative_runtime.py'), '--model', lt.model, '--root', lt.root], { cwd: lt.root, encoding: 'utf8', timeout: 30000, maxBuffer: 1024 * 1024 });
+    try {
+      const value = JSON.parse(result.stdout);
+      if (typeof value.ok === 'boolean' && typeof value.detail === 'string') return { ok: result.status === 0 && value.ok, detail: value.detail };
+    } catch { /* Report invalid responses and subprocess failures as a runtime blocker. */ }
+    return { ok: false, detail: (result.error?.message || result.stderr || 'Invalid generative runtime check response').trim().slice(-8192) };
+  },
   model: modelStatus,
   port: portStatus,
   async gpu() {
@@ -123,11 +131,21 @@ export async function inspectPrerequisites(input, probes = defaultProbes) {
     ? item('avatar', 'ready', `Avatar ${avatar.name || lt.avatarId} is ready`)
     : item('avatar', 'missing', avatar?.reason || `Avatar ${lt.avatarId} is not ready for ${lt.model}`, 'Select a ready avatar from the library or create one.'));
 
-  const requiredWeights = avatarWeightFiles(lt);
-  const missingWeights = requiredWeights.filter(file => !probes.fileReady(file));
-  results.push(requiredWeights.length && !missingWeights.length
-    ? item('avatar-model', 'ready', `Weights for ${lt.model} found`)
-    : item('avatar-model', 'missing', `Weights for ${lt.model} are not ready: ${missingWeights.join(', ') || 'unsupported model'}`, 'Press Start: Studio will download missing models.'));
+  if (['ditto', 'soulx'].includes(lt.model)) {
+    let runtime = { ok: false, detail: `Runtime for ${lt.model} is not configured` };
+    if (rootReady && lt.python && probes.exists(lt.python)) {
+      try { runtime = await probes.generativeRuntime(lt); }
+      catch (error) { runtime = { ok: false, detail: error.message }; }
+    }
+    results.push(item('avatar-runtime', runtime.ok ? 'ready' : 'missing', runtime.detail,
+      runtime.ok ? '' : `Install the ${lt.model} runtime and weights following desktop/README.md, then configure absolute paths in models/${lt.model}/runtime.json.`));
+  } else {
+    const requiredWeights = avatarWeightFiles(lt);
+    const missingWeights = requiredWeights.filter(file => !probes.fileReady(file));
+    results.push(requiredWeights.length && !missingWeights.length
+      ? item('avatar-model', 'ready', `Weights for ${lt.model} found`)
+      : item('avatar-model', 'missing', `Weights for ${lt.model} are not ready: ${missingWeights.join(', ') || 'unsupported model'}`, 'Press Start: Studio will download missing models.'));
+  }
 
   const pythonReady = Boolean(lt.python && probes.exists(lt.python));
   if (!pythonReady) results.push(item('python', 'missing', `Python not found: ${lt.python || 'path not set'}`, `Create an environment: python3 -m venv "${lt.root || 'LiveTalking'}/.venv" and install dependencies.`));

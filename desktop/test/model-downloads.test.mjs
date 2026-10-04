@@ -50,3 +50,10 @@ test('stop before worker spawn releases ownership and does not launch a download
  const f=await fixture(t);const pending=f.runner.prepare(f.profile);const failure=assert.rejects(pending,/cancel/i);await f.runner.stop();await failure;
  assert.equal(f.request(),undefined);assert.equal(f.runner.isBusy(),false);assert.deepEqual(f.signals,[]);
 });
+
+test('missing generative runtime blocks automatic weight downloading with setup action',async()=>{
+ await assert.rejects(downloads.prepareProfileModels({}, {
+  inspect:async()=>[{id:'avatar-runtime',state:'missing',detail:'Ditto runtime missing',action:'Configure runtime.json'},{id:'asr-model',state:'missing'}],
+  download:async()=>assert.fail('Runtime setup must not start a model download'),
+ }),/Ditto runtime missing/);
+});

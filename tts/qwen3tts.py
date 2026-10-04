@@ -62,6 +62,13 @@ class Qwen3TTS(BaseTTS):
         pending_audio = np.empty(0, dtype=np.float32)
         resampler = soxr.ResampleStream(self.source_rate, self.sample_rate, 1, dtype="float32")
 
+        def deliver(audio, event):
+            guarded_delivery = getattr(self.parent, 'put_tts_audio_frame', None)
+            if callable(guarded_delivery):
+                guarded_delivery(audio, event, self, generation)
+            else:
+                self.parent.put_audio_frame(audio, event)
+
         def emit(audio):
             nonlocal first, pending_audio
             if audio.size:
@@ -71,7 +78,7 @@ class Qwen3TTS(BaseTTS):
                 if first:
                     event.update(status="start", text=text)
                     first = False
-                self.parent.put_audio_frame(pending_audio[:self.chunk].copy(), event)
+                deliver(pending_audio[:self.chunk].copy(), event)
                 pending_audio = pending_audio[self.chunk:]
 
         try:
@@ -102,7 +109,7 @@ class Qwen3TTS(BaseTTS):
                     if first:
                         event.update(status="start", text=text)
                         first = False
-                    self.parent.put_audio_frame(np.pad(pending_audio, (0, self.chunk - len(pending_audio))), event)
+                    deliver(np.pad(pending_audio, (0, self.chunk - len(pending_audio))), event)
         except Exception as error:
             # Closing a requests stream from flush_talk can invalidate an
             # in-flight urllib3 read. Cancellation must not kill the TTS worker.
@@ -119,7 +126,7 @@ class Qwen3TTS(BaseTTS):
             if response is not None:
                 response.close()
             if not first and self._generation == generation:
-                self.parent.put_audio_frame(
+                deliver(
                     np.zeros(self.chunk, dtype=np.float32),
                     {**textevent, "status": "end", "text": text},
                 )

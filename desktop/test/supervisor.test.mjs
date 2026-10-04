@@ -5,10 +5,18 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createSupervisor } from '../electron/supervisor.mjs';
+import { createSupervisor, launcherArguments } from '../electron/supervisor.mjs';
 import { normalizeProfile } from '../src/profile.mjs';
 
 const profile = normalizeProfile({ id: 'main', liveTalking: { root: '/tmp/Мой LiveTalking', python: '/tmp/Мой LiveTalking/.venv/bin/python' }, speech: { referenceWav: '/tmp/Мой LiveTalking/мой голос.wav', referenceText: 'Привет' } });
+
+test('generative avatars launch with their supported single session', () => {
+  for (const model of ['ditto', 'soulx']) {
+    const args = launcherArguments({ ...profile, liveTalking: { ...profile.liveTalking, model } });
+    assert.equal(args[args.indexOf('--max_session') + 1], '1');
+  }
+  assert.equal(launcherArguments(profile).includes('--max_session'), false);
+});
 
 function fakeChild() {
   const child = new EventEmitter();

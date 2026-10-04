@@ -66,3 +66,23 @@ class DesktopAvatarMediaTest(unittest.TestCase):
         folder=self.root/'avatar';folder.mkdir();outside=self.root/'outside';outside.write_text('bad')
         (folder/'coords.pkl').symlink_to(outside)
         with self.assertRaises(ValueError):validate_generated_avatar(folder,'wav2lip')
+
+    def test_reference_validation_rejects_marker_conflicts_links_and_extra_frames(self):
+        import json
+        folder=self.root/'reference';(folder/'full_imgs').mkdir(parents=True)
+        Image.new('RGB',(32,24)).save(folder/'full_imgs/00000000.png')
+        marker=folder/'generative-avatar.json'
+        for declaration in ({'version':2,'model':'ditto'},{'version':True,'model':'ditto'},{'version':1,'model':'soulx'},[]):
+            marker.write_text(json.dumps(declaration))
+            with self.assertRaises(ValueError):validate_generated_avatar(folder,'ditto')
+        marker.write_text(json.dumps({'version':1,'model':'ditto'}))
+        self.assertEqual(validate_generated_avatar(folder,'ditto'),1)
+        for artifact in ('coords.pkl','latents.pt','face_imgs'):
+            (folder/artifact).write_bytes(b'legacy')
+            with self.assertRaises(ValueError):validate_generated_avatar(folder,'ditto')
+            (folder/artifact).unlink()
+        Image.new('RGB',(32,24)).save(folder/'full_imgs/1.png')
+        with self.assertRaises(ValueError):validate_generated_avatar(folder,'ditto')
+        (folder/'full_imgs/1.png').unlink()
+        outside=self.root/'outside.json';marker.rename(outside);marker.symlink_to(outside)
+        with self.assertRaises(ValueError):validate_generated_avatar(folder,'ditto')
