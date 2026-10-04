@@ -16,6 +16,7 @@ data_utils/face_parsing/79999_iter.pth
 pretrained
 *.mp4
 .DS_Store
+/:memory:.ses
 workspace/log_ngp.txt
 .idea
 desktop/node_modules/
