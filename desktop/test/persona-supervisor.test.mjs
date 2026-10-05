@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
+import { fileURLToPath } from 'node:url';
 import { createPersonaSupervisor } from '../electron/persona-supervisor.mjs';
 import { inspectPersonaPrerequisites } from '../electron/persona-prerequisites.mjs';
 import { normalizeProfile } from '../src/profile.mjs';
@@ -89,4 +90,15 @@ test('brain checks report credentials and interpreter requirements with recovery
   const argv = launcherArguments(profile);
   assert.equal(argv[argv.indexOf('--llm_provider') + 1], 'persona');
   assert.equal(argv[argv.indexOf('--persona_url') + 1], 'http://127.0.0.1:8000');
+});
+
+test('SillyTavern profile launches LiveTalking against local bridge and accepts matching health', async () => {
+  const { isCompatibleDesktopHealth } = await import('../electron/supervisor.mjs');
+  const root = fileURLToPath(new URL('../../', import.meta.url)).replace(/\/$/, '');
+  const input = normalizeProfile({ liveTalking: { root }, brain: { mode: 'sillytavern' } });
+  const args = launcherArguments(input);
+  assert.equal(args[args.indexOf('--llm_provider') + 1], 'persona');
+  assert.equal(args[args.indexOf('--persona_url') + 1], 'http://127.0.0.1:8002');
+  assert.equal(await isCompatibleDesktopHealth({ code: 0, data: { service: 'livetalking', api_version: 1,
+    brain: { mode: 'persona', url: 'http://127.0.0.1:8002' }, avatar: { model: input.liveTalking.model, root } } }, input), true);
 });

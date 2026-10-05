@@ -17,6 +17,10 @@ import { createPersonaApi } from './persona-api.mjs';
 import { readServiceEnvironment, serviceEnvironment } from './service-environment.mjs';
 import { createPersonaSupervisor } from './persona-supervisor.mjs';
 import { inspectPersonaPrerequisites } from './persona-prerequisites.mjs';
+import { createSillyTavernSupervisor } from './sillytavern-supervisor.mjs';
+import { inspectSillyTavernPrerequisites } from './sillytavern-prerequisites.mjs';
+import { createSillyTavernClient } from './sillytavern-client.mjs';
+import { sillyTavernCharacter } from '../src/sillytavern-character.mjs';
 import { createAvatarLibrary } from './avatar-library.mjs';
 import { createAvatarJobs } from './avatar-jobs.mjs';
 import { createAvatarSources } from './avatar-sources.mjs';
@@ -37,6 +41,7 @@ let studioWindow;
 let profileStore;
 let supervisor;
 let personaSupervisor;
+let sillyTavernSupervisor;
 let secrets;
 let avatarRuntime;
 let avatarJobs;
@@ -54,7 +59,12 @@ let quitJob;
 let speechModelRegistryDir;
 let ownedSpeechModels = [];
 
-function runtimeSnapshot() { return { service: serviceState, supervisor: supervisor?.snapshot() ?? null, brain: personaSupervisor?.snapshot() ?? null, downloads: modelDownloads?.snapshot() ?? null, ownedSpeechModels }; }
+function runtimeSnapshot() {
+  const mode = serviceState.profileId && profileStore?.get(serviceState.profileId)?.brain.mode;
+  return { service: serviceState, supervisor: supervisor?.snapshot() ?? null,
+    brain: mode === 'sillytavern' ? sillyTavernSupervisor?.snapshot() ?? null : personaSupervisor?.snapshot() ?? null,
+    downloads: modelDownloads?.snapshot() ?? null, ownedSpeechModels };
+}
 function publishSnapshot() {
   if (studioWindow && !studioWindow.isDestroyed()) studioWindow.webContents.send('desktop:snapshot', runtimeSnapshot());
 }
@@ -66,7 +76,8 @@ async function refreshOwnedSpeechModels() {
 }
 const setupChecks = async profile => fixtureMode
   ? avatarFixture?.inspectSetup(profile) ?? Promise.resolve([{ id: 'fixture', state: 'ready', detail: 'Smoke fixture ready', action: '' }])
-  : [...await inspectPrerequisites(profile), ...await inspectPersonaPrerequisites(profile, brainEnvironment(profile))];
+  : [...await inspectPrerequisites(profile), ...await inspectPersonaPrerequisites(profile, brainEnvironment(profile)),
+    ...await inspectSillyTavernPrerequisites(profile, brainEnvironment(profile))];
 
 async function startProfile(id) {
   if (!fixtureMode) await avatarRuntime.assertCanStart(profileStore.get(id));
@@ -82,13 +93,17 @@ async function startProfile(id) {
   publishSnapshot();
   startJob = (async () => {
     try {
-      if (wasFailed) { await supervisor.stop(); await personaSupervisor.stop(); }
+      if (wasFailed) { await supervisor.stop(); await personaSupervisor.stop(); await sillyTavernSupervisor.stop(); }
       await prepareProfileModels(profile, { inspect: setupChecks, download: value => modelDownloads.prepare(value), cancelled: () => token !== runGeneration });
       if (token !== runGeneration) return runtimeSnapshot();
       if (supervisor.snapshot().state === 'failed') await supervisor.stop();
       serviceState = transitionServiceState(serviceState, { type: 'START', profileId: id });
       publishSnapshot();
       if (profile.brain.mode === 'persona') await personaSupervisor.start(profile, brainEnvironment(profile));
+      if (profile.brain.mode === 'sillytavern') {
+        await sillyTavernSupervisor.start(profile, brainEnvironment(profile));
+        await setBridgeCharacter(profile.brain.sillyTavernCharacter);
+      }
       if (token !== runGeneration) return runtimeSnapshot();
       const snapshot = await supervisor.start(profile);
       if (token !== runGeneration) return runtimeSnapshot();
@@ -98,6 +113,7 @@ async function startProfile(id) {
       publishSnapshot();
       return runtimeSnapshot();
     } catch (error) {
+      if (profile.brain.mode === 'sillytavern') await sillyTavernSupervisor.stop().catch(() => {});
       if (token === runGeneration) {
         serviceState = transitionServiceState(serviceState, { type: 'FAIL', detail: error.message });
         publishSnapshot();
@@ -114,6 +130,7 @@ async function stopProfile({ keepModels = false } = {}) {
   await modelDownloads?.stop();
   await supervisor.stop({ keepModels });
   await personaSupervisor.stop();
+  await sillyTavernSupervisor.stop();
   serviceState = transitionServiceState(serviceState, { type: 'STOP' });
   publishSnapshot();
   await refreshOwnedSpeechModels();
@@ -174,20 +191,60 @@ function secretStatus(profile) {
 
 function brainApi(id) {
   const profile = profileStore.get(id);
-  if (!profile || profile.brain.mode !== 'persona') throw new Error('Select and save Persona mode first.');
-  return createPersonaApi({ baseUrl: profile.brain.url });
+  if (!profile || !['persona', 'sillytavern'].includes(profile.brain.mode)) throw new Error('Select and save a conversation brain first.');
+  return createPersonaApi({ baseUrl: profile.brain.mode === 'sillytavern' ? 'http://127.0.0.1:8002' : profile.brain.url });
+}
+
+function sillyTavernProfile(id) {
+  const profile = profileStore.get(id);
+  if (profile?.brain.mode !== 'sillytavern') throw new Error('Select a SillyTavern profile first.');
+  return profile;
+}
+
+async function sillyTavernCharacters(id) {
+  const profile = sillyTavernProfile(id);
+  const client = createSillyTavernClient({ baseUrl: profile.brain.sillyTavernUrl });
+  await client.version();
+  return client.characters();
+}
+
+async function selectSillyTavernCharacter(id, value) {
+  const profile = sillyTavernProfile(id);
+  const avatar = sillyTavernCharacter(value);
+  const characters = await sillyTavernCharacters(id);
+  if (!characters.some(item => item.avatar === avatar)) throw new Error('SillyTavern character not found');
+  if (serviceState.profileId === id && serviceState.phase === 'ready') await setBridgeCharacter(avatar);
+  profile.brain.sillyTavernCharacter = avatar;
+  profile.brain.conversationId = '';
+  return profileStore.save(profile);
+}
+
+async function setBridgeCharacter(avatar) {
+  const response = await fetch('http://127.0.0.1:8002/api/v1/character', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ avatar }),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!response.ok) throw new Error(`Could not select SillyTavern character: HTTP ${response.status}`);
 }
 
 function registerSetupIpc() {
   projectionApi = createProjectionApi({ getProfile: id => profileStore.get(id), getServiceState: () => serviceState });
-  ipcMain.handle('desktop:get-setup', trusted(async () => {
-    const profile = discoverBrain(initialProfile());
+  async function profileSetup(profile) {
     const voiceReferences = findVoiceReferences(profile.liveTalking.root);
     if (!profile.speech.referenceWav && voiceReferences.length) {
       profile.speech.referenceWav = voiceReferences[0].wav;
       profile.speech.referenceText = voiceReferences[0].text;
     }
-    return { profile, voiceReferences, avatars: await avatarRuntime.snapshot(profile), secrets: secretStatus(profile), recoveryError: profileStore.recoveryError(), testFixture: fixtureMode };
+    return { profile, voiceReferences, avatars: await avatarRuntime.snapshot(profile), secrets: secretStatus(profile),
+      profiles: profileStore.list().map(({ id, name, brain }) => ({ id, name, brainMode: brain.mode })),
+      recoveryError: profileStore.recoveryError(), testFixture: fixtureMode };
+  }
+  ipcMain.handle('desktop:get-setup', trusted(() => profileSetup(discoverBrain(initialProfile()))));
+  ipcMain.handle('desktop:list-profiles', trusted(() => profileStore.list().map(({ id, name, brain }) => ({ id, name, brainMode: brain.mode }))));
+  ipcMain.handle('desktop:get-profile', trusted(id => {
+    const profile = profileStore.get(id);
+    if (!profile) throw new Error('Profile not found');
+    return profileSetup(discoverBrain(profile));
   }));
   ipcMain.handle('desktop:check-setup', trusted(async input => setupChecks(normalizeProfile(input))));
   ipcMain.handle('desktop:save-profile', trusted(input => avatarRuntime.runLifecycle(async () => { const profile = normalizeProfile(input); await avatarRuntime.assertCanSave(profile); return profileStore.save(profile); })));
@@ -214,6 +271,8 @@ function registerSetupIpc() {
   ipcMain.handle('desktop:brain-history', trusted((id, conversationId) => brainApi(id).history(conversationId)));
   ipcMain.handle('desktop:brain-memories', trusted(id => brainApi(id).memories()));
   ipcMain.handle('desktop:brain-document', trusted((id, input) => brainApi(id).document(input)));
+  ipcMain.handle('desktop:st-characters', trusted(id => sillyTavernCharacters(id)));
+  ipcMain.handle('desktop:st-select-character', trusted((id, avatar) => selectSillyTavernCharacter(id, avatar)));
   ipcMain.handle('desktop:choose-brain-root', trusted(async () => {
     const result = await dialog.showOpenDialog(studioWindow, { title: 'Choose Persona', properties: ['openDirectory'] });
     return result.canceled ? null : result.filePaths[0];
@@ -319,6 +378,12 @@ app.whenReady().then(async () => {
   personaSupervisor = createPersonaSupervisor({ emit: snapshot => {
     if (snapshot.state === 'failed' && !['failed', 'not-configured'].includes(serviceState.phase)) {
       serviceState = transitionServiceState(serviceState, { type: 'CHILD_EXIT', detail: snapshot.logExcerpt || 'Persona is unavailable' });
+    }
+    publishSnapshot();
+  } });
+  sillyTavernSupervisor = createSillyTavernSupervisor({ emit: snapshot => {
+    if (snapshot.state === 'failed' && !['failed', 'not-configured'].includes(serviceState.phase)) {
+      serviceState = transitionServiceState(serviceState, { type: 'CHILD_EXIT', detail: snapshot.logExcerpt || 'SillyTavern is unavailable' });
     }
     publishSnapshot();
   } });

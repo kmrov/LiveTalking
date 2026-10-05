@@ -1,5 +1,7 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
+import os from 'node:os';
+import { sillyTavernCharacter } from './sillytavern-character.mjs';
 
 export class ProfileError extends Error {
   constructor(field, message) {
@@ -55,7 +57,7 @@ export function normalizeProfile(input) {
   if (!/^[\p{L}\p{N}_-]{1,128}$/u.test(avatarId)) throw new ProfileError('liveTalking.avatarId', 'use letters, numbers, _ or -');
   const requestedBrainMode = string(brain.mode, 'brain.mode', 'direct');
   const brainMode = requestedBrainMode === 'batya' ? 'persona' : requestedBrainMode;
-  if (!['direct', 'persona'].includes(brainMode)) throw new ProfileError('brain.mode', 'expected direct or persona');
+  if (!['direct', 'persona', 'sillytavern'].includes(brainMode)) throw new ProfileError('brain.mode', 'expected direct, persona or sillytavern');
   let brainRoot = absolutePath(brain.root, 'brain.root');
   if (path.basename(brainRoot) === 'batya' && !existsSync(brainRoot)) {
     const movedRoot = path.join(path.dirname(brainRoot), 'persona');
@@ -67,6 +69,12 @@ export function normalizeProfile(input) {
   const address = new URL(brainUrl);
   if (address.search || address.hash) throw new ProfileError('brain.url', 'query and fragment are not supported');
   if (managed && (address.protocol !== 'http:' || !['localhost', '127.0.0.1', '[::1]'].includes(address.hostname) || address.pathname !== '/')) throw new ProfileError('brain.url', 'managed Persona requires a loopback HTTP URL');
+  const sillyTavernUrl = url(brain.sillyTavernUrl, 'brain.sillyTavernUrl') || 'http://127.0.0.1:8001';
+  const sillyTavernAddress = new URL(sillyTavernUrl);
+  if (sillyTavernAddress.protocol !== 'http:' || !['localhost', '127.0.0.1', '[::1]'].includes(sillyTavernAddress.hostname)
+    || sillyTavernAddress.pathname !== '/' || sillyTavernAddress.search || sillyTavernAddress.hash)
+    throw new ProfileError('brain.sillyTavernUrl', 'SillyTavern requires a loopback HTTP URL');
+  const sillyTavernRoot = absolutePath(brain.sillyTavernRoot, 'brain.sillyTavernRoot', path.join(os.homedir(), 'SillyTavern'));
   const databaseMode = string(brain.databaseMode, 'brain.databaseMode', 'compose');
   if (!['compose', 'external'].includes(databaseMode)) throw new ProfileError('brain.databaseMode', 'expected compose or external');
   const conversationId = string(brain.conversationId, 'brain.conversationId');
@@ -102,6 +110,8 @@ export function normalizeProfile(input) {
         'brain.python', brainRoot ? path.join(brainRoot, '.venv/bin/python') : ''),
       url: brainUrl.replace(/\/$/, ''), managed, databaseMode,
       folderId: string(brain.folderId, 'brain.folderId'), conversationId,
+      sillyTavernUrl: sillyTavernUrl.replace(/\/$/, ''), sillyTavernRoot,
+      sillyTavernCharacter: sillyTavernCharacter(brain.sillyTavernCharacter),
     },
     autoStart,
   };

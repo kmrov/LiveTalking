@@ -32,6 +32,7 @@ async function runCase(corrupt) {
     await window.locator('#setup-results li').first().waitFor({ state: 'attached' });
     if (corrupt) {
       assert.match(await window.locator('#setup-recovery').textContent(), /invalid/i);
+      await window.locator('#open-profile-settings').click();
       assert.equal(await window.locator('#setup-form').isVisible(), true);
       console.log('Corrupt profile startup: passed');
       return;
@@ -101,9 +102,11 @@ async function runCase(corrupt) {
     await window.locator('#connect-avatar').click();
     await window.waitForFunction(() => document.querySelector('#handsfree-state').dataset.state === 'idle');
     assert.equal(await window.evaluate(() => window.__autoMicStops), 2);
+    await window.locator('#open-projection-settings').click();
     await window.locator('#projection-url').fill('http://127.0.0.1:19840/whip');
     await window.locator('#projection-advanced > summary').click();
     await window.locator('#projection-token').fill('fixture-secret');
+    await window.locator('#projection-settings-dialog [data-close-dialog]').last().click();
     fixture.control.delayOfferMs = 300;
     await window.locator('#connect-avatar').click();
     await window.waitForFunction(() => document.querySelector('#connect-projection').disabled);
@@ -132,7 +135,9 @@ async function runCase(corrupt) {
     fixture.control.whip = null;
     await window.waitForFunction(() => document.querySelector('#projection-state').dataset.sessionId === '', null, { timeout: 7000 });
     assert.equal(await window.locator('#send-message').isDisabled(), true);
+    await window.locator('#open-projection-settings').click();
     await window.locator('#projection-token').fill('fixture-secret-retry');
+    await window.locator('#projection-settings-dialog [data-close-dialog]').last().click();
     await window.locator('#connect-projection').click();
     await window.waitForFunction(() => Boolean(document.querySelector('#projection-state').dataset.sessionId));
     await window.locator('#connect-projection').click();
@@ -213,9 +218,11 @@ async function runAvatarCase() {
   };
   try {
     await launch();
-    await window.locator('#setup-details').evaluate(details => { details.open = true; });
+    await window.locator('[data-open-settings="voice"]').click();
     await window.locator('#voice-wav').fill('');
     await window.locator('#voice-text').fill('');
+    await window.locator('#save-profile').click();
+    await window.locator('#profile-settings-dialog').waitFor({ state: 'hidden' });
     await chooseSource('Мой аватар');
     await window.locator('#check-avatar-create').click();
     await window.locator('#avatar-create-checks li').first().waitFor();
@@ -235,6 +242,7 @@ async function runAvatarCase() {
     await control('success');
     await state('completed');
     await window.locator('#select-created-avatar').click();
+    await window.waitForFunction(() => /^studio_[0-9a-f]{32}$/.test(document.querySelector('#avatar-id').value));
     const saved = JSON.parse(await readFile(path.join(userData, 'profiles.json'), 'utf8')).profiles[0];
     const createdId = saved.liveTalking.avatarId;
     assert.match(createdId, /^studio_[0-9a-f]{32}$/);
@@ -302,10 +310,12 @@ async function runAvatarCase() {
     await writeFile(path.join(existing, 'full_imgs/00000000.png'), png);
     await writeFile(path.join(existing, 'face_imgs/00000000.png'), png);
     await writeFile(path.join(existing, 'coords.pkl'), 'fixture');
-    await window.locator('#setup-details').evaluate(details => { details.open = true; });
+    await window.locator('[data-open-settings="brain"]').click();
     await window.locator('#brain-mode').selectOption('persona');
     await window.locator('#brain-service-mode').selectOption('external');
     await window.locator('#brain-url').fill(`http://127.0.0.1:${fixture.port}`);
+    await window.locator('#save-profile').click();
+    await window.locator('#profile-settings-dialog').waitFor({ state: 'hidden' });
     fixture.control.brainMode = 'persona';
     fixture.control.avatarModel = 'musetalk';
     await window.locator('#start-profile').click();
@@ -392,9 +402,12 @@ async function runPersonaCase() {
     const window = await application.firstWindow();
     window.on('pageerror', error => logs.push(`Renderer error: ${error.stack}`));
     await window.locator('#setup-results li').first().waitFor({ state: 'attached' });
+    await window.locator('[data-open-settings="brain"]').click();
     await window.locator('#brain-mode').selectOption('persona');
     await window.locator('#brain-service-mode').selectOption('external');
     await window.locator('#brain-url').fill(`http://127.0.0.1:${fixture.port}`);
+    await window.locator('#save-profile').click();
+    await window.locator('#profile-settings-dialog').waitFor({ state: 'hidden' });
     await window.locator('#start-profile').click();
     await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Running');
     await window.locator('#new-brain-conversation').click();
@@ -432,9 +445,11 @@ async function runPersonaCase() {
     await window.waitForFunction(() => [...document.querySelectorAll('#conversation-list [data-role="assistant"]')].at(-1)?.dataset.status === 'done');
     assert.equal(await window.locator('#conversation-list [data-role="assistant"]').count(), 2);
     await window.locator('#connect-avatar').click();
+    await window.locator('#open-projection-settings').click();
     await window.locator('#projection-url').fill('http://127.0.0.1:19840/whip');
     await window.locator('#projection-advanced > summary').click();
     await window.locator('#projection-token').fill('persona-fixture-secret');
+    await window.locator('#projection-settings-dialog [data-close-dialog]').last().click();
     await window.locator('#connect-projection').click();
     await window.waitForFunction(() => Boolean(document.querySelector('#projection-state').dataset.sessionId));
     const personaProjectionId = await window.locator('#projection-state').getAttribute('data-session-id');
@@ -476,8 +491,10 @@ async function runPersonaCase() {
     await reopened.locator('#stop-profile').click();
     await reopened.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Not configured');
     fixture.control.brainMode = 'direct';
-    await reopened.locator('#setup-details').evaluate(details => { details.open = true; });
+    await reopened.locator('[data-open-settings="brain"]').click();
     await reopened.locator('#brain-mode').selectOption('direct');
+    await reopened.locator('#save-profile').click();
+    await reopened.locator('#profile-settings-dialog').waitFor({ state: 'hidden' });
     await reopened.locator('#start-profile').click();
     await reopened.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Running');
     assert.equal(await reopened.locator('#brain-conversations').isHidden(), true);

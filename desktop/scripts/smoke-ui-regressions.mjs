@@ -24,6 +24,50 @@ try {
   } });
   const window = await application.firstWindow();
   await window.locator('#setup-results li').first().waitFor({ state: 'attached' });
+  await window.evaluate(async () => {
+    const { profile } = await window.liveTalkingDesktop.getSetup();
+    await window.liveTalkingDesktop.saveProfile(profile);
+    await window.liveTalkingDesktop.saveProfile({ ...profile, id: 'sillytavern-smoke', name: 'SillyTavern',
+      brain: { ...profile.brain, mode: 'sillytavern' } });
+  });
+  await window.reload();
+  await window.locator('#setup-results li').first().waitFor({ state: 'attached' });
+  assert.equal(await window.locator('#profile-picker option').count(), 2,
+    'saved profiles must appear in the Studio header');
+  await window.locator('#profile-picker').selectOption('sillytavern-smoke');
+  await window.waitForFunction(() => document.querySelector('#profile-brain-summary').textContent === 'SillyTavern');
+  assert.equal(await window.locator('#brain-mode').inputValue(), 'sillytavern');
+  await window.locator('#profile-picker').selectOption('fixture');
+  await window.waitForFunction(() => document.querySelector('#profile-brain-summary').textContent === 'Direct LLM');
+  assert.equal(await window.locator('#setup-form').isVisible(), false,
+    'technical settings should not occupy the main workspace');
+  await window.locator('[data-open-settings="voice"]').click();
+  assert.equal(await window.locator('#voice-wav').isVisible(), true);
+  assert.equal(await window.locator('#python-path').isVisible(), false);
+  const originalTranscript = await window.locator('#voice-text').inputValue();
+  await window.locator('#voice-text').fill('Unsaved voice draft');
+  await window.keyboard.press('Escape');
+  await window.waitForFunction(() => !document.querySelector('#profile-settings-dialog').open);
+  await window.waitForFunction(original => document.querySelector('#voice-text').value === original, originalTranscript);
+  assert.equal(await window.locator('#voice-text').inputValue(), originalTranscript,
+    'Escape discards unsaved settings');
+  assert.equal(await window.locator('[data-open-settings="voice"]').evaluate(button => button === document.activeElement), true,
+    'Escape restores focus to the settings opener');
+  await window.locator('[data-open-settings="voice"]').click();
+  await window.locator('#settings-tab-voice').focus();
+  await window.keyboard.press('ArrowRight');
+  assert.equal(await window.locator('#brain-mode').isVisible(), true, 'settings tabs work with the keyboard');
+  await window.keyboard.press('End');
+  assert.equal(await window.locator('#python-path').isVisible(), true);
+  await window.keyboard.press('Escape');
+  await window.locator('#open-projection-settings').click();
+  await window.locator('#projection-url').fill('http://127.0.0.1:19840/whip');
+  await window.locator('#projection-settings-dialog [data-close-dialog]').last().click();
+  await window.waitForFunction(() => document.querySelector('#projection-target-label').textContent.includes('19840'));
+  assert.match(await window.locator('#projection-target-label').textContent(), /19840/);
+  assert.equal(await window.locator('#projection-url').isVisible(), false,
+    'connection details stay out of the stage');
+
   assert.equal(await window.locator('.panel-resizer').count(), 2,
     'both side panels must have resize handles');
   const panelWidths = () => window.evaluate(() => ({
@@ -73,13 +117,41 @@ try {
   const expandedWidths = await panelWidths();
   assert.ok(Math.abs(expandedWidths.left - restoredWidths.left) < 1, 'the preferred left width returns after expanding the window');
   assert.ok(Math.abs(expandedWidths.right - restoredWidths.right) < 1, 'the preferred right width returns after expanding the window');
+  await window.locator('[data-open-settings="brain"]').click();
+  await window.locator('#brain-mode').selectOption('sillytavern');
+  assert.equal(await window.locator('#brain-st-fields').isVisible(), true, 'SillyTavern settings are visible');
+  assert.equal(await window.locator('#brain-persona-fields').isVisible(), false, 'Persona settings are hidden in SillyTavern mode');
+  assert.equal(await window.locator('#brain-yandex-fields').isVisible(), true, 'Yandex credentials are available to SillyTavern');
+  assert.equal(await window.locator('#brain-library').isVisible(), false, 'Persona memory is unavailable in SillyTavern mode');
+  assert.equal(await window.locator('#sillytavern-state').isVisible(), true, 'SillyTavern service status is visible');
+  assert.equal(await window.locator('#st-character-picker').isVisible(), true, 'SillyTavern character picker is visible');
+  assert.match(await window.locator('#brain-conversation-label').textContent(), /SillyTavern/);
   await window.locator('#brain-mode').selectOption('persona');
   await window.locator('#brain-service-mode').selectOption('external');
   await window.locator('#brain-url').fill(`http://127.0.0.1:${fixture.port}`);
+  await window.locator('#save-profile').click();
+  await window.locator('#profile-settings-dialog').waitFor({ state: 'hidden' });
   await window.locator('#start-profile').click();
   await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Running');
+  assert.equal(await window.locator('#profile-picker').isDisabled(), true,
+    'running services must prevent a profile switch');
   await window.evaluate(() => { document.querySelector('.left-panel').scrollTop = 0; });
   await window.screenshot({ path: path.join(screenshots, '01-ready.png') });
+  await window.locator('[data-open-settings="voice"]').click();
+  await window.screenshot({ path: path.join(screenshots, '04-voice-settings.png') });
+  await window.locator('#settings-tab-brain').click();
+  await window.screenshot({ path: path.join(screenshots, '05-brain-settings.png') });
+  await window.locator('#settings-tab-services').click();
+  await window.screenshot({ path: path.join(screenshots, '06-service-settings.png') });
+  await window.keyboard.press('Escape');
+  await window.locator('#open-memory').click();
+  await window.locator('#refresh-memories').click();
+  await window.waitForFunction(() => document.querySelector('#brain-library-message').textContent.length > 0);
+  await window.screenshot({ path: path.join(screenshots, '07-memory.png') });
+  await window.keyboard.press('Escape');
+  await window.locator('#open-projection-settings').click();
+  await window.screenshot({ path: path.join(screenshots, '08-projection-settings.png') });
+  await window.keyboard.press('Escape');
 
   await window.evaluate(() => document.querySelector('#new-brain-conversation').click());
   await window.waitForFunction(() => Boolean(document.querySelector('#brain-conversation').value));
@@ -141,6 +213,14 @@ try {
   });
   assert.equal(compactControls.sendVisible, true, 'Send button must fit inside the compact dialog panel');
   assert.equal(compactControls.projectionVisible, true, 'Projection button must fit inside the compact stage');
+  assert.ok(await window.locator('.stage-screen').evaluate(node => node.getBoundingClientRect().height) > 280,
+    'moving connection details into a dialog leaves room for the avatar in a compact window');
+  await window.locator('#open-profile-settings').click();
+  await window.screenshot({ path: path.join(screenshots, '09-compact-settings.png') });
+  assert.equal(await window.locator('#save-profile').evaluate(button => {
+    const r = button.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight;
+  }), true, 'Save stays visible while settings scroll');
+  await window.keyboard.press('Escape');
   await window.locator('#refresh-brain-conversations').click();
   await window.waitForTimeout(250);
   assert.match(await window.locator('#conversation-list [data-role="assistant"]').textContent(), /Привет, сынок\./,

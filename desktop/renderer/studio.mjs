@@ -8,6 +8,7 @@ import { FixturePeer } from './fixture-peer.mjs';
 import { reduceBrainEvent } from './brain-events.mjs';
 import { mountAvatarLibrary } from './avatar-library.mjs';
 import { mountPanelResizers } from './panel-resize.mjs';
+import { mountStudioDialogs } from './studio-dialogs.mjs';
 
 const bridge = window.liveTalkingDesktop;
 if (bridge?.version) document.querySelector('#app-version').textContent = `v0.1 · API ${bridge.version}`;
@@ -25,7 +26,14 @@ const fields = {
   brainMode: $('#brain-mode'), brainManaged: $('#brain-service-mode'), brainUrl: $('#brain-url'),
   brainRoot: $('#brain-root'), brainPython: $('#brain-python'), brainDatabase: $('#brain-database-mode'),
   brainFolder: $('#brain-folder'), brainKey: $('#brain-key'), brainDatabaseUrl: $('#brain-database-url'),
+  brainStRoot: $('#brain-st-root'), brainStUrl: $('#brain-st-url'),
 };
+const conversationBrain = mode => ['persona', 'sillytavern'].includes(mode);
+const brainName = mode => mode === 'sillytavern' ? 'SillyTavern' : mode === 'persona' ? 'Persona' : 'LLM';
+let sillyTavernCharacters = [];
+const activeBrainName = () => currentProfile?.brain.mode === 'sillytavern'
+  ? sillyTavernCharacters.find(item => item.avatar === currentProfile.brain.sillyTavernCharacter)?.name || 'SillyTavern'
+  : brainName(currentProfile?.brain.mode);
 let currentProfile;
 let avatarUI;
 let servicePhase = "not-configured";
@@ -58,6 +66,70 @@ let historyGeneration = 0;
 let speechInterrupted = false;
 let failedTurn;
 const submittedTurns = new Map();
+let profileRoot = '';
+let profileSwitchBusy = false;
+let settingsDraft;
+let settingsSaving = false;
+const dialogs = mountStudioDialogs({ document,
+  onSettingsOpen() {
+    settingsDraft = { root: profileRoot, voices: knownVoices, message: $('#setup-message').textContent,
+      reviewHidden: $('#review-setup').hidden,
+      fields: Object.fromEntries(Object.entries(fields).map(([key, field]) => [key,
+        field.type === 'checkbox' ? field.checked : field.value])) };
+    $('#settings-message').textContent = 'Save to apply changes. Closing discards unsaved edits.';
+  },
+  onSettingsClose({ saved }) {
+    if (!saved && settingsDraft) {
+      const rootChanged = profileRoot !== settingsDraft.root;
+      profileRoot = settingsDraft.root;
+      showKnownVoices(settingsDraft.voices);
+      for (const [key, value] of Object.entries(settingsDraft.fields)) {
+        const field = fields[key];
+        if (field.type === 'checkbox') field.checked = value;
+        else field.value = value;
+      }
+      $('#root-path').textContent = profileRoot || 'Not found beside the app';
+      showMode(); showBrainMode();
+      message(settingsDraft.message);
+      $('#review-setup').hidden = settingsDraft.reviewHidden;
+      if (rootChanged) void avatarUI?.refresh();
+    }
+    settingsDraft = null;
+  },
+});
+
+function showProfileSummary() {
+  $('#profile-voice-summary').textContent = currentProfile?.speech.referenceWav?.split('/').at(-1) || 'No voice selected';
+  $('#profile-voice-summary').title = currentProfile?.speech.referenceWav || '';
+  $('#profile-brain-summary').textContent = currentProfile?.brain.mode === 'direct' ? 'Direct LLM' : brainName(currentProfile?.brain.mode);
+}
+
+function showProfileList(profiles) {
+  const select = $('#profile-picker');
+  select.replaceChildren();
+  const entries = [...profiles];
+  if (currentProfile && !entries.some(profile => profile.id === currentProfile.id))
+    entries.unshift({ id: currentProfile.id, name: currentProfile.name, brainMode: currentProfile.brain.mode });
+  for (const profile of entries) {
+    const option = document.createElement('option');
+    option.value = profile.id;
+    option.textContent = `${profile.name} · ${brainName(profile.brainMode)}`;
+    select.append(option);
+  }
+  select.value = currentProfile?.id || '';
+}
+
+function updateProfilePicker() {
+  $('#profile-picker').disabled = profileSwitchBusy || servicePhase !== 'not-configured' || recording || recordingBusy;
+  $('#profile-picker').title = servicePhase === 'not-configured' ? 'Choose a saved Studio profile' : 'Stop services before switching profiles';
+}
+
+function showProjectionTarget() {
+  const selected = $('#projection-discovered').selectedOptions[0];
+  $('#projection-target-label').textContent = selected?.value ? selected.textContent
+    : $('#projection-url').value.trim() || 'No device selected';
+}
+$('#projection-settings-dialog').addEventListener('close', showProjectionTarget);
 
 function activeSessionId() {
   return activeTarget === 'projection' ? projectionClient?.sessionId() : activeTarget === 'preview' ? webRtcClient?.sessionId() : null;
@@ -71,7 +143,7 @@ function selectConversationTarget(target) {
   activeTarget = target;
   const sessionId = activeSessionId();
   conversationClient = sessionId ? createConversationClient({
-    fetch: window.fetch.bind(window), idempotentChat: currentProfile.brain.mode === 'persona',
+    fetch: window.fetch.bind(window), idempotentChat: conversationBrain(currentProfile.brain.mode),
     baseUrl: `http://127.0.0.1:${currentProfile.liveTalking.port}`,
     getSessionId: activeSessionId,
   }) : null;
@@ -127,7 +199,7 @@ function appendMessage(text, type, { role = 'user', requestId = '' } = {}) {
   row.dataset.role = role;
   row.dataset.requestId = requestId;
   const label = document.createElement('small');
-  label.textContent = role === 'assistant' ? 'PERSONA' : type === 'echo' ? 'YOU · SPEAK' : 'YOU · CHAT';
+  label.textContent = role === 'assistant' ? activeBrainName().toUpperCase() : type === 'echo' ? 'YOU · SPEAK' : 'YOU · CHAT';
   const content = document.createElement('div');
   content.textContent = text;
   row.append(label, content);
@@ -231,16 +303,17 @@ $('#projection-url').addEventListener('input', () => {
 });
 
 function updateProjectionHint() {
+  showProjectionTarget();
   const selected = $('#projection-discovered').selectedOptions[0];
   let hint = $('#projection-discovered').value
     ? selected?.dataset.auth === 'bearer'
-      ? 'This Head in Jar requires a bearer token. Copy it from Head in Jar and paste it here.'
+      ? 'This device requires a token. Add it in Connection settings.'
       : 'Discovered Head in Jar: connect without a token. Enable the projector there separately.'
-    : 'Select Head in Jar from the list or enter a WHIP URL. The token is optional.';
+    : 'Choose a device in Connection settings, then connect.';
   if (!serviceReady) hint = servicePhase === 'failed' ? 'Profile did not start: check the startup log.'
     : servicePhase === 'starting' || servicePhase === 'checking' ? 'Wait for services to start; connection becomes available when they are Running.'
       : 'Start the Studio profile first.';
-  else if (webRtcClient?.sessionId()) hint = 'Disconnect WebRTC preview before connecting projection.';
+  else if (webRtcClient?.sessionId()) hint = 'Disconnect WebRTC preview to connect projection.';
   else if (projectionBusy || previewBusy) hint = 'Wait for the current connection to finish.';
   else if (projectionClient?.sessionId()) hint = 'Stream connected. Enable the projector in Head in Jar.';
   $('#projection-hint').textContent = hint;
@@ -252,7 +325,8 @@ function updateWorkflowHint() {
   const setup = $('#setup-description');
   const emptyTitle = $('.stage-empty h2');
   const emptyDetail = $('.stage-empty p');
-  if (mode) mode.textContent = currentProfile?.brain.mode === 'persona' ? 'Persona mode' : 'Direct LLM';
+  if (mode) mode.textContent = currentProfile?.brain.mode === 'persona' ? 'Persona mode'
+    : currentProfile?.brain.mode === 'sillytavern' ? 'SillyTavern mode' : 'Direct LLM';
   if (setup) setup.textContent = activeSessionId()
     ? 'Services are running. Control speech and recording in the conversation panel.'
     : serviceReady ? 'Services are running. Enable preview here or connect Head in Jar for projection.'
@@ -261,7 +335,7 @@ function updateWorkflowHint() {
     emptyTitle.textContent = projectionClient?.sessionId() ? 'Streaming to Head in Jar'
       : webRtcClient?.sessionId() ? 'Waiting for avatar video' : 'Your avatar will appear here';
     emptyDetail.textContent = projectionClient?.sessionId()
-      ? 'Studio preview is off. The stream and conversation controls are in Head in Jar.'
+      ? 'Video is in Head in Jar. Use the Conversation panel here to speak or send text.'
       : webRtcClient?.sessionId() ? 'Preview connected. Waiting for video.'
       : 'Enable preview to see the avatar stream in Studio.';
   }
@@ -287,7 +361,7 @@ const phaseLabels = {
   ready: 'Running', reconnecting: 'Reconnecting', failed: 'Error',
 };
 const stageLabels = { stopped: 'Idle', waiting: 'Queued', ready: 'Running', failed: 'Error' };
-const stageNames = { database: 'PostgreSQL', persona: 'Persona', asr: 'Qwen ASR', tts: 'Qwen TTS', livetalking: 'LiveTalking' };
+const stageNames = { database: 'PostgreSQL', persona: 'Persona', sillytavern: 'SillyTavern', bridge: 'Studio bridge', asr: 'Qwen ASR', tts: 'Qwen TTS', livetalking: 'LiveTalking' };
 function formatElapsed(startedAt) {
   const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
@@ -310,8 +384,8 @@ function updateSpeechStopButtons(snapshot) {
 function renderStartupProgress(snapshot) {
   const phase = snapshot.service.phase;
   const active = [];
-  for (const stage of ['database', 'persona', 'asr', 'tts', 'livetalking']) {
-    const owner = stage === 'database' || stage === 'persona' ? snapshot.brain : snapshot.supervisor;
+  for (const stage of ['database', 'persona', 'sillytavern', 'bridge', 'asr', 'tts', 'livetalking']) {
+    const owner = ['database', 'persona', 'sillytavern', 'bridge'].includes(stage) ? snapshot.brain : snapshot.supervisor;
     const state = owner?.stages?.[stage] || 'stopped';
     const startedAt = owner?.stageStartedAt?.[stage];
     const label = $(`#${stage}-state`);
@@ -339,9 +413,10 @@ function showSnapshot(snapshot) {
   const phase = snapshot.service.phase;
   servicePhase = phase;
   serviceReady = phase === 'ready';
+  $('.setup-card').classList.toggle('is-running', serviceReady);
   if (serviceReady && !wasReady) void refreshHeadinjarDiscovery();
-  $('#setup-title').textContent = serviceReady ? 'Profile running' : 'Local environment';
-  if (serviceReady && !wasReady) { $('#setup-details').open = false; $('#check-details').open = false; }
+  $('#setup-title').textContent = serviceReady ? 'Profile running' : 'Ready when you are';
+  if (serviceReady && !wasReady) $('#check-details').open = false;
   showWebRtcState(webRtcState);
   showProjectionState(projectionClient?.sessionId() ? 'connected' : 'disconnected');
   if (!serviceReady && webRtcClient) disconnectAvatar();
@@ -358,9 +433,11 @@ function showSnapshot(snapshot) {
     ? `${snapshot.downloads.label || 'Preparing download'}${snapshot.downloads.totalBytes ? ` · ${Math.round(snapshot.downloads.downloadedBytes / 1048576)} / ${Math.round(snapshot.downloads.totalBytes / 1048576)} MB` : ''}` : '';
   $('#start-profile').disabled = ['checking', 'starting', 'ready'].includes(phase);
   $('#stop-profile').disabled = ['not-configured'].includes(phase);
+  updateProfilePicker();
   renderStartupProgress(snapshot);
   $('#runtime-log').textContent = [snapshot.brain?.logExcerpt, snapshot.supervisor?.logExcerpt, snapshot.service.detail].filter(Boolean).join('\n') || 'No messages';
-  if (serviceReady && !wasReady && currentProfile?.brain.mode === 'persona') void refreshConversations().catch(error => { $('#conversation-message').textContent = error.message; });
+  if (serviceReady && !wasReady && conversationBrain(currentProfile?.brain.mode)) void refreshConversations().catch(error => { $('#conversation-message').textContent = error.message; });
+  if (serviceReady && !wasReady && currentProfile?.brain.mode === 'sillytavern') void refreshSillyTavernCharacters();
   avatarUI?.applySnapshot();
   if (phase === 'failed') message(snapshot.service.detail || 'Service failed');
   if (serviceReady && !wasReady && $('#setup-message').textContent === 'Starting services…') message('');
@@ -389,22 +466,55 @@ function showMode() {
 
 function showBrainMode() {
   const persona = fields.brainMode.value === 'persona';
-  $('#brain-settings').hidden = !persona;
-  $('#brain-managed-fields').hidden = fields.brainManaged.value !== 'managed';
-  $('#brain-conversations').hidden = !persona;
+  const sillytavern = fields.brainMode.value === 'sillytavern';
+  $('#brain-settings').hidden = !persona && !sillytavern;
+  $('#brain-persona-fields').hidden = !persona;
+  $('#brain-st-fields').hidden = !sillytavern;
+  $('#brain-managed-fields').hidden = !persona || fields.brainManaged.value !== 'managed';
+  $('#brain-yandex-fields').hidden = !sillytavern && (!persona || fields.brainManaged.value !== 'managed');
+  $('#brain-conversations').hidden = !persona && !sillytavern;
+  $('#st-character-picker').hidden = !sillytavern;
   $('#brain-library').hidden = !persona;
-  document.querySelectorAll('.brain-service').forEach(row => { row.hidden = !persona; });
-  $('#conversation-mode option[value="chat"]').textContent = persona ? 'Chat with Persona' : 'Chat with LLM';
+  $('#open-memory').hidden = !persona;
+  document.querySelectorAll('.persona-service').forEach(row => { row.hidden = !persona; });
+  document.querySelectorAll('.sillytavern-service').forEach(row => { row.hidden = !sillytavern; });
+  $('#brain-conversation-label').textContent = sillytavern ? 'SillyTavern conversation' : 'Persona conversation';
+  $('#conversation-mode option[value="chat"]').textContent = persona ? 'Chat with Persona' : sillytavern ? 'Chat with SillyTavern' : 'Chat with LLM';
+  updateCharacterControls();
+}
+
+function updateCharacterControls() {
+  const enabled = currentProfile?.brain.mode === 'sillytavern' && fields.brainMode.value === 'sillytavern';
+  $('#st-character').disabled = !enabled || conversationChangeBusy || !sillyTavernCharacters.length;
+  $('#refresh-st-characters').disabled = !enabled || conversationChangeBusy;
+}
+
+function showSelectedCharacter() {
+  const select = $('#st-character');
+  const avatar = currentProfile?.brain.sillyTavernCharacter || 'Viktor_Petrovich_Studio.png';
+  select.replaceChildren();
+  for (const item of sillyTavernCharacters) {
+    const option = document.createElement('option'); option.value = item.avatar; option.textContent = item.name;
+    select.append(option);
+  }
+  if (!sillyTavernCharacters.some(item => item.avatar === avatar)) {
+    const option = document.createElement('option'); option.value = avatar; option.textContent = `Selected: ${avatar}`;
+    select.prepend(option);
+  }
+  select.value = avatar;
+  updateCharacterControls();
 }
 
 function showSecretStatus(status) {
-  $('#brain-secret-status').textContent = `${status.apiKeyConfigured ? 'API key configured.' : 'API key not configured.'} ${status.persistent ? 'Entered keys are saved in the system keyring.' : 'Entered keys are kept until the app closes; use Persona .env for persistent settings.'}`;
+  $('#brain-secret-status').textContent = `${status.apiKeyConfigured ? 'API key configured.' : 'API key not configured.'} ${status.persistent ? 'Entered keys are saved in the system keyring.' : 'Entered keys are kept until the app closes; use a local .env for persistent settings.'}`;
 }
 
 function showProfile(profile) {
   currentProfile = profile;
+  profileRoot = profile.liveTalking.root;
+  showProfileSummary();
   void refreshHeadinjarDiscovery();
-  $('#profile-name').textContent = profile.name;
+  $('#profile-picker').value = profile.id;
   $('#root-path').textContent = profile.liveTalking.root || 'Not found beside the app';
   fields.python.value = profile.liveTalking.python;
   fields.model.value = profile.liveTalking.model;
@@ -425,9 +535,15 @@ function showProfile(profile) {
   fields.brainPython.value = profile.brain.python;
   fields.brainDatabase.value = profile.brain.databaseMode;
   fields.brainFolder.value = profile.brain.folderId;
+  fields.brainStRoot.value = profile.brain.sillyTavernRoot;
+  fields.brainStUrl.value = profile.brain.sillyTavernUrl;
+  sillyTavernCharacters = [];
+  showSelectedCharacter();
   brainState = { conversationId: profile.brain.conversationId, turns: {}, pending: 0 };
+  $('#brain-turn-state').textContent = `${activeBrainName()} is idle`;
   showMode();
   showBrainMode();
+  if (profile.brain.mode === 'sillytavern') void refreshSillyTavernCharacters();
   updateWorkflowHint();
 }
 
@@ -436,6 +552,7 @@ function formProfile() {
     ...currentProfile,
     liveTalking: {
       ...currentProfile.liveTalking,
+      root: profileRoot,
       python: fields.python.value,
       model: fields.model.value,
       avatarId: fields.avatarId.value,
@@ -455,15 +572,20 @@ function formProfile() {
     brain: { ...currentProfile.brain, mode: fields.brainMode.value,
       managed: fields.brainManaged.value === 'managed', url: fields.brainUrl.value,
       root: fields.brainRoot.value, python: fields.brainPython.value,
-      databaseMode: fields.brainDatabase.value, folderId: fields.brainFolder.value },
+      databaseMode: fields.brainDatabase.value, folderId: fields.brainFolder.value,
+      sillyTavernRoot: fields.brainStRoot.value, sillyTavernUrl: fields.brainStUrl.value,
+      conversationId: fields.brainMode.value === currentProfile.brain.mode ? currentProfile.brain.conversationId : '' },
   };
 }
 
 async function saveCurrentProfile() {
   currentProfile = await bridge.saveProfile(formProfile());
+  showProfileList(await bridge.listProfiles());
   const status = await bridge.setBrainSecrets(currentProfile.id, { apiKey: fields.brainKey.value, databaseUrl: fields.brainDatabaseUrl.value });
   fields.brainKey.value = ''; fields.brainDatabaseUrl.value = '';
   showSecretStatus(status);
+  showBrainMode();
+  showProfileSummary();
   return currentProfile;
 }
 
@@ -491,7 +613,7 @@ async function loadHistory(identifier) {
 }
 
 async function refreshConversations() {
-  if (!currentProfile || currentProfile.brain.mode !== 'persona') return;
+  if (!currentProfile || !conversationBrain(currentProfile.brain.mode)) return;
   const conversations = await bridge.brainConversations(currentProfile.id);
   const select = $('#brain-conversation');
   select.replaceChildren();
@@ -505,10 +627,27 @@ async function refreshConversations() {
   await loadHistory(currentProfile.brain.conversationId);
 }
 
+async function refreshSillyTavernCharacters() {
+  if (currentProfile?.brain.mode !== 'sillytavern') return;
+  const profileId = currentProfile.id;
+  const label = $('#st-character-message');
+  label.textContent = 'Loading characters…';
+  try {
+    const characters = await bridge.sillyTavernCharacters(profileId);
+    if (currentProfile?.id !== profileId || currentProfile.brain.mode !== 'sillytavern') return;
+    sillyTavernCharacters = characters;
+    showSelectedCharacter();
+    label.textContent = characters.length ? `${characters.length} characters available.` : 'No SillyTavern characters found.';
+  } catch (error) {
+    if (currentProfile?.id === profileId) label.textContent = serviceReady ? error.message : 'Start the profile or SillyTavern, then refresh characters.';
+  }
+}
+
 function updateConversationSelectionControls() {
   $('#new-brain-conversation').disabled = conversationChangeBusy;
   $('#brain-conversation').disabled = conversationChangeBusy;
   $('#refresh-brain-conversations').disabled = conversationChangeBusy;
+  updateCharacterControls();
   updateConversationControls();
   showMicrophoneState(microphoneState);
 }
@@ -523,7 +662,7 @@ async function applyBrainConversation(identifier) {
   await bridge.saveProfile(currentProfile);
   selectConversationTarget(activeTarget);
   speechInterrupted = false;
-  $('#brain-turn-state').textContent = 'Persona is idle';
+  $('#brain-turn-state').textContent = `${activeBrainName()} is idle`;
   await refreshConversations();
 }
 
@@ -558,6 +697,42 @@ async function newConversation({ keepConnectionAttempt = false } = {}) {
   }
 }
 
+async function switchSillyTavernCharacter(avatar) {
+  if (currentProfile?.brain.mode !== 'sillytavern' || avatar === currentProfile.brain.sillyTavernCharacter) return;
+  if (conversationChangeBusy || sending || previewBusy || projectionBusy) throw new Error('Wait for the current conversation action to finish.');
+  if (recording || recordingBusy) throw new Error('Finish recording before changing characters.');
+  const previous = structuredClone(currentProfile);
+  conversationChangeBusy = true;
+  updateConversationSelectionControls();
+  try {
+    if (continuousVoiceClient) await stopContinuousVoice();
+    ++microphoneGeneration;
+    asrClient?.dispose(); asrClient = null;
+    showMicrophoneState('idle');
+    currentProfile = await bridge.selectSillyTavernCharacter(previous.id, avatar);
+    if (activeSessionId()) {
+      const conversation = await bridge.createBrainConversation(previous.id);
+      await applyBrainConversation(conversation.id);
+    } else {
+      clearConversation();
+      if (serviceReady) await refreshConversations();
+    }
+    showSelectedCharacter();
+    $('#brain-turn-state').textContent = `${activeBrainName()} is idle`;
+    $('#conversation-message').textContent = `${activeBrainName()} selected.`;
+  } catch (error) {
+    await bridge.selectSillyTavernCharacter(previous.id, previous.brain.sillyTavernCharacter).catch(() => {});
+    await bridge.saveProfile(previous).catch(() => {});
+    currentProfile = previous;
+    if (activeSessionId() && previous.brain.conversationId) await conversationClient?.setConversation(previous.brain.conversationId).catch(() => {});
+    showSelectedCharacter();
+    throw error;
+  } finally {
+    conversationChangeBusy = false;
+    updateConversationSelectionControls();
+  }
+}
+
 function receiveBrainEvent(event) {
   const next = reduceBrainEvent(brainState, event);
   if (next === brainState) return;
@@ -573,19 +748,21 @@ function receiveBrainEvent(event) {
     if (!row) row = appendMessage('', 'chat', { role: 'assistant', requestId: event.request_id });
     row.dataset.status = turn.status;
     row.querySelector('div').textContent = turn.error || turn.text || '…';
-    row.querySelector('small').textContent = turn.status === 'delta' ? 'PERSONA · REPLYING' : turn.status === 'error' ? 'PERSONA · ERROR' : 'PERSONA';
+    const name = activeBrainName().toUpperCase();
+    row.querySelector('small').textContent = turn.status === 'delta' ? `${name} · REPLYING` : turn.status === 'error' ? `${name} · ERROR` : name;
     row.scrollIntoView({ block: 'nearest' });
   }
   if (turn.status === 'error') { failedTurn = submittedTurns.get(event.request_id); $('#retry-message').hidden = !failedTurn; }
   if (!brainState.pending) speechInterrupted = false;
+  const name = activeBrainName();
   $('#brain-turn-state').textContent = brainState.pending
-    ? speechInterrupted ? 'Speech stopped; Persona is saving the response…' : event.event === 'delta' ? 'Persona is replying…' : 'Persona is thinking…'
-    : 'Persona is idle';
+    ? speechInterrupted ? `Speech stopped; ${name} is saving the response…` : event.event === 'delta' ? `${name} is replying…` : `${name} is thinking…`
+    : `${name} is idle`;
 }
 
 function connectBrainEvents() {
   brainSource?.close();
-  if (currentProfile.brain.mode !== 'persona') return;
+  if (!conversationBrain(currentProfile.brain.mode)) return;
   brainSource = new EventSource(`http://127.0.0.1:${currentProfile.liveTalking.port}/sse?sessionid=${encodeURIComponent(activeSessionId())}`);
   const source = brainSource;
   const token = sessionGeneration;
@@ -594,7 +771,10 @@ function connectBrainEvents() {
   brainSource.onerror = () => { if (source !== brainSource || token !== sessionGeneration) return; $('#brain-turn-state').textContent = 'Reconnecting response stream…'; };
 }
 
-function message(text) { $('#setup-message').textContent = text; }
+function message(text) {
+  $('#setup-message').textContent = text;
+  $('#settings-message').textContent = text;
+}
 
 function showResults(results) {
   const list = $('#setup-results');
@@ -622,7 +802,8 @@ async function checkSetup() {
     const missing = results.filter(item => item.state !== 'ready').length;
     const manual = results.filter(item => item.state !== 'ready' && !(item.state === 'missing' && ['avatar-model', 'asr-model', 'tts-model'].includes(item.id))).length;
     $('#check-details').open = missing > 0;
-    message(manual ? `Fix: ${manual}` : missing ? 'Models will be downloaded at startup.' : 'All checks passed. The profile is ready to start.');
+    $('#review-setup').hidden = !manual;
+    message(manual ? `${manual} setup ${manual === 1 ? 'item needs' : 'items need'} attention.` : missing ? 'Models will be downloaded at startup.' : 'All checks passed. The profile is ready to start.');
     return results;
   } catch (error) { message(error.message); return null; }
 }
@@ -636,6 +817,14 @@ $('#choose-brain-root').addEventListener('click', async () => {
 });
 $('#new-brain-conversation').addEventListener('click', () => { void newConversation().catch(error => { $('#conversation-message').textContent = error.message; }); });
 $('#refresh-brain-conversations').addEventListener('click', () => { void refreshConversations().catch(error => { $('#conversation-message').textContent = error.message; }); });
+$('#refresh-st-characters').addEventListener('click', () => { void refreshSillyTavernCharacters(); });
+$('#st-character').addEventListener('change', async () => {
+  try { await switchSillyTavernCharacter($('#st-character').value); }
+  catch (error) {
+    showSelectedCharacter();
+    $('#conversation-message').textContent = error.message;
+  }
+});
 $('#brain-conversation').addEventListener('change', async () => {
   try {
     const identifier = $('#brain-conversation').value;
@@ -669,21 +858,26 @@ $('#known-voices').addEventListener('change', () => {
     fields.transcript.value = voice.text;
   }
 });
-$('#check-setup').addEventListener('click', checkSetup);
+$('#check-setup').addEventListener('click', () => { dialogs.selectTab('services'); void checkSetup(); });
 $('#setup-form').addEventListener('submit', async event => {
   event.preventDefault();
+  if (settingsSaving) return;
+  settingsSaving = true;
+  dialogs.setBusy(true);
   try {
     await saveCurrentProfile();
-    message('Profile saved. Restart it to change the brain.');
     await checkSetup();
+    message(serviceReady ? 'Profile saved. Restart services to apply changes.' : 'Profile saved. Press Start when ready.');
+    dialogs.closeSettings();
   } catch (error) { message(error.message); }
+  finally { settingsSaving = false; dialogs.setBusy(false); }
 });
 $('#choose-root').addEventListener('click', async () => {
   const selected = await bridge.chooseLiveTalkingRoot();
   if (!selected) return;
   const { root, voiceReferences } = selected;
-  const previous = currentProfile.liveTalking.root;
-  currentProfile.liveTalking.root = root;
+  const previous = profileRoot;
+  profileRoot = root;
   if (!fields.python.value || fields.python.value === `${previous}/.venv/bin/python`) fields.python.value = `${root}/.venv/bin/python`;
   $('#root-path').textContent = root;
   showKnownVoices(voiceReferences);
@@ -711,6 +905,31 @@ $('#start-profile').addEventListener('click', async () => {
     await bridge.startProfile(currentProfile.id);
   } catch (error) { message(error.message); }
 });
+$('#profile-picker').addEventListener('change', async () => {
+  const id = $('#profile-picker').value;
+  const previous = currentProfile?.id;
+  if (!id || id === previous) return;
+  if (servicePhase !== 'not-configured' || recording || recordingBusy) { $('#profile-picker').value = previous; return; }
+  profileSwitchBusy = true;
+  updateProfilePicker();
+  try {
+    const { profile, voiceReferences, avatars, secrets } = await bridge.getProfile(id);
+    ++historyGeneration;
+    clearConversation();
+    $('#brain-conversation').replaceChildren(new Option('New conversation', ''));
+    showProfile(profile);
+    showKnownVoices(voiceReferences);
+    showSecretStatus(secrets);
+    avatarUI?.applySnapshot(avatars || {});
+    await checkSetup();
+  } catch (error) {
+    $('#profile-picker').value = previous;
+    message(error.message);
+  } finally {
+    profileSwitchBusy = false;
+    updateProfilePicker();
+  }
+});
 $('#stop-profile').addEventListener('click', async () => {
   if (recording || recordingBusy) { $('#conversation-message').textContent = 'Finish recording before stopping the profile.'; return; }
   try { await disconnectProjection(); } catch (error) { $('#projection-state').textContent = error.message; }
@@ -732,7 +951,7 @@ $('#connect-avatar').addEventListener('click', async () => {
   showWebRtcState('connecting');
   let client;
   try {
-    if (currentProfile.brain.mode === 'persona') {
+    if (conversationBrain(currentProfile.brain.mode)) {
       if (!currentProfile.brain.conversationId) await newConversation({ keepConnectionAttempt: true });
       else await loadHistory(currentProfile.brain.conversationId);
     }
@@ -749,7 +968,7 @@ $('#connect-avatar').addEventListener('click', async () => {
       avatarId: currentProfile.liveTalking.avatarId,
       referenceWav: currentProfile.speech.referenceWav,
       referenceText: currentProfile.speech.referenceText,
-      conversationId: currentProfile.brain.mode === 'persona' ? currentProfile.brain.conversationId : '',
+      conversationId: conversationBrain(currentProfile.brain.mode) ? currentProfile.brain.conversationId : '',
     });
     if (attempt !== connectionGeneration || client !== webRtcClient) return;
     selectConversationTarget('preview');
@@ -772,7 +991,11 @@ $('#connect-projection').addEventListener('click', async () => {
   if (!serviceReady || !currentProfile || projectionBusy || previewBusy || webRtcClient) return;
   const url = $('#projection-url').value.trim();
   const token = $('#projection-token').value.trim();
-  if (!url) { $('#projection-state').textContent = 'Enter the WHIP URL from Head in Jar'; return; }
+  if (!url) {
+    $('#projection-state').textContent = 'Choose a device first';
+    $('#projection-settings-dialog').showModal();
+    return;
+  }
   if ($('#projection-discovered').selectedOptions[0]?.dataset.auth === 'bearer' && !token) {
     $('#projection-state').textContent = 'This Head in Jar requires a bearer token'; return;
   }
@@ -782,7 +1005,7 @@ $('#connect-projection').addEventListener('click', async () => {
   let client;
   let failure = '';
   try {
-    if (currentProfile.brain.mode === 'persona') {
+    if (conversationBrain(currentProfile.brain.mode)) {
       if (!currentProfile.brain.conversationId) await newConversation({ keepConnectionAttempt: true });
       else await loadHistory(currentProfile.brain.conversationId);
     }
@@ -794,7 +1017,7 @@ $('#connect-projection').addEventListener('click', async () => {
     projectionClient = client;
     await client.connect({ url, token, avatarId: currentProfile.liveTalking.avatarId,
       referenceWav: currentProfile.speech.referenceWav, referenceText: currentProfile.speech.referenceText,
-      conversationId: currentProfile.brain.mode === 'persona' ? currentProfile.brain.conversationId : '' });
+      conversationId: conversationBrain(currentProfile.brain.mode) ? currentProfile.brain.conversationId : '' });
     if (attempt !== connectionGeneration || client !== projectionClient) return;
     selectConversationTarget('projection');
     showProjectionState('connected');
@@ -878,7 +1101,7 @@ $('#handsfree-button').addEventListener('click', async () => {
       const accepted = await submitTurn({ text, type: 'chat', requestId: crypto.randomUUID() });
       if (!accepted || signal.aborted || activeSessionId() !== targetSession) return;
       await waitForAvatarReply({ speaking: () => targetClient.speaking(),
-        pending: () => currentProfile.brain.mode === 'persona' && brainState.pending > 0, signal });
+        pending: () => conversationBrain(currentProfile.brain.mode) && brainState.pending > 0, signal });
     },
   });
   continuousVoiceClient = client;
@@ -915,7 +1138,7 @@ $('#interrupt-avatar').addEventListener('click', async () => {
   try {
     await conversationClient.interrupt();
     speechInterrupted = true;
-    if (brainState.pending) $('#brain-turn-state').textContent = 'Speech stopped; Persona is saving the response…';
+    if (brainState.pending) $('#brain-turn-state').textContent = `Speech stopped; ${activeBrainName()} is saving the response…`;
     $('#conversation-message').textContent = 'Speech interrupted.';
   } catch (error) { $('#conversation-message').textContent = error.message; }
 });
@@ -990,14 +1213,15 @@ if (bridge) {
   window.addEventListener('beforeunload', () => avatarUI.dispose());
   bridge.onSnapshot(showSnapshot);
   bridge.getSnapshot().then(showSnapshot).catch(error => message(error.message));
-  bridge.getSetup().then(async ({ profile, voiceReferences, avatars, secrets, recoveryError, testFixture: fixture }) => {
+  bridge.getSetup().then(async ({ profile, profiles, voiceReferences, avatars, secrets, recoveryError, testFixture: fixture }) => {
     testFixture = fixture;
     showProfile(profile);
+    showProfileList(profiles || []);
     avatarUI.applySnapshot(avatars || {});
     showKnownVoices(voiceReferences);
     showSecretStatus(secrets);
     if (recoveryError) { $('#setup-recovery').textContent = recoveryError; $('#setup-recovery').hidden = false; }
     await checkSetup();
-    if (serviceReady && currentProfile.brain.mode === 'persona') await refreshConversations();
+    if (serviceReady && conversationBrain(currentProfile.brain.mode)) await refreshConversations();
   }).catch(error => message(error.message));
 }

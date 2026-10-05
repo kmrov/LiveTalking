@@ -18,7 +18,9 @@ export async function isCompatibleDesktopHealth(payload,profile) {
   const compatible=payload.code===0 && payload.data?.service==='livetalking' && payload.data?.api_version===1;
   if(!compatible||!profile)return compatible;
   const mode=payload.data.brain?.mode||'direct';
-  if(mode!==profile.brain.mode || (mode==='persona' && payload.data.brain.url?.replace(/\/$/,'')!==profile.brain.url))return false;
+  const expectedMode = profile.brain.mode === 'sillytavern' ? 'persona' : profile.brain.mode;
+  const expectedUrl = profile.brain.mode === 'sillytavern' ? 'http://127.0.0.1:8002' : profile.brain.url;
+  if(mode!==expectedMode || (mode==='persona' && payload.data.brain.url?.replace(/\/$/,'')!==expectedUrl))return false;
   try{return payload.data.avatar?.model===profile.liveTalking.model && payload.data.avatar.root===await realpath(profile.liveTalking.root);}
   catch{return false;}
 }
@@ -49,6 +51,7 @@ export function launcherArguments(input) {
   args.push('--', '--transport', 'webrtc', '--listenhost', '127.0.0.1', '--listenport', String(lt.port), '--model', lt.model, '--avatar_id', lt.avatarId);
   if (['ditto', 'soulx'].includes(lt.model)) args.push('--max_session', '1');
   if (profile.brain.mode === 'persona') args.push('--llm_provider', 'persona', '--persona_url', profile.brain.url);
+  if (profile.brain.mode === 'sillytavern') args.push('--llm_provider', 'persona', '--persona_url', 'http://127.0.0.1:8002');
   return args;
 }
 

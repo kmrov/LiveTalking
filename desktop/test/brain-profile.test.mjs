@@ -31,3 +31,17 @@ test('saved Batya checkout paths follow the renamed Persona directory', () => {
     assert.equal(migrated.brain.python, path.join(root, '.venv/bin/python'));
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
+
+test('SillyTavern mode keeps Persona settings and validates loopback API URL', () => {
+  const profile = normalizeProfile({ brain: {
+    mode: 'sillytavern', url: 'http://127.0.0.1:8000', sillyTavernUrl: 'http://127.0.0.1:8001',
+    sillyTavernRoot: '/home/user/SillyTavern', folderId: 'folder',
+  } });
+  assert.equal(profile.brain.mode, 'sillytavern');
+  assert.equal(profile.brain.url, 'http://127.0.0.1:8000');
+  assert.equal(profile.brain.sillyTavernUrl, 'http://127.0.0.1:8001');
+  assert.equal(profile.brain.sillyTavernCharacter, 'Viktor_Petrovich_Studio.png');
+  assert.equal(normalizeProfile({ brain: { mode: 'sillytavern', sillyTavernCharacter: 'Другая героиня.png' } }).brain.sillyTavernCharacter, 'Другая героиня.png');
+  assert.throws(() => normalizeProfile({ brain: { mode: 'sillytavern', sillyTavernCharacter: '../escape.png' } }), /character filename/);
+  assert.throws(() => normalizeProfile({ brain: { mode: 'sillytavern', sillyTavernUrl: 'https://example.org' } }), /sillyTavernUrl/);
+});

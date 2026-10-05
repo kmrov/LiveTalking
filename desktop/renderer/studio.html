@@ -11,81 +11,45 @@
   <div class="app-shell">
     <header class="topbar">
       <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>LIVE<span class="brand-light">TALKING</span></span></div>
-      <div class="topbar-context"><span class="section-label">STUDIO</span><span class="context-divider"></span><span id="profile-name">New profile</span></div>
+      <div class="topbar-context"><span class="section-label">STUDIO</span><span class="context-divider"></span><label class="profile-picker-label">Profile <select id="profile-picker" aria-label="Studio profile"><option value="">New profile</option></select></label></div>
       <div class="topbar-state"><button id="start-profile" type="button">Start</button><button id="stop-profile" type="button" disabled>Stop</button><span class="status-dot" aria-hidden="true"></span><span id="runtime-state">Not configured</span></div>
     </header>
     <div id="startup-progress" class="startup-progress" hidden><span class="startup-spinner" aria-hidden="true"></span><span id="startup-progress-text">Preparing services…</span></div>
 
     <main class="workspace">
       <aside id="profile-panel" class="left-panel" aria-label="Source and profile">
-        <div class="panel-heading"><span>PROFILE</span><span class="index">01</span></div>
+        <div class="panel-heading"><span>PROFILE</span></div>
         <section class="avatar-summary" aria-label="Selected avatar">
           <div class="avatar-current"><img id="selected-avatar-image" alt="" hidden><div><strong id="selected-avatar-name">Select an avatar</strong><small id="selected-avatar-model"></small></div></div>
-          <div class="avatar-actions"><button type="button" id="open-avatar-library">Select</button><button type="button" id="open-avatar-create">Create avatar</button></div>
+          <div class="avatar-actions"><button type="button" id="open-avatar-library">Choose avatar</button><button type="button" id="open-avatar-create">Create avatar</button></div>
           <button type="button" id="open-avatar-job" class="text-button" hidden>Show progress</button>
           <p id="avatar-summary-message" role="status"></p>
         </section>
+        <div class="profile-overview">
+          <div class="overview-row"><div><span>Voice</span><strong id="profile-voice-summary">No voice selected</strong></div><button type="button" class="text-button" data-open-settings="voice">Change voice</button></div>
+          <div class="overview-row"><div><span>Brain</span><strong id="profile-brain-summary">Direct LLM</strong></div><button type="button" class="text-button" data-open-settings="brain">Change brain</button></div>
+          <button type="button" id="open-profile-settings" class="secondary-button" data-open-settings="services">Profile settings</button>
+        </div>
         <div class="setup-card">
-          <h1 id="setup-title">Check your environment</h1>
-          <p id="setup-description">You can change service paths and voice settings below.</p>
-          <div class="detected-root"><span>LIVETALKING FOLDER</span><strong id="root-path">Searching…</strong><button type="button" class="text-button" id="choose-root">Choose another folder</button></div>
-          <details id="setup-details" class="setup-details" open><summary>Environment settings</summary><form id="setup-form">
-            <h2 class="setup-form-heading">Services and connection</h2>
-            <label>Python LiveTalking<input id="python-path" autocomplete="off" spellcheck="false" placeholder="/path/to/.venv/bin/python"></label>
-            <input id="avatar-model" type="hidden"><input id="avatar-id" type="hidden">
-            <label>LiveTalking port<input id="server-port" type="number" min="1" max="65535"></label>
-            <label>Model mode<select id="speech-mode"><option value="local">Run locally</option><option value="external">External servers</option></select></label>
-            <div id="local-model-fields"><label>vLLM for ASR<input id="asr-vllm" autocomplete="off" spellcheck="false"></label><label>vLLM for TTS<input id="tts-vllm" autocomplete="off" spellcheck="false"></label></div>
-            <div id="external-model-fields" hidden><label>URL ASR<input id="asr-url" type="url" placeholder="http://127.0.0.1:8092"></label><label>URL TTS<input id="tts-url" type="url" placeholder="http://127.0.0.1:8091"></label></div>
-            <h2 class="setup-form-heading">Avatar voice</h2>
-            <label id="known-voices-label" hidden>Detected samples<select id="known-voices"></select></label>
-            <label>Voice sample WAV<input id="voice-wav" autocomplete="off" spellcheck="false" placeholder="/path/to/voice.wav"></label>
-            <button type="button" class="text-button" id="choose-voice">Choose WAV</button>
-            <label>Sample transcript<textarea id="voice-text" rows="2" placeholder="Exact transcript of the recording"></textarea></label>
-            <label>Avatar brain<select id="brain-mode"><option value="direct">Direct LLM</option><option value="persona">Persona · memory and conversations</option></select></label>
-            <div id="brain-settings" hidden>
-              <p class="setting-hint">Changing the brain requires restarting the profile.</p>
-              <label>Persona service<select id="brain-service-mode"><option value="managed">Start automatically</option><option value="external">Existing API</option></select></label>
-              <label>Persona URL<input id="brain-url" type="url" placeholder="http://127.0.0.1:8000"></label>
-              <div id="brain-managed-fields">
-                <label>Persona folder<input id="brain-root" autocomplete="off" spellcheck="false"></label>
-                <button type="button" class="text-button" id="choose-brain-root">Choose folder</button>
-                <label>Persona Python<input id="brain-python" autocomplete="off" spellcheck="false"></label>
-                <label>PostgreSQL<select id="brain-database-mode"><option value="compose">Persona Docker Compose</option><option value="external">Existing database</option></select></label>
-                <label>Yandex folder ID<input id="brain-folder" autocomplete="off" spellcheck="false"></label>
-                <label>Yandex API key<input id="brain-key" type="password" autocomplete="off" placeholder="Leave blank if already configured"></label>
-                <label>PostgreSQL URL<input id="brain-database-url" type="password" autocomplete="off" placeholder="Optional if configured in .env"></label>
-                <p id="brain-secret-status" class="setting-hint"></p>
-              </div>
-            </div>
-            <label class="checkbox-label"><input id="auto-start" type="checkbox"> Start on launch</label>
-            <div class="setup-actions"><button type="button" id="check-setup">Check</button><button type="submit" class="primary-button">Save profile</button></div>
-          </form></details>
+          <h1 id="setup-title">Ready when you are</h1>
+          <p id="setup-description">Choose an avatar and voice, then press Start.</p>
           <p id="setup-message" role="status"></p>
           <p id="setup-recovery" role="alert" hidden></p>
-          <details id="check-details" class="setup-details"><summary>Check results</summary><ul id="setup-results" aria-label="Check results"></ul></details>
+          <button type="button" id="review-setup" class="text-button" data-open-settings="services" hidden>Review setup</button>
         </div>
         <div class="panel-divider"></div>
-        <div class="panel-heading"><span>SERVICES</span><span class="index">02</span></div>
+        <div class="panel-heading"><span>SERVICES</span></div>
         <div class="service-list" aria-label="Service status">
           <div class="service-row"><span>LiveTalking</span><span id="livetalking-state">Idle</span></div>
           <div class="service-row"><span>Speech recognition</span><div class="service-controls"><span id="asr-state">Idle</span><button id="stop-asr" type="button" title="Stop Studio-owned ASR server" hidden disabled>Stop ASR</button></div></div>
           <div class="service-row"><span>Speech synthesis</span><div class="service-controls"><span id="tts-state">Idle</span><button id="stop-tts" type="button" title="Stop Studio-owned TTS server" hidden disabled>Stop TTS</button></div></div>
-          <div class="service-row brain-service" hidden><span>Persona</span><span id="persona-state">Idle</span></div>
-          <div class="service-row brain-service" hidden><span>PostgreSQL</span><span id="database-state">Idle</span></div>
+          <div class="service-row brain-service persona-service" hidden><span>Persona</span><span id="persona-state">Idle</span></div>
+          <div class="service-row brain-service persona-service" hidden><span>PostgreSQL</span><span id="database-state">Idle</span></div>
+          <div class="service-row brain-service sillytavern-service" hidden><span>SillyTavern</span><span id="sillytavern-state">Idle</span></div>
+          <div class="service-row brain-service sillytavern-service" hidden><span>Studio bridge</span><span id="bridge-state">Idle</span></div>
         </div>
         <details class="runtime-logs"><summary>Startup log</summary><pre id="runtime-log"></pre></details>
-        <details id="brain-library" class="setup-details" hidden><summary>Persona memory and documents</summary>
-          <button type="button" id="refresh-memories" class="text-button">Show memory</button>
-          <ul id="brain-memories"></ul>
-          <form id="brain-document-form">
-            <label>Document title<input id="brain-document-title" maxlength="500"></label>
-            <label>Source<input id="brain-document-source" value="LiveTalking Studio" maxlength="1000"></label>
-            <label>Text<textarea id="brain-document-content" rows="3" placeholder="Text for Persona memory"></textarea></label>
-            <button type="submit" class="text-button">Add document</button>
-          </form>
-          <p id="brain-library-message" role="status"></p>
-        </details>
+        <button type="button" id="open-memory" class="secondary-button" data-open-dialog="memory-dialog" hidden>Memory &amp; documents</button>
       </aside>
 
       <div id="left-panel-resizer" class="panel-resizer" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Profile panel width" aria-controls="profile-panel"></div>
@@ -109,9 +73,7 @@
         <div class="stage-footer"><span class="muted">WebRTC</span><span id="webrtc-state">Disconnected</span></div>
         <section class="projection-panel" aria-label="Head in Jar projection">
           <div class="projection-heading"><strong>Head in Jar</strong><span id="projection-state" role="status">Disconnected</span></div>
-          <label>Head in Jar on local network<select id="projection-discovered"><option value="">Searching for devices…</option></select></label>
-          <label>WHIP URL<input id="projection-url" type="url" placeholder="http://127.0.0.1:19840/whip" autocomplete="off"></label>
-          <details id="projection-advanced" class="projection-token-details"><summary>Advanced · token</summary><label>Bearer token · optional<input id="projection-token" type="password" autocomplete="off"></label><p>A token is only needed if the Head in Jar server requires one.</p></details>
+          <div class="projection-target"><span id="projection-target-label">Choose a device to project your avatar</span><button type="button" id="open-projection-settings" class="text-button" data-open-dialog="projection-settings-dialog">Connection settings</button></div>
           <button id="connect-projection" type="button" disabled>Connect projection</button>
           <p id="projection-hint">Start the connection server in Head in Jar first. Enable the projector there separately.</p>
         </section>
@@ -120,9 +82,14 @@
       <div id="right-panel-resizer" class="panel-resizer" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Conversation panel width" aria-controls="conversation-panel"></div>
 
       <aside id="conversation-panel" class="right-panel" aria-label="Conversation">
-        <div class="panel-heading"><span>CONVERSATION</span><span class="index">03</span></div>
+        <div class="panel-heading"><span>CONVERSATION</span></div>
         <div id="brain-conversations" hidden>
-          <label>Persona conversation<select id="brain-conversation"><option value="">New conversation</option></select></label>
+          <div id="st-character-picker" hidden>
+            <label>SillyTavern character<select id="st-character"><option value="Viktor_Petrovich_Studio.png">Виктор Петрович</option></select></label>
+            <div class="brain-actions"><button type="button" id="refresh-st-characters">Refresh characters</button></div>
+            <p id="st-character-message" role="status"></p>
+          </div>
+          <label><span id="brain-conversation-label">Persona conversation</span><select id="brain-conversation"><option value="">New conversation</option></select></label>
           <div class="brain-actions"><button type="button" id="new-brain-conversation">New</button><button type="button" id="refresh-brain-conversations">Refresh</button></div>
           <p id="brain-turn-state" role="status">Persona is idle</p>
         </div>
@@ -130,7 +97,7 @@
         <ol id="conversation-list" aria-label="Conversation history" hidden></ol>
         <div class="conversation-tools"><span id="speaking-state">Idle</span><button type="button" id="interrupt-avatar" disabled>Interrupt</button><button type="button" id="record-avatar" disabled>Record MP4</button></div>
         <div class="microphone-tools"><button id="microphone-button" type="button" disabled>Microphone</button><span id="microphone-state">Press to speak</span></div>
-        <div class="handsfree-tools"><button id="handsfree-button" type="button" disabled>Auto conversation</button><label><input id="handsfree-barge-in" type="checkbox">Allow interruption</label></div>
+        <div class="handsfree-tools"><button id="handsfree-button" type="button" disabled>Auto conversation</button><details class="voice-options"><summary>Options</summary><label><input id="handsfree-barge-in" type="checkbox">Allow interruption</label><p>Listen while the avatar replies. Headphones help prevent echo.</p></details></div>
         <p id="handsfree-state" role="status" data-state="idle">Auto conversation is off</p>
         <p id="handsfree-level" class="handsfree-level" hidden>Input: waiting for signal</p>
         <p class="voice-mode-hint">Microphone records one phrase; Auto conversation lets you speak hands-free.</p>
@@ -146,6 +113,94 @@
 
     <footer class="statusbar"><div><span class="status-dot" aria-hidden="true"></span><span id="workflow-hint">Profile ready to start</span></div><div class="statusbar-right"><span id="runtime-mode">Local mode</span><span class="statusbar-separator"></span><span id="app-version">v0.1</span></div></footer>
   </div>
+  <dialog id="profile-settings-dialog" class="studio-dialog settings-dialog" aria-labelledby="profile-settings-title">
+    <div class="studio-dialog-heading"><div><h2 id="profile-settings-title">Profile settings</h2><p>Set up your voice, brain and local services.</p></div><button type="button" data-close-dialog aria-label="Close profile settings">×</button></div>
+    <div class="settings-tabs" role="tablist" aria-label="Profile settings">
+      <button type="button" id="settings-tab-voice" role="tab" aria-controls="settings-voice" aria-selected="true" data-settings-tab="voice">Voice</button>
+      <button type="button" id="settings-tab-brain" role="tab" aria-controls="settings-brain" aria-selected="false" tabindex="-1" data-settings-tab="brain">Brain</button>
+      <button type="button" id="settings-tab-services" role="tab" aria-controls="settings-services" aria-selected="false" tabindex="-1" data-settings-tab="services">Services</button>
+    </div>
+    <div id="setup-details" class="dialog-body">
+      <form id="setup-form">
+        <section id="settings-voice" role="tabpanel" aria-labelledby="settings-tab-voice">
+          <p class="setting-hint">The avatar uses this recording as its voice. Include the exact words spoken in the sample.</p>
+
+            <label id="known-voices-label" hidden>Detected samples<select id="known-voices"></select></label>
+            <label>Voice sample WAV<input id="voice-wav" autocomplete="off" spellcheck="false" placeholder="/path/to/voice.wav"></label>
+            <button type="button" class="text-button" id="choose-voice">Choose WAV</button>
+            <label>Sample transcript<textarea id="voice-text" rows="2" placeholder="Exact transcript of the recording"></textarea></label>
+        </section>
+        <section id="settings-brain" role="tabpanel" aria-labelledby="settings-tab-brain" hidden>
+          <p class="setting-hint">Choose who replies: a direct LLM, Persona with memory, or a SillyTavern character.</p>
+            <label>Avatar brain<select id="brain-mode"><option value="direct">Direct LLM</option><option value="persona">Persona · memory and conversations</option><option value="sillytavern">SillyTavern · characters and chats</option></select></label>
+            <div id="brain-settings" hidden>
+              <p class="setting-hint">Changing the brain requires restarting the profile.</p>
+              <div id="brain-persona-fields">
+              <label>Persona service<select id="brain-service-mode"><option value="managed">Start automatically</option><option value="external">Existing API</option></select></label>
+              <label>Persona URL<input id="brain-url" type="url" placeholder="http://127.0.0.1:8000"></label>
+              <div id="brain-managed-fields">
+                <label>Persona folder<input id="brain-root" autocomplete="off" spellcheck="false"></label>
+                <button type="button" class="text-button" id="choose-brain-root">Choose folder</button>
+                <label>Persona Python<input id="brain-python" autocomplete="off" spellcheck="false"></label>
+                <label>PostgreSQL<select id="brain-database-mode"><option value="compose">Persona Docker Compose</option><option value="external">Existing database</option></select></label>
+                <label>PostgreSQL URL<input id="brain-database-url" type="password" autocomplete="off" placeholder="Optional if configured in .env"></label>
+              </div>
+              </div>
+              <div id="brain-st-fields" hidden>
+                <label>SillyTavern folder<input id="brain-st-root" autocomplete="off" spellcheck="false" placeholder="/home/user/SillyTavern"></label>
+                <label>SillyTavern URL<input id="brain-st-url" type="url" placeholder="http://127.0.0.1:8001"></label>
+                <p class="setting-hint">Choose the character in the Conversation panel. Studio uses SillyTavern cards and chats; Yandex AI Studio generates replies through its Custom Chat Completion endpoint.</p>
+              </div>
+              <div id="brain-yandex-fields">
+                <label>Yandex folder ID<input id="brain-folder" autocomplete="off" spellcheck="false"></label>
+                <label>Yandex API key<input id="brain-key" type="password" autocomplete="off" placeholder="Leave blank if already configured"></label>
+                <p id="brain-secret-status" class="setting-hint"></p>
+              </div>
+            </div>
+        </section>
+        <section id="settings-services" role="tabpanel" aria-labelledby="settings-tab-services" hidden>
+          <p class="setting-hint">Detected paths usually work as they are. Change them when using another environment or external servers.</p>
+          <div class="detected-root"><span>LIVETALKING FOLDER</span><strong id="root-path">Searching…</strong><button type="button" class="text-button" id="choose-root">Choose another folder</button></div>
+
+            <label>Python LiveTalking<input id="python-path" autocomplete="off" spellcheck="false" placeholder="/path/to/.venv/bin/python"></label>
+            <input id="avatar-model" type="hidden"><input id="avatar-id" type="hidden">
+            <label>LiveTalking port<input id="server-port" type="number" min="1" max="65535"></label>
+            <label>Model mode<select id="speech-mode"><option value="local">Run locally</option><option value="external">External servers</option></select></label>
+            <div id="local-model-fields"><label>vLLM for ASR<input id="asr-vllm" autocomplete="off" spellcheck="false"></label><label>vLLM for TTS<input id="tts-vllm" autocomplete="off" spellcheck="false"></label></div>
+            <div id="external-model-fields" hidden><label>URL ASR<input id="asr-url" type="url" placeholder="http://127.0.0.1:8092"></label><label>URL TTS<input id="tts-url" type="url" placeholder="http://127.0.0.1:8091"></label></div>
+            <label class="checkbox-label"><input id="auto-start" type="checkbox"> Start on launch</label>
+          <details id="check-details" class="setup-details"><summary>Check results</summary><ul id="setup-results" aria-label="Check results"></ul></details>
+        </section>
+      </form>
+    </div>
+    <div class="dialog-footer"><p id="settings-message" role="status">Save to apply changes. Closing discards unsaved edits.</p><div class="setup-actions"><button type="button" id="check-setup">Check setup</button><button type="submit" form="setup-form" id="save-profile" class="primary-button">Save profile</button></div></div>
+  </dialog>
+  <dialog id="projection-settings-dialog" class="studio-dialog" aria-labelledby="projection-settings-title">
+    <div class="studio-dialog-heading"><div><h2 id="projection-settings-title">Head in Jar connection</h2><p>Choose a device or enter its address manually.</p></div><button type="button" data-close-dialog aria-label="Close connection settings">×</button></div>
+    <div class="dialog-body projection-fields">
+          <label>Head in Jar on local network<select id="projection-discovered"><option value="">Searching for devices…</option></select></label>
+          <label>WHIP URL<input id="projection-url" type="url" placeholder="http://127.0.0.1:19840/whip" autocomplete="off"></label>
+          <details id="projection-advanced" class="projection-token-details"><summary>Advanced · token</summary><label>Bearer token · optional<input id="projection-token" type="password" autocomplete="off"></label><p>A token is only needed if the Head in Jar server requires one.</p></details>
+      <p class="setting-hint">Start the connection server in Head in Jar. After connecting in Studio, enable the projector there.</p>
+    </div>
+    <div class="dialog-footer"><p>Return to the main screen to connect.</p><button type="button" class="secondary-button" data-close-dialog>Done</button></div>
+  </dialog>
+  <dialog id="memory-dialog" class="studio-dialog" aria-labelledby="memory-title">
+    <div class="studio-dialog-heading"><div><h2 id="memory-title">Persona memory &amp; documents</h2><p>Review remembered facts or add a document to Persona.</p></div><button type="button" data-close-dialog aria-label="Close memory">×</button></div>
+    <div class="dialog-body">
+        <section id="brain-library" hidden>
+          <button type="button" id="refresh-memories" class="text-button">Show memory</button>
+          <ul id="brain-memories"></ul>
+          <form id="brain-document-form">
+            <label>Document title<input id="brain-document-title" maxlength="500"></label>
+            <label>Source<input id="brain-document-source" value="LiveTalking Studio" maxlength="1000"></label>
+            <label>Text<textarea id="brain-document-content" rows="3" placeholder="Text for Persona memory"></textarea></label>
+            <button type="submit" class="text-button">Add document</button>
+          </form>
+          <p id="brain-library-message" role="status"></p>
+        </section>
+    </div>
+  </dialog>
   <dialog id="avatar-library-dialog" class="avatar-dialog" aria-labelledby="avatar-library-title">
     <div class="avatar-dialog-heading"><h2 id="avatar-library-title">Avatars</h2><button type="button" data-close-avatar="avatar-library-dialog" aria-label="Close library">×</button></div>
     <div class="avatar-actions"><label class="avatar-search">Search<input id="avatar-search" type="search" placeholder="Avatar name"></label><button type="button" id="refresh-avatar-library">Refresh</button><button type="button" id="library-create-avatar">Create avatar</button></div>

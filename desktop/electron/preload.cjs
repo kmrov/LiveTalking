@@ -3,6 +3,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('liveTalkingDesktop', Object.freeze({
   version: 1,
   getSetup: () => ipcRenderer.invoke('desktop:get-setup'),
+  listProfiles: () => ipcRenderer.invoke('desktop:list-profiles'),
+  getProfile: id => ipcRenderer.invoke('desktop:get-profile', id),
   checkSetup: profile => ipcRenderer.invoke('desktop:check-setup', profile),
   saveProfile: profile => ipcRenderer.invoke('desktop:save-profile', profile),
   chooseLiveTalkingRoot: () => ipcRenderer.invoke('desktop:choose-root'),
@@ -14,6 +16,8 @@ contextBridge.exposeInMainWorld('liveTalkingDesktop', Object.freeze({
   brainHistory: (id, conversationId) => ipcRenderer.invoke('desktop:brain-history', id, conversationId),
   brainMemories: id => ipcRenderer.invoke('desktop:brain-memories', id),
   brainDocument: (id, input) => ipcRenderer.invoke('desktop:brain-document', id, input),
+  sillyTavernCharacters: id => ipcRenderer.invoke('desktop:st-characters', id),
+  selectSillyTavernCharacter: (id, avatar) => ipcRenderer.invoke('desktop:st-select-character', id, avatar),
   startProfile: id => ipcRenderer.invoke('desktop:start-profile', id),
   stopProfile: () => ipcRenderer.invoke('desktop:stop-profile'),
   stopSpeechModel: stage => ipcRenderer.invoke('desktop:stop-speech-model', stage),
