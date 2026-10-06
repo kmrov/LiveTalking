@@ -9,28 +9,27 @@ function chatName(id) {
   return `studio_${id}`;
 }
 
-async function* sseContent(response) {
-  if (!response.ok) throw new Error(`SillyTavern generation failed: HTTP ${response.status}`);
+async function* characterStream(response) {
   const decoder = new TextDecoder();
   let pending = '';
+  let finished = false;
   for await (const bytes of response.body) {
     pending = (pending + decoder.decode(bytes, { stream: true })).replace(/\r\n/g, '\n');
-    let index;
-    while ((index = pending.indexOf('\n\n')) >= 0) {
-      const block = pending.slice(0, index);
-      pending = pending.slice(index + 2);
-      for (const line of block.split('\n')) {
-        if (!line.startsWith('data:')) continue;
-        const data = line.slice(5).trim();
-        if (data === '[DONE]') return;
-        const payload = JSON.parse(data);
-        if (payload.error) throw new Error(`SillyTavern generation failed: ${payload.error.message || payload.error}`);
-        const delta = payload.choices?.[0]?.delta?.content;
-        if (typeof delta === 'string' && delta) yield delta;
-      }
+    let boundary;
+    while ((boundary = pending.indexOf('\n\n')) >= 0) {
+      const block = pending.slice(0, boundary);
+      pending = pending.slice(boundary + 2);
+      const event = block.split('\n').find(line => line.startsWith('event:'))?.slice(6).trim();
+      const data = block.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trim()).join('\n');
+      if (!event || !data) continue;
+      const payload = JSON.parse(data);
+      if (event === 'error') throw new Error(`SillyTavern character chat failed: ${payload.error || 'unknown error'}`);
+      if (event === 'delta' && typeof payload.text === 'string') yield payload.text;
+      if (event === 'done') { finished = true; break; }
     }
+    if (finished) break;
   }
-  throw new Error('SillyTavern generation stream ended without [DONE]');
+  if (!finished) throw new Error('SillyTavern character stream ended before the chat was saved');
 }
 
 export function createSillyTavernClient({ baseUrl, fetch: request = globalThis.fetch }) {
@@ -98,15 +97,76 @@ export function createSillyTavernClient({ baseUrl, fetch: request = globalThis.f
     },
     getChat: (avatar, id) => json('/api/chats/get', { avatar_url: sillyTavernCharacter(avatar), file_name: chatName(id) }),
     saveChat: (avatar, id, chat) => json('/api/chats/save', { avatar_url: sillyTavernCharacter(avatar), file_name: chatName(id), chat }),
-    async *generate(messages, { apiKey, folderId, model = 'qwen3.6-35b-a3b', signal } = {}) {
-      if (!apiKey || !folderId || !/^[a-z0-9_-]+$/i.test(folderId)) throw new Error('Yandex AI Studio key and folder ID are required');
-      const headers = `Authorization: ${JSON.stringify(`Api-Key ${apiKey}`)}\nOpenAI-Project: ${JSON.stringify(folderId)}`;
-      const response = await post('/api/backends/chat-completions/generate', {
-        chat_completion_source: 'custom', custom_url: 'https://ai.api.cloud.yandex.net/v1',
-        custom_include_headers: headers, custom_include_body: 'reasoning_effort: none', model: `gpt://${folderId}/${model}`,
-        messages, stream: true, max_tokens: 650, temperature: 0.3,
-      }, { signal });
-      yield* sseContent(response);
+    async *streamCharacterMessage(avatar, id, message, requestId) {
+      const characterId = sillyTavernCharacter(avatar).slice(0, -4);
+      const response = await post('/api/characters/chat', {
+        character_id: characterId, chat_id: chatName(id), message, request_id: requestId, stream: true,
+      });
+      yield* characterStream(response);
+    },
+    async ensureCompletionSource({ apiKey, folderId, model = 'qwen3.6-35b-a3b', credentialMode = 'env' } = {}) {
+      const payload = await json('/api/settings/get', {});
+      const settings = typeof payload?.settings === 'string' ? JSON.parse(payload.settings) : payload?.settings;
+      if (!settings || typeof settings !== 'object') throw new Error('SillyTavern settings are unavailable');
+      const options = settings.oai_settings || {};
+      const source = options.chat_completion_source;
+      const selected = settings.main_api === 'openai' && (
+        (source === 'custom' && options.custom_url && options.custom_model)
+        || (source === 'openai' && options.openai_model)
+        || (source === 'openrouter' && options.openrouter_model && options.openrouter_model !== 'OR_Website'));
+      if (selected) {
+        const environmentPlaceholder = '${ENV:SILLYTAVERN_CUSTOM_API_KEY}';
+        if (source === 'custom' && credentialMode === 'env' && !apiKey
+          && options.custom_include_headers?.includes(environmentPlaceholder)) {
+          throw new Error('SillyTavern Custom source requires SILLYTAVERN_CUSTOM_API_KEY; set it or enter the Yandex key in Studio');
+        }
+        if (source === 'custom' && credentialMode === 'secret' && apiKey
+          && options.custom_include_headers?.includes(environmentPlaceholder)) {
+          await json('/api/secrets/write', { key: 'api_key_custom', value: apiKey, label: 'LiveTalking Studio' });
+          settings.oai_settings.custom_include_headers = options.custom_include_headers.replaceAll(environmentPlaceholder, '${SECRET:CUSTOM}');
+          await json('/api/settings/save', settings);
+        }
+        return { configured: true, bootstrapped: false };
+      }
+      if (settings.main_api === 'openai' && source) {
+        if (!['custom', 'openai', 'openrouter'].includes(source)) {
+          throw new Error(`Selected SillyTavern Chat Completion source "${source}" is not supported by the character chat API`);
+        }
+        throw new Error(`Selected SillyTavern Chat Completion source "${source}" has no usable model or URL`);
+      }
+      if (options.custom_url && options.custom_model) {
+        throw new Error('SillyTavern has an existing Custom source; select Chat Completion there before starting Studio');
+      }
+      if (!apiKey || !folderId || !/^[a-z0-9_-]+$/i.test(folderId)) {
+        throw new Error('Yandex key and folder ID are required for the first SillyTavern setup');
+      }
+      if (!['env', 'secret'].includes(credentialMode)) throw new Error('Unknown SillyTavern credential mode');
+      if (credentialMode === 'secret') {
+        await json('/api/secrets/write', { key: 'api_key_custom', value: apiKey, label: 'LiveTalking Studio' });
+      }
+      const placeholder = credentialMode === 'env' ? '${ENV:SILLYTAVERN_CUSTOM_API_KEY}' : '${SECRET:CUSTOM}';
+      settings.main_api = 'openai';
+      settings.oai_settings = {
+        ...options,
+        chat_completion_source: 'custom',
+        custom_url: 'https://ai.api.cloud.yandex.net/v1',
+        custom_model: `gpt://${folderId}/${model}`,
+        custom_include_headers: `Authorization: ${JSON.stringify(`Api-Key ${placeholder}`)}\nOpenAI-Project: ${JSON.stringify(folderId)}`,
+        custom_include_body: 'reasoning_effort: none',
+        openai_max_tokens: 650,
+        temp_openai: 0.3,
+      };
+      await json('/api/settings/save', settings);
+      return { configured: true, bootstrapped: true };
+    },
+    async completionSourceConfigured() {
+      const payload = await json('/api/settings/get', {});
+      const settings = typeof payload?.settings === 'string' ? JSON.parse(payload.settings) : payload?.settings;
+      const options = settings?.oai_settings || {};
+      return settings?.main_api === 'openai' && Boolean(
+        (options.chat_completion_source === 'custom' && options.custom_url && options.custom_model)
+        || (options.chat_completion_source === 'openai' && options.openai_model)
+        || (options.chat_completion_source === 'openrouter' && options.openrouter_model && options.openrouter_model !== 'OR_Website'));
     },
   };
 }

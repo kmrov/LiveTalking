@@ -15,12 +15,16 @@ function fakeSillyTavern() {
     async conversations() { return [...chats.keys()].map(id => ({ id, created_at: '2026-10-05T00:00:00Z', updated_at: '2026-10-05T00:00:00Z' })); },
     async getChat(_avatar, id) { return structuredClone(chats.get(id) || []); },
     async saveChat(_avatar, id, chat) { chats.set(id, structuredClone(chat)); },
-    async *generate(messages) {
+    async *streamCharacterMessage(avatar, id, message, requestId) {
       generations++;
-      assert.equal(messages[0].content, 'Говори тепло и кратко.');
-      assert.equal(messages.at(-1).content, 'Привет');
+      assert.equal(avatar, 'Viktor_Petrovich_Studio.png');
+      assert.equal(message, 'Привет');
+      const chat = chats.get(id);
       yield 'Здравствуй';
       yield ', друг.';
+      chats.set(id, [...chat,
+        { name: 'User', is_user: true, mes: message, extra: { studio_request_id: requestId } },
+        { name: 'Виктор Петрович', is_user: false, mes: 'Здравствуй, друг.', extra: { studio_request_id: requestId } }]);
     },
   };
 }
@@ -46,7 +50,7 @@ test('SillyTavern bridge saves one chat turn and replays duplicate request witho
 test('SillyTavern bridge keeps failed generation out of saved chat', async () => {
   const { createSillyTavernBridge } = await import('../electron/sillytavern-bridge.mjs');
   const client = fakeSillyTavern();
-  client.generate = async function* () { yield 'Черновик'; throw new Error('upstream failed'); };
+  client.streamCharacterMessage = async function* () { yield 'Черновик'; throw new Error('upstream failed'); };
   const bridge = createSillyTavernBridge({ client, apiKey: 'secret', folderId: 'folder', randomUUID: () => conversationId });
   await bridge.createConversation();
   const items = [];
@@ -81,7 +85,13 @@ test('SillyTavern bridge switches characters and keeps chats and replies with th
     async conversations(avatar) { return [...saved.keys()].filter(key => key.startsWith(`${avatar}:`)).map(key => ({ id: key.split(':')[1], updated_at: '2026-10-05T00:00:00Z' })); },
     async getChat(avatar, id) { return structuredClone(saved.get(`${avatar}:${id}`)); },
     async saveChat(avatar, id, chat) { saved.set(`${avatar}:${id}`, structuredClone(chat)); },
-    async *generate(messages) { yield messages[0].content.includes('Ты Зоя.') ? 'Я Зоя.' : 'Я Виктор.'; },
+    async *streamCharacterMessage(avatar, id, message, requestId) {
+      const answer = avatar === 'Zoya.png' ? 'Я Зоя.' : 'Я Виктор.';
+      yield answer;
+      saved.set(`${avatar}:${id}`, [...saved.get(`${avatar}:${id}`),
+        { name: 'User', is_user: true, mes: message, extra: { studio_request_id: requestId } },
+        { name: cards.get(avatar).name, is_user: false, mes: answer, extra: { studio_request_id: requestId } }]);
+    },
   };
   const ids = [conversationId, secondId];
   const bridge = createSillyTavernBridge({ client, apiKey: 'key', folderId: 'folder', randomUUID: () => ids.shift() });

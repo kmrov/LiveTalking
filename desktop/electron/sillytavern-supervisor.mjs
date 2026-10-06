@@ -19,7 +19,7 @@ export async function sillyTavernBridgeHealth(url, stUrl, request = globalThis.f
   try {
     const response = await request(`${url}/api/v1/capabilities`, { signal: AbortSignal.timeout(3000) });
     const data = await response.json();
-    return response.ok && data.service === 'sillytavern' && data.speech_stream === 1 && data.sillytavern_url === stUrl;
+    return response.ok && data.service === 'sillytavern' && data.api_version === 2 && data.speech_stream === 1 && data.sillytavern_url === stUrl;
   } catch { return false; }
 }
 
@@ -103,7 +103,6 @@ export function createSillyTavernSupervisor({ spawn = nodeSpawn, kill = process.
     if (state === 'ready') return snapshot();
     profile = normalizeProfile(input);
     environment = env;
-    if (!env.YANDEX_AISTUDIO_KEY || !env.YANDEX_FOLDER_ID) throw new Error('Yandex AI Studio key and folder ID are required for SillyTavern mode');
     const token = ++generation;
     state = 'starting'; logs = []; stAdopted = false; bridgeAdopted = false;
     stages = { sillytavern: 'starting', bridge: 'waiting' };
@@ -117,7 +116,8 @@ export function createSillyTavernSupervisor({ spawn = nodeSpawn, kill = process.
           if (!existsSync(path.join(root, 'server.js'))) throw new Error(`SillyTavern server.js not found in ${root}`);
           if (!existsSync(path.join(root, 'node_modules'))) throw new Error(`SillyTavern dependencies missing in ${root}; run npm ci`);
           stChild = spawn('node', [path.join(root, 'server.js'), '--port', String(new URL(stUrl).port || 80), '--browserLaunchEnabled', 'false', '--listen', 'false'],
-            { cwd: root, env: process.env, detached: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
+            { cwd: root, env: { ...process.env, SILLYTAVERN_CUSTOM_API_KEY: env.YANDEX_AISTUDIO_KEY || env.SILLYTAVERN_CUSTOM_API_KEY || process.env.SILLYTAVERN_CUSTOM_API_KEY || '' },
+              detached: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
           attach(stChild, 'sillytavern', token);
           await awaitReady(() => stHealth(stUrl), 'SillyTavern', token);
         }
@@ -128,7 +128,7 @@ export function createSillyTavernSupervisor({ spawn = nodeSpawn, kill = process.
         else {
           bridgeChild = spawn('node', [bridgeScript], { cwd: path.dirname(bridgeScript),
             env: { ...process.env, ...env, STUDIO_ST_URL: stUrl, STUDIO_ST_BRIDGE_PORT: '8002',
-              STUDIO_ST_AVATAR: profile.brain.sillyTavernCharacter },
+              STUDIO_ST_AVATAR: profile.brain.sillyTavernCharacter, STUDIO_ST_ADOPTED: stAdopted ? '1' : '0' },
             detached: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
           attach(bridgeChild, 'bridge', token);
           await awaitReady(() => bridgeHealth(bridgeUrl, stUrl), 'SillyTavern bridge', token);

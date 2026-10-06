@@ -26,26 +26,6 @@ function chatMessages(chat) {
   return chat.filter(item => typeof item?.mes === 'string' && !item.is_system);
 }
 
-function prompt(card, chat, text) {
-  const data = card.data || card;
-  const name = data.name || card.name || 'Character';
-  const expand = value => String(value).replace(/{{char}}/gi, name).replace(/{{user}}/gi, 'User');
-  const system = [data.system_prompt, data.description, data.personality, data.scenario,
-    data.mes_example && `Example dialogue:\n${data.mes_example}`].filter(Boolean).map(expand).join('\n\n') || `You are ${name}.`;
-  return [
-    { role: 'system', content: system },
-    ...(chatMessages(chat).length || !data.first_mes ? [] : [{ role: 'assistant', content: expand(data.first_mes) }]),
-    ...chatMessages(chat).slice(-12).map(item => ({ role: item.is_user ? 'user' : 'assistant', content: item.mes })),
-    ...(data.post_history_instructions ? [{ role: 'system', content: expand(data.post_history_instructions) }] : []),
-    { role: 'user', content: text },
-  ];
-}
-
-function entry(text, requestId, isUser, characterName) {
-  return { name: isUser ? 'User' : characterName, is_user: isUser, is_system: false,
-    send_date: now(), mes: text, extra: { studio_request_id: requestId } };
-}
-
 async function readBody(request) {
   let body = '';
   for await (const chunk of request) {
@@ -60,7 +40,7 @@ function sendJson(response, code, body) {
   response.end(JSON.stringify(body));
 }
 
-export function createSillyTavernBridge({ client, apiKey, folderId, model = 'qwen3.6-35b-a3b', randomUUID = nodeRandomUUID,
+export function createSillyTavernBridge({ client, randomUUID = nodeRandomUUID,
   avatar = STUDIO_CHARACTER_AVATAR, stUrl = 'http://127.0.0.1:8001' } = {}) {
   let selectedAvatar = sillyTavernCharacter(avatar);
   const conversationOwners = new Map();
@@ -135,17 +115,13 @@ export function createSillyTavernBridge({ client, apiKey, folderId, model = 'qwe
     const run = (async () => {
       if (previousTail) await previousTail;
       try {
-        const current = (await getExistingChat(id)).chat;
-        const card = await client.character(avatar);
-        const characterName = card.data?.name || card.name || 'Character';
+        await getExistingChat(id);
         let answer = '';
-        for await (const delta of client.generate(prompt(card, current, text), { apiKey, folderId, model })) {
+        for await (const delta of client.streamCharacterMessage(avatar, id, text, requestId)) {
           answer += delta;
           push(job, 'delta', { text: delta });
         }
         if (!answer.trim()) throw new Error('SillyTavern returned an empty answer');
-        const latest = (await getExistingChat(id)).chat;
-        await client.saveChat(avatar, id, [...latest, entry(text, requestId, true, characterName), entry(answer, requestId, false, characterName)]);
         push(job, 'done', { conversation_id: id, request_id: requestId, text: answer, status: 'completed' });
       } catch {
         jobs.delete(key);
@@ -196,7 +172,7 @@ export function createSillyTavernBridge({ client, apiKey, folderId, model = 'qwe
         await client.version(); await client.character(selectedAvatar);
         return sendJson(response, 200, { status: 'ok' });
       }
-      if (request.method === 'GET' && path === '/api/v1/capabilities') return sendJson(response, 200, { service: 'sillytavern', api_version: 1, speech_stream: 1, sillytavern_url: stUrl, character: selectedAvatar });
+      if (request.method === 'GET' && path === '/api/v1/capabilities') return sendJson(response, 200, { service: 'sillytavern', api_version: 2, speech_stream: 1, sillytavern_url: stUrl, character: selectedAvatar });
       if (request.method === 'GET' && path === '/api/v1/characters') return sendJson(response, 200, await characters());
       if (request.method === 'GET' && path === '/api/v1/character') return sendJson(response, 200, { avatar: selectedAvatar });
       if (request.method === 'POST' && path === '/api/v1/character') return sendJson(response, 200, await selectCharacter((await readBody(request)).avatar));
