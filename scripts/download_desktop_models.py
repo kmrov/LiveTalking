@@ -22,7 +22,7 @@ def main():
         if source.stat().st_size > 65536:
             raise ValueError('Download request is too large.')
         request = json.loads(source.read_text())
-        if set(request) != {'root', 'model', 'speechMode'} or not all(isinstance(value, str) for value in request.values()):
+        if not {'root', 'model', 'speechMode'} <= set(request) or not set(request) <= {'root', 'model', 'speechMode', 'ttsEngine'} or not all(isinstance(value, str) for value in request.values()):
             raise ValueError('Invalid download request.')
         ensure_models(request, lambda value: event('downloading', **value), scope='start')
         event('completed')

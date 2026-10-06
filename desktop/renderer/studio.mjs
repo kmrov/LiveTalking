@@ -20,7 +20,7 @@ mountPanelResizers({
 });
 const fields = {
   python: $('#python-path'), model: $('#avatar-model'), avatarId: $('#avatar-id'), port: $('#server-port'),
-  mode: $('#speech-mode'), asrVllm: $('#asr-vllm'), ttsVllm: $('#tts-vllm'),
+  mode: $('#speech-mode'), ttsEngine: $('#tts-engine'), asrVllm: $('#asr-vllm'), ttsVllm: $('#tts-vllm'), omniPython: $('#omni-python'),
   asrUrl: $('#asr-url'), ttsUrl: $('#tts-url'), voice: $('#voice-wav'),
   transcript: $('#voice-text'), autoStart: $('#auto-start'),
   brainMode: $('#brain-mode'), brainManaged: $('#brain-service-mode'), brainUrl: $('#brain-url'),
@@ -70,6 +70,7 @@ let profileRoot = '';
 let profileSwitchBusy = false;
 let settingsDraft;
 let settingsSaving = false;
+let setupCheckGeneration = 0;
 const dialogs = mountStudioDialogs({ document,
   onSettingsOpen() {
     settingsDraft = { root: profileRoot, voices: knownVoices, message: $('#setup-message').textContent,
@@ -99,7 +100,7 @@ const dialogs = mountStudioDialogs({ document,
 });
 
 function showProfileSummary() {
-  $('#profile-voice-summary').textContent = currentProfile?.speech.referenceWav?.split('/').at(-1) || 'No voice selected';
+  $('#profile-voice-summary').textContent = `${currentProfile?.speech.ttsEngine === 'omnivoice' ? 'OmniVoice' : 'Qwen'} · ${currentProfile?.speech.referenceWav?.split('/').at(-1) || 'No voice selected'}`;
   $('#profile-voice-summary').title = currentProfile?.speech.referenceWav || '';
   $('#profile-brain-summary').textContent = currentProfile?.brain.mode === 'direct' ? 'Direct LLM' : brainName(currentProfile?.brain.mode);
 }
@@ -393,7 +394,7 @@ function renderStartupProgress(snapshot) {
     label.textContent = state === 'starting'
       ? `${stage === 'asr' || stage === 'tts' ? 'Loading model' : 'Starting'}${startedAt ? ` · ${formatElapsed(startedAt)}` : ''}`
       : stageLabels[state] || state;
-    if (state === 'starting') active.push(stageNames[stage]);
+    if (state === 'starting') active.push(stage === 'tts' && currentProfile?.speech.ttsEngine === 'omnivoice' ? 'OmniVoice TTS' : stageNames[stage]);
   }
   updateSpeechStopButtons(snapshot);
   const isStarting = phase === 'checking' || phase === 'starting';
@@ -460,8 +461,11 @@ function showKnownVoices(voices) {
 
 function showMode() {
   const external = fields.mode.value === 'external';
+  const omni = fields.ttsEngine.value === 'omnivoice';
   $('#local-model-fields').hidden = external;
   $('#external-model-fields').hidden = !external;
+  fields.ttsVllm.closest('label').hidden = external || omni;
+  fields.omniPython.closest('label').hidden = external || !omni;
 }
 
 function showBrainMode() {
@@ -521,8 +525,10 @@ function showProfile(profile) {
   fields.avatarId.value = profile.liveTalking.avatarId;
   fields.port.value = profile.liveTalking.port;
   fields.mode.value = profile.speech.mode;
+  fields.ttsEngine.value = profile.speech.ttsEngine;
   fields.asrVllm.value = profile.speech.asrVllm;
   fields.ttsVllm.value = profile.speech.ttsVllm;
+  fields.omniPython.value = profile.speech.omniPython;
   fields.asrUrl.value = profile.speech.asrUrl;
   fields.ttsUrl.value = profile.speech.ttsUrl;
   fields.voice.value = profile.speech.referenceWav;
@@ -561,8 +567,10 @@ function formProfile() {
     speech: {
       ...currentProfile.speech,
       mode: fields.mode.value,
+      ttsEngine: fields.ttsEngine.value,
       asrVllm: fields.asrVllm.value,
       ttsVllm: fields.ttsVllm.value,
+      omniPython: fields.omniPython.value,
       asrUrl: fields.asrUrl.value,
       ttsUrl: fields.ttsUrl.value,
       referenceWav: fields.voice.value,
@@ -579,7 +587,17 @@ function formProfile() {
 }
 
 async function saveCurrentProfile() {
-  currentProfile = await bridge.saveProfile(formProfile());
+  const profile = formProfile();
+  const needsStop = ['checking', 'starting', 'ready', 'reconnecting', 'failed'].includes(servicePhase)
+    && ['root', 'python', 'model', 'avatarId', 'port'].some(key => currentProfile.liveTalking[key] !== profile.liveTalking[key]);
+  if (needsStop) {
+    if (recording || recordingBusy) throw new Error('Finish recording before applying avatar or environment changes.');
+    message('Stopping services to apply profile changes…');
+    await stopContinuousVoice();
+    await disconnectProjection();
+    disconnectAvatar();
+  }
+  currentProfile = await bridge.saveProfile(profile);
   showProfileList(await bridge.listProfiles());
   const status = await bridge.setBrainSecrets(currentProfile.id, { apiKey: fields.brainKey.value, databaseUrl: fields.brainDatabaseUrl.value });
   fields.brainKey.value = ''; fields.brainDatabaseUrl.value = '';
@@ -776,6 +794,12 @@ function message(text) {
   $('#settings-message').textContent = text;
 }
 
+function showButtonProgress(selector, busy) {
+  const button = $(selector);
+  button.querySelector('.button-spinner').hidden = !busy;
+  button.setAttribute('aria-busy', String(busy));
+}
+
 function showResults(results) {
   const list = $('#setup-results');
   list.replaceChildren();
@@ -795,9 +819,14 @@ function showResults(results) {
 }
 
 async function checkSetup() {
+  const generation = ++setupCheckGeneration;
+  showButtonProgress('#check-setup', true);
+  $('#check-setup').disabled = true;
+  $('#save-profile').disabled = true;
   message('Checking environment…');
   try {
     const results = await bridge.checkSetup(formProfile());
+    if (generation !== setupCheckGeneration) return null;
     showResults(results);
     const missing = results.filter(item => item.state !== 'ready').length;
     const manual = results.filter(item => item.state !== 'ready' && !(item.state === 'missing' && ['avatar-model', 'asr-model', 'tts-model'].includes(item.id))).length;
@@ -805,10 +834,18 @@ async function checkSetup() {
     $('#review-setup').hidden = !manual;
     message(manual ? `${manual} setup ${manual === 1 ? 'item needs' : 'items need'} attention.` : missing ? 'Models will be downloaded at startup.' : 'All checks passed. The profile is ready to start.');
     return results;
-  } catch (error) { message(error.message); return null; }
+  } catch (error) { if (generation === setupCheckGeneration) message(error.message); return null; }
+  finally {
+    if (generation === setupCheckGeneration) {
+      showButtonProgress('#check-setup', false);
+      $('#check-setup').disabled = settingsSaving;
+      $('#save-profile').disabled = settingsSaving;
+    }
+  }
 }
 
 fields.mode.addEventListener('change', showMode);
+fields.ttsEngine.addEventListener('change', showMode);
 fields.brainMode.addEventListener('change', showBrainMode);
 fields.brainManaged.addEventListener('change', showBrainMode);
 $('#choose-brain-root').addEventListener('click', async () => {
@@ -864,13 +901,15 @@ $('#setup-form').addEventListener('submit', async event => {
   if (settingsSaving) return;
   settingsSaving = true;
   dialogs.setBusy(true);
+  showButtonProgress('#save-profile', true);
+  message('Saving profile…');
   try {
     await saveCurrentProfile();
     await checkSetup();
     message(serviceReady ? 'Profile saved. Restart services to apply changes.' : 'Profile saved. Press Start when ready.');
     dialogs.closeSettings();
   } catch (error) { message(error.message); }
-  finally { settingsSaving = false; dialogs.setBusy(false); }
+  finally { settingsSaving = false; dialogs.setBusy(false); showButtonProgress('#save-profile', false); }
 });
 $('#choose-root').addEventListener('click', async () => {
   const selected = await bridge.chooseLiveTalkingRoot();
@@ -897,6 +936,8 @@ $('#choose-voice').addEventListener('click', async () => {
 });
 
 $('#start-profile').addEventListener('click', async () => {
+  showButtonProgress('#start-profile', true);
+  $('#start-profile').disabled = true;
   try {
     await saveCurrentProfile();
     const results = await checkSetup();
@@ -904,6 +945,10 @@ $('#start-profile').addEventListener('click', async () => {
     message('Starting services…');
     await bridge.startProfile(currentProfile.id);
   } catch (error) { message(error.message); }
+  finally {
+    showButtonProgress('#start-profile', false);
+    $('#start-profile').disabled = ['checking', 'starting', 'ready'].includes(servicePhase);
+  }
 });
 $('#profile-picker').addEventListener('change', async () => {
   const id = $('#profile-picker').value;

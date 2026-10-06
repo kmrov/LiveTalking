@@ -51,6 +51,8 @@ export function normalizeProfile(input) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new ProfileError('liveTalking.port', 'expected port 1–65535');
   const mode = string(speech.mode, 'speech.mode', 'local');
   if (!['local', 'external'].includes(mode)) throw new ProfileError('speech.mode', 'expected local or external');
+  const ttsEngine = string(speech.ttsEngine, 'speech.ttsEngine', 'qwen');
+  if (!['qwen', 'omnivoice'].includes(ttsEngine)) throw new ProfileError('speech.ttsEngine', 'expected qwen or omnivoice');
   const autoStart = source.autoStart ?? true;
   if (typeof autoStart !== 'boolean') throw new ProfileError('autoStart', 'expected a boolean');
   const avatarId = string(lt.avatarId, 'liveTalking.avatarId', 'wav2lip256_avatar1');
@@ -92,8 +94,10 @@ export function normalizeProfile(input) {
     },
     speech: {
       mode,
+      ttsEngine,
       asrVllm: absolutePath(speech.asrVllm, 'speech.asrVllm'),
       ttsVllm: absolutePath(speech.ttsVllm, 'speech.ttsVllm'),
+      omniPython: absolutePath(speech.omniPython, 'speech.omniPython', root ? path.join(path.dirname(root), '.venv-omnivoice/bin/python') : ''),
       asrUrl: url(speech.asrUrl, 'speech.asrUrl'),
       ttsUrl: url(speech.ttsUrl, 'speech.ttsUrl'),
       referenceWav: absolutePath(speech.referenceWav, 'speech.referenceWav'),

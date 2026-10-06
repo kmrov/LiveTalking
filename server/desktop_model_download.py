@@ -236,6 +236,20 @@ def _speech_ready(base, repo, needs_tokenizer):
         return False
 
 
+def _omni_speech_ready(base, repo):
+    folder = Path(base)/('models--'+repo.replace('/','--'))
+    try:
+        revision = (folder/'refs/main').read_text().strip()
+        if not re.fullmatch(r'[0-9a-f]{40}', revision):
+            return False
+        snapshot = folder/'snapshots'/revision
+        required = ['config.json', 'tokenizer.json', 'tokenizer_config.json', 'chat_template.jinja',
+                    'audio_tokenizer/config.json', 'audio_tokenizer/preprocessor_config.json']
+        return all(_present(snapshot/name) for name in required) and _weights_ready(snapshot) and _weights_ready(snapshot/'audio_tokenizer')
+    except OSError:
+        return False
+
+
 def _weights_ready(folder):
     if any(_present(folder/name) for name in ['model.safetensors','pytorch_model.bin']):
         return True
@@ -249,9 +263,9 @@ def _weights_ready(folder):
     return False
 
 
-def model_download_plan(root, model, *, scope, speech_mode='external', torch_hub=None, speech_hub=None):
+def model_download_plan(root, model, *, scope, speech_mode='external', tts_engine='qwen', torch_hub=None, speech_hub=None):
     root = Path(root).resolve(strict=True)
-    if scope not in ('creation','start') or model not in ('musetalk','wav2lip','ultralight','ditto','soulx') or speech_mode not in ('local','external'):
+    if scope not in ('creation','start') or model not in ('musetalk','wav2lip','ultralight','ditto','soulx') or speech_mode not in ('local','external') or tts_engine not in ('qwen','omnivoice'):
         raise ValueError('Invalid model download parameters.')
     if scope=='creation' and model=='ultralight':
         raise ValueError('Ultralight creation is not supported.')
@@ -260,7 +274,7 @@ def model_download_plan(root, model, *, scope, speech_mode='external', torch_hub
     else:
         selected = (['s3fd','musetalk','vae','face-parsing'] if model=='musetalk' else ['s3fd']) if scope=='creation' else {'musetalk':['musetalk','vae','whisper'],'wav2lip':['wav2lip'],'ultralight':['hubert']}[model]
     if scope=='start' and speech_mode=='local':
-        selected += ['asr','tts']
+        selected += ['asr', 'tts' if tts_engine=='qwen' else 'omni-tts']
     torch_hub = Path(torch_hub) if torch_hub is not None else Path(os.environ.get('TORCH_HOME', Path(os.environ.get('XDG_CACHE_HOME',Path.home()/'.cache'))/'torch'))/'hub'
     speech_hub = Path(speech_hub) if speech_hub is not None else speech_cache(root)
     catalog = json.loads(Path(__file__).with_name('desktop-model-catalog.json').read_text())['groups']
@@ -268,7 +282,7 @@ def model_download_plan(root, model, *, scope, speech_mode='external', torch_hub
     for name in selected:
         group=catalog[name]
         base={'checkout':root,'torch':torch_hub,'speech':speech_hub}[group['storage']]
-        if group['storage']=='speech' and _speech_ready(base,group['repo'],name=='tts'):
+        if group['storage']=='speech' and (_omni_speech_ready(base,group['repo']) if name=='omni-tts' else _speech_ready(base,group['repo'],name=='tts')):
             continue
         for file in group['files']:
             relative=file['destination']
@@ -295,7 +309,7 @@ def _cancellation():
 
 
 def ensure_models(request, emit, *, scope):
-    plan=model_download_plan(request['root'],request['model'],scope=scope,speech_mode=request.get('speechMode','external'))
+    plan=model_download_plan(request['root'],request['model'],scope=scope,speech_mode=request.get('speechMode','external'),tts_engine=request.get('ttsEngine','qwen'))
     missing=[entry for entry in plan if not _present(_safe_target(entry['base'],entry['relative']))]
     total=sum(entry['size'] for entry in missing)
     completed=0

@@ -149,6 +149,7 @@ class GenerativeAvatar(BaseAvatar):
     def _generate(self, quit_event):
         generation = 0
         reset_before_next = False
+        short_next = True
         buffered = None
         last_input = time.monotonic()
         def play_buffer():
@@ -165,7 +166,11 @@ class GenerativeAvatar(BaseAvatar):
                     self.pending_buffer = False
         try:
             while not quit_event.is_set():
-                batch = self.asr.take(self.worker.chunk_samples // 320, quit_event,
+                if self.asr.generation != generation:
+                    short_next = True
+                startup_samples = getattr(self.worker, 'startup_samples', 0)
+                chunk_samples = startup_samples if short_next and startup_samples and not self.buffered_playback else self.worker.chunk_samples
+                batch = self.asr.take(chunk_samples // 320, quit_event,
                                       gap_timeout=.5 if self.buffered_playback else None)
                 if batch is None:
                     process = getattr(self.worker, 'process', None)
@@ -217,10 +222,12 @@ class GenerativeAvatar(BaseAvatar):
                 last_input = time.monotonic()
                 ended = any(packet.userdata.get('status') == 'end' for packet in packets)
                 reset_before_next = ended if self.buffered_playback else False
+                short_next = ended
                 if ended:
                     play_buffer()
                 logger.info('%s rendered %s frames in %.3fs', self.opt.model,
-                            self.worker.chunk_frames, time.monotonic() - started)
+                            len(packets) * 320 * self.worker.fps // 16000,
+                            time.monotonic() - started)
                 self.inference_active = False
         except Exception as error:
             if not quit_event.is_set():
@@ -283,9 +290,16 @@ class GenerativeAvatar(BaseAvatar):
         if state['next_frame'] is None:
             state['next_frame'] = next_frame()
         if not state['started']:
-            if state['next_frame'] is None or self.asr.playback.empty():
+            first_audio = self.asr.peek_playback()
+            if first_audio is None:
                 self._publish(self.frame_list_cycle[0], [silence(), silence()])
                 return
+            while state['next_frame'] is not None and state['next_frame'][3] < first_audio[1].position:
+                state['next_frame'] = next_frame()
+            if (state['next_frame'] is None or state['next_frame'][3] != first_audio[1].position):
+                self._publish(self.frame_list_cycle[0], [silence(), silence()])
+                return
+            state['position'] = first_audio[1].position
             state['started'] = True
 
         changed = False
@@ -296,10 +310,12 @@ class GenerativeAvatar(BaseAvatar):
         self._publish_video(state['frame'] if changed else self.frame_list_cycle[0], generated=changed)
         packets = []
         for _ in range(2):
-            item = self.asr.pop_playback()
+            item = self.asr.pop_playback() if state['started'] else None
             if item is not None and item[0] == generation:
                 packet = item[1]
                 state['position'] = packet.position + 320
+                if packet.userdata.get('status') == 'end':
+                    state['started'] = False
             else:
                 packet = silence()
             packets.append(packet)

@@ -22,15 +22,15 @@ body { overflow: hidden; }
 #profile-picker { max-width: 210px; padding: 6px 24px 6px 8px; border: 1px solid #3c4d47; border-radius: 5px; background: #1d2624; color: #e5eee9; font: inherit; }
 #profile-picker:disabled { opacity: .65; }
 .topbar-state { display: flex; align-items: center; gap: 9px; margin-left: auto; color: #9da7a5; font-size: 12px; }
-.topbar-state button { padding: 7px 11px; border: 1px solid #3b5749; border-radius: 5px; background: #1c3027; color: #cbe5d6; font: inherit; font-size: 11px; cursor: pointer; }
+.topbar-state button { display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border: 1px solid #3b5749; border-radius: 5px; background: #1c3027; color: #cbe5d6; font: inherit; font-size: 11px; cursor: pointer; }
 .topbar-state button:disabled { opacity: .45; cursor: default; }
 .status-dot { display: inline-block; width: 7px; height: 7px; border: 1px solid #82918b; border-radius: 50%; background: #58635e; }
 .topbar-state:has(#runtime-state[data-phase="starting"]) .status-dot,
 .topbar-state:has(#runtime-state[data-phase="checking"]) .status-dot { width: 12px; height: 12px; border: 2px solid #486b56; border-top-color: #b4e5bd; background: transparent; animation: startup-spin .85s linear infinite; }
 .startup-progress { display: flex; align-items: center; gap: 10px; min-height: 35px; padding: 7px 28px; border-bottom: 1px solid #365044; background: #1a2a21; color: #c6e4cd; font-size: 11px; }
-.startup-spinner, .service-row [data-state="starting"]::before { display: inline-block; width: 12px; height: 12px; flex: none; border: 2px solid #486b56; border-top-color: #b4e5bd; border-radius: 50%; animation: startup-spin .85s linear infinite; content: ""; }
+.startup-spinner, .button-spinner, .service-row [data-state="starting"]::before { display: inline-block; width: 12px; height: 12px; flex: none; border: 2px solid #486b56; border-top-color: #b4e5bd; border-radius: 50%; animation: startup-spin .85s linear infinite; content: ""; }
 @keyframes startup-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .startup-spinner, .service-row [data-state="starting"]::before, .topbar-state:has(#runtime-state[data-phase="starting"]) .status-dot, .topbar-state:has(#runtime-state[data-phase="checking"]) .status-dot { animation: none; border-color: #b4e5bd; } }
+@media (prefers-reduced-motion: reduce) { .startup-spinner, .button-spinner, .service-row [data-state="starting"]::before, .topbar-state:has(#runtime-state[data-phase="starting"]) .status-dot, .topbar-state:has(#runtime-state[data-phase="checking"]) .status-dot { animation: none; border-color: #b4e5bd; } }
 .workspace { --left-panel-width: 260px; --right-panel-width: 320px; display: grid; grid-template-columns: var(--left-panel-width) 8px minmax(320px, 1fr) 8px var(--right-panel-width); min-height: 0; flex: 1; }
 .panel-resizer { position: relative; z-index: 1; min-width: 8px; background: #111719; cursor: col-resize; touch-action: none; }
 .panel-resizer::after { position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: #2a3633; content: ""; }
@@ -277,7 +277,8 @@ body.is-resizing-panels, body.is-resizing-panels * { cursor: col-resize !importa
 .dialog-footer { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 28px; border-top: 1px solid #36443c; background: #131b17; }
 .dialog-footer > p { margin: 0; color: #a0b3a7; font-size: 11px; line-height: 1.5; }
 .dialog-footer .setup-actions { flex: none; }
-.dialog-footer .setup-actions button { flex: none; padding: 10px 14px; font-size: 12px; }
+.dialog-footer .setup-actions button { display: inline-flex; align-items: center; gap: 7px; flex: none; padding: 10px 14px; font-size: 12px; }
+.dialog-footer .primary-button .button-spinner { border-color: #537568; border-top-color: #10201a; }
 .projection-fields { display: grid; gap: 18px; }
 .projection-fields label { display: grid; gap: 7px; color: #adbfaf; }
 .projection-fields input, .projection-fields select { width: 100%; padding: 10px 12px; border: 1px solid #40574c; border-radius: 5px; background: #101817; color: #ecf0ed; font: inherit; font-size: 13px; }

@@ -39,6 +39,7 @@ async def desktop_health(request):
     opt = request.app.get('opt') if request is not None else None
     if opt is not None:
         data['avatar']={'model':getattr(opt,'model',''),'root':os.path.realpath(os.getcwd())}
+        data['speech'] = {'tts_model': getattr(opt, 'TTS_MODEL_ID', '')}
         mode = 'persona' if getattr(opt, 'llm_provider', '') == 'persona' else 'direct'
         data['brain'] = {'mode': mode}
         if mode == 'persona':

@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createSupervisor, launcherArguments } from '../electron/supervisor.mjs';
+import { createSupervisor, launcherArguments, isCompatibleDesktopHealth } from '../electron/supervisor.mjs';
 import { normalizeProfile } from '../src/profile.mjs';
 
 const profile = normalizeProfile({ id: 'main', liveTalking: { root: '/tmp/Мой LiveTalking', python: '/tmp/Мой LiveTalking/.venv/bin/python' }, speech: { referenceWav: '/tmp/Мой LiveTalking/мой голос.wav', referenceText: 'Привет' } });
@@ -16,6 +16,26 @@ test('generative avatars launch with their supported single session', () => {
     assert.equal(args[args.indexOf('--max_session') + 1], '1');
   }
   assert.equal(launcherArguments(profile).includes('--max_session'), false);
+});
+
+test('OmniVoice profile launches its own Python speech server', () => {
+  const selected = normalizeProfile({ ...profile, speech: { ...profile.speech, ttsEngine: 'omnivoice', omniPython: '/opt/omni/bin/python' } });
+  const args = launcherArguments(selected);
+  assert.equal(args[args.indexOf('--tts-engine') + 1], 'omnivoice');
+  assert.equal(args[args.indexOf('--omni-python') + 1], '/opt/omni/bin/python');
+});
+
+test('running Qwen avatar is not adopted by an OmniVoice profile', async () => {
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'studio-tts-health-'));
+  try {
+    const qwen = normalizeProfile({ ...profile, liveTalking: { ...profile.liveTalking, root: checkout } });
+    const omni = normalizeProfile({ ...qwen, speech: { ...qwen.speech, ttsEngine: 'omnivoice' } });
+    const payload = { code: 0, data: { service: 'livetalking', api_version: 1,
+      avatar: { model: omni.liveTalking.model, root: checkout },
+      brain: { mode: 'direct' }, speech: { tts_model: 'Qwen/Qwen3-TTS-12Hz-1.7B-Base' } } };
+    assert.equal(await isCompatibleDesktopHealth(payload, qwen), true);
+    assert.equal(await isCompatibleDesktopHealth(payload, omni), false);
+  } finally { await rm(checkout, { recursive: true, force: true }); }
 });
 
 function fakeChild() {

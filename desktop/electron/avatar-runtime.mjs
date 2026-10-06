@@ -39,6 +39,18 @@ export function createAvatarRuntime({library,jobs,sources,profiles,stopProfile,g
       if(old && ['root','python','model','avatarId','port'].some(key=>old.liveTalking[key]!==profile.liveTalking[key]))throw new Error('Stop the profile before changing the avatar or environment.');
     }
   }
+  async function save(input) {
+    ensureIdle();
+    const profile = normalizeProfile(input);
+    if (active()) {
+      const state = getServiceState();
+      const old = profiles.get(state.profileId || profile.id);
+      if (old && ['root', 'python', 'model', 'avatarId', 'port'].some(key => old.liveTalking[key] !== profile.liveTalking[key])) {
+        await stopProfile();
+      }
+    }
+    return profiles.save(profile);
+  }
   return {
     runLifecycle,
     list:input=>{const profile=normalizeProfile(input);return library.list(profile.liveTalking.root,{python:profile.liveTalking.python});},
@@ -55,6 +67,7 @@ export function createAvatarRuntime({library,jobs,sources,profiles,stopProfile,g
     }),
     assertCanStart:async profile=>{ensureIdle();const entry=await library.get(profile.liveTalking.root,profile.liveTalking.avatarId);if(!entry?.ready||entry.model!==profile.liveTalking.model)throw new Error(entry?.reason||'Select a ready avatar for the chosen model.');},
     assertCanSave,
+    save,
     shutdown:()=>jobs.shutdown(),
     snapshot,
   };

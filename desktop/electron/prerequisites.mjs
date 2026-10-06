@@ -1,7 +1,7 @@
 import path from 'node:path';
 import os from 'node:os';
 import { existsSync, statSync, readFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { connect } from 'node:net';
 import { normalizeProfile } from '../src/profile.mjs';
 import { createAvatarLibrary } from './avatar-library.mjs';
@@ -10,6 +10,15 @@ import { isCompatibleDesktopHealth } from './supervisor.mjs';
 const item = (id, state, detail, action = '') => ({ id, state, detail, action });
 const asrModel = 'Qwen/Qwen3-ASR-0.6B';
 const ttsModel = 'Qwen/Qwen3-TTS-12Hz-1.7B-Base';
+const omniModel = 'k2-fsa/OmniVoice';
+
+export function runPrerequisiteCommand(executable, args, options = {}) {
+  return new Promise(resolve => {
+    execFile(executable, args, { encoding: 'utf8', ...options }, (error, stdout, stderr) => {
+      resolve({ status: error ? null : 0, stdout, stderr, error });
+    });
+  });
+}
 
 function fileReady(file) {
   try { const info = statSync(file); return info.isFile() && info.size > 0; }
@@ -36,6 +45,16 @@ export function cachedModelReady(folder, needsSpeechTokenizer = false) {
       return ['config.json', 'tokenizer_config.json', 'preprocessor_config.json', 'vocab.json', 'merges.txt'].every(file => fileReady(path.join(snapshot, file)))
         && weightsReady(snapshot)
         && (!needsSpeechTokenizer || (['config.json', 'preprocessor_config.json'].every(file => fileReady(path.join(snapshot, 'speech_tokenizer', file))) && weightsReady(path.join(snapshot, 'speech_tokenizer'))));
+  } catch { return false; }
+}
+
+export function cachedOmniModelReady(folder) {
+  try {
+    const revision = readFileSync(path.join(folder, 'refs/main'), 'utf8').trim();
+    if (!/^[0-9a-f]{40}$/.test(revision)) return false;
+    const snapshot = path.join(folder, 'snapshots', revision);
+    return ['config.json', 'tokenizer.json', 'tokenizer_config.json', 'chat_template.jinja', 'audio_tokenizer/config.json', 'audio_tokenizer/preprocessor_config.json'].every(file => fileReady(path.join(snapshot, file)))
+      && weightsReady(snapshot) && weightsReady(path.join(snapshot, 'audio_tokenizer'));
   } catch { return false; }
 }
 
@@ -92,14 +111,21 @@ export const defaultProbes = {
   avatar: async lt => createAvatarLibrary().get(lt.root, lt.avatarId),
   fileReady,
   cachedModelReady,
+  cachedOmniModelReady,
+  async omniPython(executable) {
+    const result = await runPrerequisiteCommand(executable, ['-c', 'import omnivoice, torch, soundfile'], { timeout: 30000 });
+    return result.status === 0
+      ? { ok: true, detail: 'OmniVoice Python and dependencies are available' }
+      : { ok: false, detail: (result.stderr || result.error?.message || 'OmniVoice import failed').trim().split('\n').at(-1) };
+  },
   async python(executable) {
-    const result = spawnSync(executable, ['-c', 'import aiohttp, aiortc, torch, requests, soxr'], { encoding: 'utf8', timeout: 20000 });
+    const result = await runPrerequisiteCommand(executable, ['-c', 'import aiohttp, aiortc, torch, requests, soxr'], { timeout: 20000 });
     return result.status === 0
       ? { ok: true, detail: 'Python, aiohttp, aiortc, and torch are available' }
       : { ok: false, detail: (result.stderr || result.error?.message || 'Could not import modules').trim().split('\n').at(-1) };
   },
   async generativeRuntime(lt) {
-    const result = spawnSync(lt.python, [path.join(lt.root, 'scripts/check_generative_runtime.py'), '--model', lt.model, '--root', lt.root], { cwd: lt.root, encoding: 'utf8', timeout: 30000, maxBuffer: 1024 * 1024 });
+    const result = await runPrerequisiteCommand(lt.python, [path.join(lt.root, 'scripts/check_generative_runtime.py'), '--model', lt.model, '--root', lt.root], { cwd: lt.root, timeout: 30000, maxBuffer: 1024 * 1024 });
     try {
       const value = JSON.parse(result.stdout);
       if (typeof value.ok === 'boolean' && typeof value.detail === 'string') return { ok: result.status === 0 && value.ok, detail: value.detail };
@@ -109,7 +135,7 @@ export const defaultProbes = {
   model: modelStatus,
   port: portStatus,
   async gpu() {
-    const result = spawnSync('nvidia-smi', ['--query-gpu=name', '--format=csv,noheader'], { encoding: 'utf8', timeout: 5000 });
+    const result = await runPrerequisiteCommand('nvidia-smi', ['--query-gpu=name', '--format=csv,noheader'], { timeout: 5000 });
     return result.status === 0 && Boolean(result.stdout.trim());
   },
 };
@@ -161,24 +187,36 @@ export async function inspectPrerequisites(input, probes = defaultProbes) {
     ? item('transcript', 'ready', 'Sample transcript is set')
     : item('transcript', 'missing', 'Sample transcript is missing', 'Enter the exact words spoken in the WAV file.'));
 
+  const selectedTts = speech.ttsEngine === 'omnivoice' ? omniModel : ttsModel;
   for (const [id, expected, address, executable] of [
     ['asr', asrModel, speech.asrUrl || 'http://127.0.0.1:8092', speech.asrVllm],
-    ['tts', ttsModel, speech.ttsUrl || 'http://127.0.0.1:8091', speech.ttsVllm],
+    ['tts', selectedTts, speech.ttsUrl || 'http://127.0.0.1:8091', speech.ttsEngine === 'omnivoice' ? speech.omniPython : speech.ttsVllm],
   ]) {
     const status = await probes.model(address, expected);
     if (status === 'ready') results.push(item(id, 'ready', `${expected} is available at ${address}`));
     else if (status === 'wrong') results.push(item(id, 'blocked', `${address} responds with a different model`, `Configure ${expected} at ${address} or enter the correct address.`));
     else if (speech.mode === 'external') results.push(item(id, 'missing', `${expected} is unavailable at ${address}`, `Start the ${expected} server or correct the URL.`));
-    else if (executable && probes.exists(executable)) results.push(item(id, 'ready', `${expected} will be started using ${executable}`));
-    else results.push(item(id, 'missing', `Executable for ${id.toUpperCase()} not found: ${executable || 'path not set'}`, `Set the vLLM path for ${expected} or select an external model.`));
+    else if (executable && probes.exists(executable)) {
+      if (id === 'tts' && speech.ttsEngine === 'omnivoice') {
+        const installed = await probes.omniPython(executable);
+        results.push(item(id, installed.ok ? 'ready' : 'missing', installed.detail,
+          installed.ok ? '' : `Install OmniVoice from PyPI into ${executable} or select an external server.`));
+      } else results.push(item(id, 'ready', `${expected} will be started using ${executable}`));
+    } else results.push(item(id, 'missing', `Executable for ${id.toUpperCase()} not found: ${executable || 'path not set'}`, `Set the ${id === 'tts' && speech.ttsEngine === 'omnivoice' ? 'OmniVoice Python' : 'vLLM'} path for ${expected} or select an external model.`));
   }
 
   if (speech.mode === 'local') {
-    for (const [id, name] of [['asr-model', 'Qwen3-ASR-0.6B'], ['tts-model', 'Qwen3-TTS-12Hz-1.7B-Base']]) {
+    for (const [id, name] of [['asr-model', 'Qwen3-ASR-0.6B'], ...(speech.ttsEngine === 'qwen' ? [['tts-model', 'Qwen3-TTS-12Hz-1.7B-Base']] : [])]) {
       const folder = `models--Qwen--${name}`;
       results.push(probes.cachedModelReady(path.join(speechCacheRoot(lt.root), folder), id === 'tts-model')
         ? item(id, 'ready', `${name}: model files found`)
         : item(id, 'missing', `${name}: model files not found`, 'Press Start: Studio will download the model into the Hugging Face cache.'));
+    }
+    if (speech.ttsEngine === 'omnivoice') {
+      const folder = path.join(speechCacheRoot(lt.root), 'models--k2-fsa--OmniVoice');
+      results.push(probes.cachedOmniModelReady(folder)
+        ? item('tts-model', 'ready', 'OmniVoice model files found')
+        : item('tts-model', 'missing', 'OmniVoice model files not found', 'Press Start: Studio will download the OmniVoice model into the Hugging Face cache.'));
     }
   }
 
@@ -187,7 +225,7 @@ export async function inspectPrerequisites(input, probes = defaultProbes) {
     : item('gpu', 'missing', 'NVIDIA GPU was not detected for the avatar', 'Check the CUDA driver with nvidia-smi; a local avatar needs a GPU even with external ASR/TTS servers.'));
   const port = await probes.port(lt.port, profile);
   results.push(port === 'incompatible'
-    ? item('port', 'blocked', `LiveTalking at ${lt.port} is incompatible with the selected profile`, 'Restart the external service with the selected model, folder, and brain, or choose another port.')
+    ? item('port', 'blocked', `LiveTalking at ${lt.port} is incompatible with the selected profile`, 'An existing service uses a different avatar model, folder, brain, or TTS engine. Stop and restart it with these settings, or choose another port.')
     : port === 'occupied'
     ? item('port', 'blocked', `Port ${lt.port} is used by another process`, 'Stop the conflicting process or choose another port.')
     : item('port', 'ready', port === 'livetalking' ? `Compatible LiveTalking is already running on ${lt.port}` : `Port ${lt.port} is available`));

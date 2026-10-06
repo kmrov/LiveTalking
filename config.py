@@ -78,6 +78,7 @@ def parse_args():
                         help="reference file name or voice model ID")
     parser.add_argument('--REF_TEXT', type=str, default=None)
     parser.add_argument('--TTS_SERVER', type=str, default='http://127.0.0.1:9880')
+    parser.add_argument('--TTS_MODEL_ID', type=str, default='', help='Studio speech model identity for desktop health')
 
     # ─── Browser microphone ASR ───────────────────────────────────────
     parser.add_argument('--ASR_BACKEND', choices=('qwen3asr', 'sensevoice'), default='qwen3asr')

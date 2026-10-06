@@ -32,6 +32,30 @@ test('startup-only saved fields are blocked while a profile is running',async t=
  await assert.rejects(f.runtime.assertCanSave({...f.profile,liveTalking:{...f.profile.liveTalking,model:'musetalk',avatarId:'portrait'}}));
  await f.runtime.assertCanSave(f.profile);
 });
+test('saving a changed avatar or environment stops the running profile first',async t=>{
+ const f=await fixture(t);f.setState({phase:'ready',profileId:f.profile.id});
+ const changed={...f.profile,liveTalking:{...f.profile.liveTalking,port:f.profile.liveTalking.port+1}};
+ const saved=await f.runtime.save(changed);
+ assert.equal(f.getStops(),1);
+ assert.equal(saved.liveTalking.port,changed.liveTalking.port);
+ assert.equal(f.profiles.get(saved.id).liveTalking.port,changed.liveTalking.port);
+});
+test('saving settings that do not require a stop leaves the running profile active',async t=>{
+ const f=await fixture(t);f.setState({phase:'ready',profileId:f.profile.id});
+ const saved=await f.runtime.save({...f.profile,speech:{...f.profile.speech,referenceText:'Updated transcript'}});
+ assert.equal(f.getStops(),0);
+ assert.equal(saved.speech.referenceText,'Updated transcript');
+});
+test('saving profile details does not wait for the full model startup lifecycle',async t=>{
+ const f=await fixture(t);f.setState({phase:'checking',profileId:f.profile.id});
+ let release;
+ const startup=f.runtime.runLifecycle(()=>new Promise(resolve=>{release=resolve;}));
+ const saved=f.runtime.save({...f.profile,speech:{...f.profile.speech,referenceText:'Changed while models load'}});
+ const outcome=await Promise.race([saved.then(()=> 'saved'),new Promise(resolve=>setTimeout(()=>resolve('waiting'),40))]);
+ release();await startup;
+ assert.equal(outcome,'saved');
+ assert.equal(f.getStops(),0);
+});
 test('a failed profile is stopped before preparation because its other services may still be owned',async t=>{
  const f=await fixture(t);f.setState({phase:'failed',profileId:f.profile.id});
  const input={root:f.root,python:f.profile.liveTalking.python,sourceToken:'selected',name:'Аватар',model:'musetalk',parameters:{}};

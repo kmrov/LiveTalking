@@ -22,3 +22,11 @@ test('profile reports invalid field names', () => {
   assert.throws(() => normalizeProfile({ id: 'main', liveTalking: { port: 70000 } }), error => error instanceof ProfileError && error.field === 'liveTalking.port');
   assert.throws(() => normalizeProfile({ id: 'main', liveTalking: { avatarId: '../../escape' } }), error => error instanceof ProfileError && error.field === 'liveTalking.avatarId');
 });
+
+test('speech profile keeps OmniVoice engine and its Python without changing older Qwen profiles', () => {
+  assert.equal(normalizeProfile({}).speech.ttsEngine, 'qwen');
+  const speech = normalizeProfile({ speech: { ttsEngine: 'omnivoice', omniPython: '/opt/omnivoice/bin/python' } }).speech;
+  assert.equal(speech.ttsEngine, 'omnivoice');
+  assert.equal(speech.omniPython, '/opt/omnivoice/bin/python');
+  assert.throws(() => normalizeProfile({ speech: { ttsEngine: 'other' } }), error => error instanceof ProfileError && error.field === 'speech.ttsEngine');
+});

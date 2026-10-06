@@ -1,4 +1,4 @@
-"""Start Qwen3-ASR, Qwen3-TTS and LiveTalking; stop owned processes on exit."""
+"""Start Qwen ASR, selected TTS and LiveTalking; stop owned processes on exit."""
 
 import argparse
 import json
@@ -58,6 +58,8 @@ def parse_args(argv=None):
                         choices=("", "none", "minimal", "low", "medium", "high", "xhigh"))
     parser.add_argument("--asr-vllm", default=os.getenv("QWEN_ASR_VLLM", bundled_vllm(".venv")))
     parser.add_argument("--tts-vllm", default=os.getenv("QWEN_TTS_VLLM", bundled_vllm(".venv-omni")))
+    parser.add_argument("--tts-engine", choices=("qwen", "omnivoice"), default="qwen")
+    parser.add_argument("--omni-python", default=str(ROOT.parent / ".venv-omnivoice/bin/python"))
     parser.add_argument("--tts-deploy-config", default=os.getenv("QWEN_TTS_DEPLOY_CONFIG", ""))
     parser.add_argument("--avatar-python", default=os.getenv("LIVETALKING_PYTHON", str(ROOT / ".venv/bin/python")))
     parser.add_argument("--asr-server", default=os.getenv("QWEN_ASR_SERVER", "http://127.0.0.1:8092"))
@@ -75,6 +77,8 @@ def parse_args(argv=None):
     parser.add_argument("--keep-models-file", default="", help="Studio shutdown request to retain owned models")
     args = parser.parse_args(argv)
     args.app_args = extra
+    if args.tts_engine == "omnivoice":
+        args.tts_model = "k2-fsa/OmniVoice"
     return args
 
 
@@ -174,6 +178,7 @@ def avatar_command(args, python, ref_file, ref_text):
                "--ASR_BACKEND", "qwen3asr", "--ASR_SERVER", args.asr_server,
                "--ASR_MODEL", args.asr_model,
                "--tts", "qwen3tts", "--TTS_SERVER", args.tts_server,
+               "--TTS_MODEL_ID", args.tts_model,
                "--REF_FILE", str(ref_file), "--REF_TEXT", ref_text]
     if args.llm_prompt_file:
         prompt = Path(args.llm_prompt_file).expanduser().resolve()
@@ -334,11 +339,18 @@ def main(argv=None):
                 continue
             commands.append((name, server, model, None))
             continue
-        vllm = executable(vllm_name)
-        tts_config = tts_deploy_config(args, vllm) if name == "TTS" else None
-        commands.append((name, server, model, server_command(
-            vllm, model, server, tts_config, args if name == "ASR" else None
-        )))
+        if name == "TTS" and args.tts_engine == "omnivoice":
+            endpoint = model_endpoint(server)
+            if endpoint.scheme != "http" or endpoint.hostname not in ("127.0.0.1", "localhost", "::1"):
+                raise ValueError("Local OmniVoice server requires a loopback HTTP URL")
+            command = [str(executable(args.omni_python)), str(ROOT / "scripts/omnivoice_server.py"),
+                       "--host", endpoint.hostname, "--port", str(endpoint.port or 80),
+                       "--ref-file", str(ref_file), "--ref-text", ref_text]
+        else:
+            vllm = executable(vllm_name)
+            tts_config = tts_deploy_config(args, vllm) if name == "TTS" else None
+            command = server_command(vllm, model, server, tts_config, args if name == "ASR" else None)
+        commands.append((name, server, model, command))
 
     if args.dry_run:
         for name, _, _, command in commands:

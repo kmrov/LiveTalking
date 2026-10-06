@@ -35,7 +35,7 @@ export function createModelDownloads({ spawn = nodeSpawn, kill = (pid, signal) =
     try {
       owner.directory = await mkdtemp(path.join(temporaryRoot, 'livetalking-models-'));
       const requestFile = path.join(owner.directory, 'request.json');
-      const request = { root: profile.liveTalking.root, model: profile.liveTalking.model, speechMode: profile.speech.mode };
+      const request = { root: profile.liveTalking.root, model: profile.liveTalking.model, speechMode: profile.speech.mode, ttsEngine: profile.speech.ttsEngine };
       await writeFile(requestFile, JSON.stringify(request), { mode: 0o600 });
       if (owner.cancelled) throw new Error('Download cancelled.');
       await new Promise((resolve, reject) => {

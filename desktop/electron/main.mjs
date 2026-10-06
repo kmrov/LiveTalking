@@ -247,7 +247,7 @@ function registerSetupIpc() {
     return profileSetup(discoverBrain(profile));
   }));
   ipcMain.handle('desktop:check-setup', trusted(async input => setupChecks(normalizeProfile(input))));
-  ipcMain.handle('desktop:save-profile', trusted(input => avatarRuntime.runLifecycle(async () => { const profile = normalizeProfile(input); await avatarRuntime.assertCanSave(profile); return profileStore.save(profile); })));
+  ipcMain.handle('desktop:save-profile', trusted(input => avatarRuntime.save(input)));
   ipcMain.handle('desktop:brain-secrets', trusted((id, input = {}) => {
     const profile = profileStore.get(id);
     if (!profile) throw new Error('Profile not found');

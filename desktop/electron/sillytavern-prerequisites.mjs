@@ -1,10 +1,12 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { sillyTavernHealth } from './sillytavern-supervisor.mjs';
 import { createSillyTavernClient } from './sillytavern-client.mjs';
 
 const item = (id, state, detail, action = '') => ({ id, state, detail, action });
+const run = promisify(execFile);
 const defaults = {
   exists: existsSync,
   health: sillyTavernHealth,
@@ -13,8 +15,10 @@ const defaults = {
     catch { return false; }
   },
   async node() {
-    const result = spawnSync('node', ['--version'], { encoding: 'utf8', timeout: 5000 });
-    return result.status === 0 && Number(/^v(\d+)/.exec(result.stdout)?.[1]) >= 22;
+    try {
+      const result = await run('node', ['--version'], { timeout: 5000 });
+      return Number(/^v(\d+)/.exec(result.stdout)?.[1]) >= 22;
+    } catch { return false; }
   },
 };
 

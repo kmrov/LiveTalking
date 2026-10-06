@@ -33,9 +33,17 @@ class WorkerClient:
                     or type(ready.get('chunk_samples')) is not int
                     or ready['chunk_samples'] != ready['chunk_frames'] * 16000 // ready['fps']):
                 raise RuntimeError('Invalid avatar worker ready response.')
+            startup_frames = ready.get('startup_frames', 0)
+            startup_samples = ready.get('startup_samples', 0)
+            if (type(startup_frames) is not int or type(startup_samples) is not int
+                    or not 0 <= startup_frames < ready['chunk_frames']
+                    or startup_samples != startup_frames * 16000 // ready['fps']):
+                raise RuntimeError('Invalid avatar startup block.')
             self.fps = ready['fps']
             self.chunk_frames = ready['chunk_frames']
             self.chunk_samples = ready['chunk_samples']
+            self.startup_frames = startup_frames
+            self.startup_samples = startup_samples
         except BaseException:
             self.close()
             raise
@@ -103,7 +111,8 @@ class WorkerClient:
 
     def render(self, audio):
         audio = np.asarray(audio, dtype='<f4')
-        if audio.shape != (self.chunk_samples,) or not np.isfinite(audio).all():
+        expected_frames = self.startup_frames if self.startup_frames and audio.shape == (self.startup_samples,) else self.chunk_frames
+        if audio.shape != (expected_frames * 16000 // self.fps,) or not np.isfinite(audio).all():
             raise ValueError('Invalid audio chunk length or non-finite audio samples.')
         self.sequence += 1
         seq = self.sequence
@@ -114,10 +123,10 @@ class WorkerClient:
             if value.get('seq') != seq:
                 raise RuntimeError('Avatar worker returned an unexpected sequence.')
             if value.get('event') == 'done':
-                if count != self.chunk_frames:
-                    raise RuntimeError(f'Avatar worker returned {count} frames, expected {self.chunk_frames}.')
+                if count != expected_frames:
+                    raise RuntimeError(f'Avatar worker returned {count} frames, expected {expected_frames}.')
                 return
-            if value.get('event') != 'frame' or count >= self.chunk_frames:
+            if value.get('event') != 'frame' or count >= expected_frames:
                 raise RuntimeError('Unexpected avatar worker frame response.')
             try:
                 encoded = base64.b64decode(value['jpeg'], validate=True)

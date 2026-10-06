@@ -57,6 +57,12 @@ class AudioBuffer:
         except queue.Empty:
             return None
 
+    def peek_playback(self):
+        if self.playback is None:
+            return None
+        with self.playback.mutex:
+            return self.playback.queue[0] if self.playback.queue else None
+
     def flush_talk(self):
         with self.lock:
             self.generation += 1

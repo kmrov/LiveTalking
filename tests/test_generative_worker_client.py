@@ -64,6 +64,14 @@ class WorkerClientTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             list(client.render(np.zeros(12800, np.float32)))
 
+    def test_short_startup_block_then_regular_block(self):
+        client = self.worker('soulx_startup')
+        self.assertEqual((client.startup_frames, client.startup_samples), (8, 6400))
+        self.assertEqual(len(list(client.render(np.zeros(6400, np.float32)))), 8)
+        self.assertEqual(len(list(client.render(np.zeros(19200, np.float32)))), 24)
+        with self.assertRaises(ValueError):
+            list(client.render(np.zeros(12800, np.float32)))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -306,6 +306,27 @@ class StartQwenAvatarTest(unittest.TestCase):
             self.assertIn("--transport virtualcam", rendered)
             self.assertIn("Это образец.", rendered)
 
+    def test_omnivoice_dry_run_uses_python_server_instead_of_vllm_tts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reference = Path(directory) / 'voice.wav'
+            with wave.open(str(reference), 'wb') as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(16000)
+                wav.writeframes(b'\0\0' * 1600)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = start_qwen_avatar.main([
+                    '--dry-run', '--tts-engine', 'omnivoice', '--omni-python', sys.executable,
+                    '--asr-vllm', sys.executable, '--ref-file', str(reference), '--ref-text', 'Образец',
+                ])
+            self.assertEqual(result, 0)
+            self.assertIn('omnivoice_server.py', output.getvalue())
+            self.assertIn('--ref-file', output.getvalue())
+            self.assertIn('--ref-text', output.getvalue())
+            self.assertEqual(start_qwen_avatar.parse_args(['--tts-engine', 'omnivoice']).tts_model, 'k2-fsa/OmniVoice')
+            self.assertNotIn('Qwen/Qwen3-TTS-12Hz-1.7B-Base', output.getvalue())
+
     def test_missing_reference_transcript_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "voice.wav"

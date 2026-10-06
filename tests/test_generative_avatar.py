@@ -82,6 +82,35 @@ class GenerativeAvatarTests(unittest.TestCase):
             avatar.put_audio_frame(np.full(320, .25, np.float32), {'status': 'end'} if i == 2 else {})
         self.assertTrue(avatar.output.spoken.wait(2))
 
+    def test_soulx_starts_on_short_block_then_uses_full_blocks(self):
+        class StagedWorker(FakeWorker):
+            chunk_frames = 4
+            startup_frames = 2
+            startup_samples = 1600
+
+            def __init__(self):
+                super().__init__(fps=20)
+                self.audio_lengths = []
+
+            def render(self, audio):
+                self.audio_lengths.append(len(audio))
+                for _ in range(2 if len(audio) == 1600 else 4):
+                    yield np.full((32, 32, 3), 140, np.uint8)
+
+        avatar, worker, _ = self.make_avatar(StagedWorker(), buffered=False)
+        for i in range(5):
+            avatar.put_audio_frame(np.full(320, .25, np.float32),
+                                   {'status': 'start'} if i == 0 else {})
+        deadline = __import__('time').monotonic() + 1
+        while not worker.audio_lengths and __import__('time').monotonic() < deadline:
+            __import__('time').sleep(.01)
+        self.assertEqual(worker.audio_lengths, [1600], 'First speech must not wait for a full 24-frame block')
+        for i in range(10):
+            avatar.put_audio_frame(np.full(320, .25, np.float32),
+                                   {'status': 'end'} if i == 9 else {})
+        self.assertTrue(avatar.output.spoken.wait(2))
+        self.assertEqual(worker.audio_lengths, [1600, 3200])
+
     def test_streaming_does_not_publish_padded_tail_or_reset_between_phrases(self):
         avatar, worker, quit = self.make_avatar(buffered=False)
         worker.resume.set()
@@ -122,6 +151,45 @@ class GenerativeAvatarTests(unittest.TestCase):
         end = next(i for i, (_, event) in enumerate(output) if event.get('status') == 'end')
         self.assertEqual(end - start, 9)
         self.assertTrue(all(np.max(pcm) > 1000 for pcm, _ in output[start:end + 1]))
+
+    def test_streaming_next_phrase_waits_for_its_first_video_frame(self):
+        class DelayedNextPhrase(FakeWorker):
+            def __init__(self):
+                super().__init__(fps=20)
+                self.second_started = threading.Event()
+                self.second_resume = threading.Event()
+
+            def render(self, audio):
+                self.render_calls += 1
+                if self.render_calls == 2:
+                    self.second_started.set()
+                    if not self.second_resume.wait(3):
+                        raise RuntimeError('Second phrase timed out')
+                for _ in range(2):
+                    yield np.full((32, 32, 3), 100 + 40 * self.render_calls, np.uint8)
+
+        worker = DelayedNextPhrase()
+        self.addCleanup(worker.second_resume.set)
+        avatar, _, quit = self.make_avatar(worker, buffered=False)
+        for phrase in ('first', 'second'):
+            for i in range(5):
+                avatar.put_audio_frame(np.full(320, .25, np.float32),
+                                       {'phrase': phrase, 'status': 'start' if i == 0 else 'end' if i == 4 else ''})
+        self.assertTrue(avatar.output.spoken.wait(2))
+        self.assertTrue(worker.second_started.wait(2))
+        quit.wait(.2)
+        self.assertFalse(any(event.get('phrase') == 'second' for _, event in avatar.output.audio),
+                         'The next phrase must not run ahead of its delayed video')
+        worker.second_resume.set()
+        deadline = __import__('time').monotonic() + 2
+        while not any(event.get('phrase') == 'second' for _, event in avatar.output.audio):
+            if __import__('time').monotonic() > deadline:
+                self.fail('Second phrase never resumed')
+            quit.wait(.01)
+        second_audio = next(i for i, (_, event) in enumerate(avatar.output.audio)
+                            if event.get('phrase') == 'second')
+        self.assertGreater(avatar.output.video[second_audio // 2].mean(), 140,
+                           'The next phrase must start with its own generated frame')
 
     def test_streaming_20fps_frames_follow_25fps_audio_timeline(self):
         class DistinctFrames(FakeWorker):

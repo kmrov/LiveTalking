@@ -12,7 +12,7 @@
     <header class="topbar">
       <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>LIVE<span class="brand-light">TALKING</span></span></div>
       <div class="topbar-context"><span class="section-label">STUDIO</span><span class="context-divider"></span><label class="profile-picker-label">Profile <select id="profile-picker" aria-label="Studio profile"><option value="">New profile</option></select></label></div>
-      <div class="topbar-state"><button id="start-profile" type="button">Start</button><button id="stop-profile" type="button" disabled>Stop</button><span class="status-dot" aria-hidden="true"></span><span id="runtime-state">Not configured</span></div>
+      <div class="topbar-state"><button id="start-profile" type="button"><span class="button-spinner" hidden aria-hidden="true"></span>Start</button><button id="stop-profile" type="button" disabled>Stop</button><span class="status-dot" aria-hidden="true"></span><span id="runtime-state">Not configured</span></div>
     </header>
     <div id="startup-progress" class="startup-progress" hidden><span class="startup-spinner" aria-hidden="true"></span><span id="startup-progress-text">Preparing services…</span></div>
 
@@ -125,6 +125,8 @@
         <section id="settings-voice" role="tabpanel" aria-labelledby="settings-tab-voice">
           <p class="setting-hint">The avatar uses this recording as its voice. Include the exact words spoken in the sample.</p>
 
+            <label>Speech synthesis<select id="tts-engine"><option value="qwen">Qwen3-TTS</option><option value="omnivoice">OmniVoice · voice cloning</option></select></label>
+
             <label id="known-voices-label" hidden>Detected samples<select id="known-voices"></select></label>
             <label>Voice sample WAV<input id="voice-wav" autocomplete="off" spellcheck="false" placeholder="/path/to/voice.wav"></label>
             <button type="button" class="text-button" id="choose-voice">Choose WAV</button>
@@ -166,14 +168,14 @@
             <input id="avatar-model" type="hidden"><input id="avatar-id" type="hidden">
             <label>LiveTalking port<input id="server-port" type="number" min="1" max="65535"></label>
             <label>Model mode<select id="speech-mode"><option value="local">Run locally</option><option value="external">External servers</option></select></label>
-            <div id="local-model-fields"><label>vLLM for ASR<input id="asr-vllm" autocomplete="off" spellcheck="false"></label><label>vLLM for TTS<input id="tts-vllm" autocomplete="off" spellcheck="false"></label></div>
+            <div id="local-model-fields"><label>vLLM for ASR<input id="asr-vllm" autocomplete="off" spellcheck="false"></label><label>vLLM for TTS<input id="tts-vllm" autocomplete="off" spellcheck="false"></label><label>OmniVoice Python<input id="omni-python" autocomplete="off" spellcheck="false" placeholder="/path/to/.venv-omnivoice/bin/python"></label></div>
             <div id="external-model-fields" hidden><label>URL ASR<input id="asr-url" type="url" placeholder="http://127.0.0.1:8092"></label><label>URL TTS<input id="tts-url" type="url" placeholder="http://127.0.0.1:8091"></label></div>
             <label class="checkbox-label"><input id="auto-start" type="checkbox"> Start on launch</label>
           <details id="check-details" class="setup-details"><summary>Check results</summary><ul id="setup-results" aria-label="Check results"></ul></details>
         </section>
       </form>
     </div>
-    <div class="dialog-footer"><p id="settings-message" role="status">Save to apply changes. Closing discards unsaved edits.</p><div class="setup-actions"><button type="button" id="check-setup">Check setup</button><button type="submit" form="setup-form" id="save-profile" class="primary-button">Save profile</button></div></div>
+    <div class="dialog-footer"><p id="settings-message" role="status">Save to apply changes. Closing discards unsaved edits.</p><div class="setup-actions"><button type="button" id="check-setup"><span class="button-spinner" hidden aria-hidden="true"></span>Check setup</button><button type="submit" form="setup-form" id="save-profile" class="primary-button"><span class="button-spinner" hidden aria-hidden="true"></span>Save profile</button></div></div>
   </dialog>
   <dialog id="projection-settings-dialog" class="studio-dialog" aria-labelledby="projection-settings-title">
     <div class="studio-dialog-heading"><div><h2 id="projection-settings-title">Head in Jar connection</h2><p>Choose a device or enter its address manually.</p></div><button type="button" data-close-dialog aria-label="Close connection settings">×</button></div>

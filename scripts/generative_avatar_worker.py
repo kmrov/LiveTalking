@@ -37,29 +37,35 @@ def serve(engine, input_stream, output_stream):
             command = msg['command']
             if command == 'init':
                 engine.start(msg['source'])
-                emit({'event': 'ready', 'fps': engine.fps, 'chunk_frames': engine.chunk_frames,
-                      'chunk_samples': engine.chunk_frames * 16000 // engine.fps})
+                ready = {'event': 'ready', 'fps': engine.fps, 'chunk_frames': engine.chunk_frames,
+                         'chunk_samples': engine.chunk_frames * 16000 // engine.fps}
+                if getattr(engine, 'startup_frames', 0):
+                    ready['startup_frames'] = engine.startup_frames
+                    ready['startup_samples'] = engine.startup_frames * 16000 // engine.fps
+                emit(ready)
             elif command == 'reset':
                 engine.reset()
                 emit({'event': 'reset'})
             elif command == 'render':
                 audio = np.frombuffer(base64.b64decode(msg['audio'], validate=True), dtype='<f4').copy()
-                if audio.shape != (engine.chunk_frames * 16000 // engine.fps,) or not np.isfinite(audio).all():
+                startup_frames = getattr(engine, 'startup_frames', 0)
+                expected_frames = startup_frames if startup_frames and audio.size == startup_frames * 16000 // engine.fps else engine.chunk_frames
+                if audio.shape != (expected_frames * 16000 // engine.fps,) or not np.isfinite(audio).all():
                     raise ValueError('Invalid engine audio chunk.')
                 count = 0
                 for frame in engine.render(audio):
                     frame = np.asarray(frame)
                     if frame.ndim != 3 or frame.shape[2] != 3 or frame.dtype != np.uint8 or max(frame.shape[:2]) > 4096:
                         raise ValueError('Engine must produce RGB uint8 frames up to 4096 pixels.')
-                    if count >= engine.chunk_frames:
+                    if count >= expected_frames:
                         raise ValueError('Engine produced too many frames.')
                     ok, jpeg = cv2.imencode('.jpg', cv2.cvtColor(frame, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 95])
                     if not ok:
                         raise ValueError('Could not encode engine frame.')
                     emit({'event': 'frame', 'seq': msg['seq'], 'jpeg': base64.b64encode(jpeg).decode('ascii')})
                     count += 1
-                if count != engine.chunk_frames:
-                    raise ValueError(f'Engine returned {count} frames instead of {engine.chunk_frames}.')
+                if count != expected_frames:
+                    raise ValueError(f'Engine returned {count} frames instead of {expected_frames}.')
                 emit({'event': 'done', 'seq': msg['seq']})
             elif command == 'close':
                 break

@@ -65,6 +65,19 @@ test('prerequisite rejects empty speech cache folders before cold model startup'
   assert.equal(results.find(item => item.id === 'tts-model').state, 'missing');
 });
 
+test('OmniVoice local profile checks its Python and model instead of Qwen TTS weights', async () => {
+  const profile = normalizeProfile({ ...base, speech: { ...base.speech, ttsEngine: 'omnivoice', omniPython: '/opt/omni/bin/python' } });
+  const requested = [];
+  const results = await inspectPrerequisites(profile, probes({
+    model: async (_url, expected) => { requested.push(expected); return 'unavailable'; },
+    omniPython: async () => ({ ok: true, detail: 'OmniVoice is installed' }),
+    cachedOmniModelReady: () => false,
+  }));
+  assert.ok(requested.includes('k2-fsa/OmniVoice'));
+  assert.equal(results.find(item => item.id === 'tts-model').state, 'missing');
+  assert.match(results.find(item => item.id === 'tts-model').action, /OmniVoice/);
+});
+
 test('avatar preparation completeness and model compatibility block startup', async () => {
  for(const avatar of [null,{ready:false,reason:'Нет координат',model:'wav2lip'},{ready:true,model:'musetalk'}]) {
   const results=await inspectPrerequisites(base,probes({avatar:async()=>avatar}));

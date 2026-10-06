@@ -8,6 +8,7 @@ import sys
 import tempfile
 
 import numpy as np
+import torch
 from PIL import Image
 
 
@@ -24,6 +25,7 @@ def _working_directory(path):
 class Engine:
     fps = 20
     sample_rate = 16000
+    startup_frames = 8
 
     def __init__(self, config):
         self.config = dict(config)
@@ -100,22 +102,42 @@ class Engine:
             self._audio = np.zeros(cache_samples, dtype=np.float32)
             self.api.get_base_data(self.pipeline, cond_image_path_or_dir=str(source),
                 base_seed=self._seed, use_face_crop=bool(self.config.get("face_crop", False)))
+            # Reuse the same reference and motion state for the short first
+            # block. Subsequent blocks keep the established 24-frame window.
+            reference = self.pipeline.cond_image_tensor_dict[self.pipeline.person_name]
+            with torch.no_grad():
+                self._startup_ref_latent = self.pipeline.vae.encode(
+                    reference.repeat(1, 1, self._motion_frames + self.startup_frames, 1, 1))
 
     def render(self, audio):
         if self.pipeline is None:
             raise RuntimeError("SoulX engine is not started")
+        startup_samples = self.startup_frames * self.sample_rate // self.fps
         if (not isinstance(audio, np.ndarray) or audio.dtype != np.float32
-                or audio.shape != (self.chunk_samples,) or not np.isfinite(audio).all()):
-            raise ValueError(f"SoulX needs exactly {self.chunk_samples} finite mono float32 samples")
+                or audio.shape not in ((self.chunk_samples,), (startup_samples,))
+                or not np.isfinite(audio).all()):
+            raise ValueError(f"SoulX needs {startup_samples} or {self.chunk_samples} finite mono float32 samples")
+        startup = audio.size == startup_samples
+        frame_num = self._motion_frames + (self.startup_frames if startup else self.chunk_frames)
+        if startup:
+            self.pipeline.frame_num = frame_num
+            self.pipeline.ref_img_latent = self._startup_ref_latent
+            self.api.infer_params['frame_num'] = frame_num
         count = len(audio)
         self._audio[:-count] = self._audio[count:]
         self._audio[-count:] = audio
-        embedding = self.api.get_audio_embedding(self.pipeline, self._audio,
-            self._audio_start, self._audio_end)
-        video = self.api.run_pipeline(self.pipeline, embedding)
+        try:
+            embedding = self.api.get_audio_embedding(self.pipeline, self._audio,
+                self._audio_end - frame_num, self._audio_end)
+            video = self.api.run_pipeline(self.pipeline, embedding)
+        finally:
+            if startup:
+                self.pipeline.frame_num = self._frame_num
+                self.pipeline.ref_img_latent = self.pipeline.ref_img_latent_dict[self.pipeline.person_name]
+                self.api.infer_params['frame_num'] = self._frame_num
         # Upstream generates the preceding nine motion frames as context.
         # Their audio is already in the rolling cache; never publish them twice.
-        if video.ndim != 4 or video.shape[0] != self._frame_num or video.shape[-1] != 3:
+        if video.ndim != 4 or video.shape[0] != frame_num or video.shape[-1] != 3:
             raise RuntimeError(f"SoulX returned invalid frames: {tuple(video.shape)}")
         video = video[self._motion_frames:].detach().float().cpu().numpy()
         if self._content_box is not None:
@@ -138,6 +160,7 @@ class Engine:
     def close(self):
         self.pipeline = None
         self._audio = None
+        self._startup_ref_latent = None
         if self._reference_dir is not None:
             self._reference_dir.cleanup()
             self._reference_dir = None

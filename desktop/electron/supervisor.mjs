@@ -21,6 +21,10 @@ export async function isCompatibleDesktopHealth(payload,profile) {
   const expectedMode = profile.brain.mode === 'sillytavern' ? 'persona' : profile.brain.mode;
   const expectedUrl = profile.brain.mode === 'sillytavern' ? 'http://127.0.0.1:8002' : profile.brain.url;
   if(mode!==expectedMode || (mode==='persona' && payload.data.brain.url?.replace(/\/$/,'')!==expectedUrl))return false;
+  const expectedTts = profile.speech.ttsEngine === 'omnivoice' ? 'k2-fsa/OmniVoice' : 'Qwen/Qwen3-TTS-12Hz-1.7B-Base';
+  const activeTts = payload.data.speech?.tts_model;
+  if (activeTts && activeTts !== expectedTts) return false;
+  if (!activeTts && profile.speech.ttsEngine === 'omnivoice') return false;
   try{return payload.data.avatar?.model===profile.liveTalking.model && payload.data.avatar.root===await realpath(profile.liveTalking.root);}
   catch{return false;}
 }
@@ -40,7 +44,9 @@ export function launcherArguments(input) {
     path.join(lt.root, 'scripts/start_qwen_avatar.py'),
     '--json-status', '--avatar-python', lt.python,
     '--ref-file', speech.referenceWav, '--ref-text', speech.referenceText,
+    '--tts-engine', speech.ttsEngine,
   ];
+  if (speech.ttsEngine === 'omnivoice' && speech.omniPython) args.push('--omni-python', speech.omniPython);
   if (speech.mode === 'external') {
     args.push('--external-models', '--asr-server', speech.asrUrl, '--tts-server', speech.ttsUrl);
   } else {
@@ -105,7 +111,7 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
       const checks = [
         ['livetalking', () => health(port, profile)],
         ['asr', () => checkModel(profile.speech.asrUrl || 'http://127.0.0.1:8092', 'Qwen/Qwen3-ASR-0.6B')],
-        ['tts', () => checkModel(profile.speech.ttsUrl || 'http://127.0.0.1:8091', 'Qwen/Qwen3-TTS-12Hz-1.7B-Base')],
+        ['tts', () => checkModel(profile.speech.ttsUrl || 'http://127.0.0.1:8091', profile.speech.ttsEngine === 'omnivoice' ? 'k2-fsa/OmniVoice' : 'Qwen/Qwen3-TTS-12Hz-1.7B-Base')],
       ];
       for (const [stage, check] of checks) {
         if (token !== generation || state !== 'ready') return;

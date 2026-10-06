@@ -73,6 +73,10 @@ class DesktopModelDownloadTest(unittest.TestCase):
         self.assertTrue(any(entry['relative']=='models/wav2lip.pth' for entry in local))
         self.assertTrue(any(entry['repo']=='Qwen/Qwen3-ASR-0.6B' for entry in local))
         self.assertTrue(any(entry['repo']=='Qwen/Qwen3-TTS-12Hz-1.7B-Base' and entry['file']=='speech_tokenizer/model.safetensors' for entry in local))
+        omni = model_download_plan(self.root,'wav2lip',scope='start',speech_mode='local',tts_engine='omnivoice',**hubs)
+        self.assertTrue(any(entry['repo']=='Qwen/Qwen3-ASR-0.6B' for entry in omni))
+        self.assertTrue(any(entry['repo']=='k2-fsa/OmniVoice' and entry['file']=='audio_tokenizer/model.safetensors' for entry in omni))
+        self.assertFalse(any(entry.get('repo')=='Qwen/Qwen3-TTS-12Hz-1.7B-Base' for entry in omni))
         external = model_download_plan(self.root,'wav2lip',scope='start',speech_mode='external',**hubs)
         self.assertEqual([entry['relative'] for entry in external],['models/wav2lip.pth'])
 

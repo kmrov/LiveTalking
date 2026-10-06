@@ -22,7 +22,10 @@ class SoulXEngineTests(unittest.TestCase):
         self.config = {key: str(root) for key in ("root", "weights", "wav2vec")}
         self.windows = []
         self.preparations = []
-        self.pipeline = types.SimpleNamespace(generator=torch.Generator(), state=0)
+        self.pipeline = types.SimpleNamespace(generator=torch.Generator(), state=0,
+            person_name='test', cond_image_tensor_dict={'test': torch.zeros(1, 3, 1, 2, 2)},
+            ref_img_latent_dict={'test': torch.zeros(1, 5)}, ref_img_latent=torch.zeros(1, 5),
+            vae=types.SimpleNamespace(encode=lambda frames: torch.zeros(1, (frames.shape[2] - 1) // 8 + 1)))
         self.pipeline.reset_person_name = lambda: setattr(self.pipeline, "state", 0)
         inference = types.ModuleType("flash_head.inference")
         inference.infer_params = dict(sample_rate=16000, tgt_fps=25,
@@ -32,6 +35,7 @@ class SoulXEngineTests(unittest.TestCase):
             self.preparations.append({**kwargs, 'sampling_steps': inference.infer_params['sample_steps'],
                                       'frame_num': inference.infer_params['frame_num']})
             pipeline.state = 0
+            pipeline.frame_num = inference.infer_params['frame_num']
         inference.get_base_data = prepare
         inference.get_infer_params = lambda: dict(inference.infer_params)
         def embedding(pipeline, audio, start, end):
@@ -39,7 +43,7 @@ class SoulXEngineTests(unittest.TestCase):
             return audio
         inference.get_audio_embedding = embedding
         def run(pipeline, embedding):
-            frames = torch.arange(33).reshape(33, 1, 1, 1).expand(33, 2, 2, 3).float()
+            frames = torch.arange(pipeline.frame_num).reshape(-1, 1, 1, 1).expand(-1, 2, 2, 3).float()
             frames = frames + pipeline.state * 40
             pipeline.state += 1
             return frames
@@ -66,6 +70,15 @@ class SoulXEngineTests(unittest.TestCase):
         np.testing.assert_array_equal(window[-19200:], audio)
         self.assertFalse(window[:-19200].any())
         self.assertFalse(self.preparations[0]["use_face_crop"])
+
+    def test_short_first_chunk_then_full_chunk_keeps_audio_history(self):
+        self.engine.start(str(self.source))
+        first = self.engine.render(np.ones(6400, np.float32))
+        second = self.engine.render(np.full(19200, 2, np.float32))
+        self.assertEqual((len(first), len(second)), (8, 24))
+        self.assertEqual([start for _, start, _ in self.windows], [143, 127])
+        np.testing.assert_array_equal(self.windows[-1][0][-25600:-19200], 1)
+        self.assertEqual(second[0][0, 0, 0], 49)
 
     def test_history_survives_chunks_and_reset_clears_motion_and_audio(self):
         self.engine.start(str(self.source))
