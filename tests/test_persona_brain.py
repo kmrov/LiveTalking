@@ -59,6 +59,19 @@ class Transport:
 
 
 class PersonaBrainTest(unittest.IsolatedAsyncioTestCase):
+    async def test_generation_error_exposes_bridge_detail(self):
+        class Failing(Transport):
+            async def events(self, conversation_id, body):
+                yield 'error', {'code': 'generation_failed',
+                                'message': 'The character prompt exceeds the selected model context.'}
+        avatar = Avatar()
+        brain = PersonaBrain('http://127.0.0.1:8000', transport=Failing())
+        await brain.submit(avatar, 'Привет')
+        await brain.wait_idle()
+        error = next(event for event in avatar.events if event['event'] == 'error')
+        self.assertIn('character prompt exceeds', error['message'])
+        await brain.close()
+
     async def test_reconnect_restores_pending_turn_and_receives_completion_without_speaking(self):
         transport, original = Transport(), Avatar()
         brain = PersonaBrain('http://127.0.0.1:8000', transport=transport)

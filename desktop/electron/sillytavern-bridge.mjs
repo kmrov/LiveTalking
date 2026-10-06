@@ -123,9 +123,9 @@ export function createSillyTavernBridge({ client, randomUUID = nodeRandomUUID,
         }
         if (!answer.trim()) throw new Error('SillyTavern returned an empty answer');
         push(job, 'done', { conversation_id: id, request_id: requestId, text: answer, status: 'completed' });
-      } catch {
+      } catch (error) {
         jobs.delete(key);
-        push(job, 'error', { code: 'generation_failed' });
+        push(job, 'error', { code: 'generation_failed', message: String(error?.message || 'Generation failed').slice(0, 500) });
       } finally {
         job.finished = true;
         for (const wake of job.waiters) wake();
@@ -198,7 +198,7 @@ export function createSillyTavernBridge({ client, randomUUID = nodeRandomUUID,
       return sendJson(response, 404, { detail: 'Not found' });
     } catch (error) {
       if (response.headersSent) {
-        response.write(`event: error\ndata: ${JSON.stringify({ code: 'generation_failed' })}\n\n`);
+        response.write(`event: error\ndata: ${JSON.stringify({ code: 'generation_failed', message: String(error?.message || 'Generation failed').slice(0, 500) })}\n\n`);
         return response.end();
       }
       return sendJson(response, /not found/i.test(error.message) ? 404 : 400, { detail: error.message });

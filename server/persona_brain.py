@@ -224,7 +224,7 @@ class PersonaBrain:
                         elif event == 'reset':
                             raise ValueError('Persona speech protocol reset: update Persona before retrying')
                         elif event == 'error':
-                            raise ValueError(f"Persona generation error: {data.get('code', 'generation_failed')}")
+                            raise ValueError(f"Generation error: {data.get('message') or data.get('code', 'generation_failed')}")
                     if not done:
                         raise ConnectionError('Persona stream ended without done')
                     break

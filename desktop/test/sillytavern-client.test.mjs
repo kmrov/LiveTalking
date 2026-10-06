@@ -100,6 +100,7 @@ test('first setup stores a Custom source with an environment placeholder and pre
   assert.equal(saved.username, 'Keeper');
   assert.equal(saved.main_api, 'openai');
   assert.equal(saved.oai_settings.custom_model, 'gpt://folder/model');
+  assert.ok(saved.oai_settings.openai_max_context >= 8192, 'a full Studio character card must fit alongside the reply');
   assert.match(saved.oai_settings.custom_include_headers, /\$\{ENV:SILLYTAVERN_CUSTOM_API_KEY\}/);
   assert.doesNotMatch(JSON.stringify(saved), /secret/);
   assert.equal(calls.some(call => call.pathname === '/api/secrets/write'), false);

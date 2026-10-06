@@ -153,6 +153,7 @@ export function createSillyTavernClient({ baseUrl, fetch: request = globalThis.f
         custom_model: `gpt://${folderId}/${model}`,
         custom_include_headers: `Authorization: ${JSON.stringify(`Api-Key ${placeholder}`)}\nOpenAI-Project: ${JSON.stringify(folderId)}`,
         custom_include_body: 'reasoning_effort: none',
+        openai_max_context: 16384,
         openai_max_tokens: 650,
         temp_openai: 0.3,
       };

@@ -56,6 +56,7 @@ test('SillyTavern bridge keeps failed generation out of saved chat', async () =>
   const items = [];
   for await (const item of bridge.events(conversationId, 'request-2', 'Привет')) items.push(item);
   assert.deepEqual(items.map(item => item.event), ['delta', 'error']);
+  assert.deepEqual(items.at(-1).data, { code: 'generation_failed', message: 'upstream failed' });
   assert.equal((await bridge.history(conversationId)).length, 0);
 });
 
