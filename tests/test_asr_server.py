@@ -1,4 +1,6 @@
+import asyncio
 import importlib.util
+import json
 import sys
 import threading
 import time
@@ -145,6 +147,75 @@ class ASRServerConcurrencyTestCase(unittest.TestCase):
 
                 first.result(timeout=2)
                 second.result(timeout=2)
+
+
+class ASRServerPartialTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_qwen_streams_prefix_then_final_when_requested(self):
+        module, injected = load_asr_server(lambda **options: None)
+
+        class FakeSocket:
+            def __init__(self):
+                self.messages = asyncio.Queue()
+                self.sent = []
+
+            async def prepare(self, request):
+                pass
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                message = await self.messages.get()
+                if message is None:
+                    raise StopAsyncIteration
+                return message
+
+            async def send_str(self, value):
+                self.sent.append(json.loads(value))
+
+            async def receive(self, kind, data):
+                await self.messages.put(types.SimpleNamespace(type=kind, data=data))
+
+        socket = FakeSocket()
+        module.web.WebSocketResponse = lambda: socket
+        calls = []
+        fake_qwen = types.ModuleType('server.qwen3_asr')
+
+        def transcribe(pcm, opt):
+            calls.append(len(pcm))
+            return 'Привет' if len(pcm) < 40000 else 'Привет, как дела'
+
+        fake_qwen.transcribe_pcm = transcribe
+        injected['server.qwen3_asr'] = fake_qwen
+        request = types.SimpleNamespace(remote='test', app={'opt': types.SimpleNamespace(ASR_BACKEND='qwen3asr')})
+        loop = asyncio.get_running_loop()
+        with patch.dict(sys.modules, injected), patch.object(
+            loop, 'run_in_executor', side_effect=lambda executor, fn, *args: asyncio.sleep(0, result=fn(*args))
+        ):
+            task = asyncio.create_task(module.asr_websocket_handler(request))
+            await socket.receive(module.web.WSMsgType.TEXT, json.dumps({
+                'mode': 'offline', 'is_speaking': True, 'partial_results': True,
+            }))
+            await socket.receive(module.web.WSMsgType.BINARY, bytes(32000))
+            for _ in range(100):
+                if socket.sent:
+                    break
+                await asyncio.sleep(0.01)
+            self.assertEqual(socket.sent, [{
+                'text': 'Привет', 'mode': 'offline', 'is_final': False, 'timestamp': None,
+            }])
+            await socket.receive(module.web.WSMsgType.BINARY, bytes(32000))
+            await socket.receive(module.web.WSMsgType.TEXT, json.dumps({'is_speaking': False}))
+            for _ in range(100):
+                if len(socket.sent) > 1:
+                    break
+                await asyncio.sleep(0.01)
+            self.assertEqual(socket.sent[-1]['text'], 'Привет, как дела')
+            self.assertTrue(socket.sent[-1]['is_final'])
+            self.assertEqual(calls, [32000, 64000])
+            await socket.messages.put(None)
+            await task
+            self.assertEqual([item for item in asyncio.all_tasks() if item is not asyncio.current_task()], [])
 
 
 if __name__ == "__main__":

@@ -2,9 +2,20 @@ import { createPcmResampler } from './asr-client.mjs';
 import { createVoiceActivityDetector } from './voice-activity.mjs';
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+const recognizedWords = text => text.match(/[\p{L}\p{N}]+(?:[-'’][\p{L}\p{N}]+)*/gu) || [];
+const recognizedWordCount = text => recognizedWords(text).length;
+const stopCommands = new Set(['стоп', 'стой', 'остановись', 'останови', 'прекрати', 'перестань',
+  'хватит', 'замолчи', 'помолчи', 'подожди', 'погоди', 'пауза', 'stop', 'pause']);
+function isStopCommand(text) {
+  const words = recognizedWords(text).map(word => word.toLocaleLowerCase('ru'));
+  if (words[0] === 'ну' || words[0] === 'пожалуйста') words.shift();
+  if (words.at(-1) === 'пожалуйста') words.pop();
+  return words.length === 1 && stopCommands.has(words[0]);
+}
+const canInterrupt = text => recognizedWordCount(text) >= 3;
 
 export function createContinuousVoiceClient({ getUserMedia, AudioContext, AudioWorkletNode = globalThis.AudioWorkletNode,
-  WebSocket, baseUrl, onState = () => {}, onLevel = () => {}, onTurn = async () => {}, onBargeIn = () => {},
+  WebSocket, baseUrl, onState = () => {}, onLevel = () => {}, onPartial = () => {}, onTurn = async () => {}, onBargeIn = () => {},
   allowBargeIn = false, pause = delay, transcriptionTimeoutMs = 130000,
   workletUrl = new URL('./pcm-worklet.js', import.meta.url).href }) {
   let stream;
@@ -24,6 +35,8 @@ export function createContinuousVoiceClient({ getUserMedia, AudioContext, AudioW
   let bargeInPending = Promise.resolve();
   let levelDuration = 0;
   let peakLevel = 0;
+  let replyInterrupted = false;
+  let capturedDuringReply = false;
 
   const setState = (next, detail = '') => { state = next; onState(next, detail); };
   function sendAudio(pcm) {
@@ -47,6 +60,7 @@ export function createContinuousVoiceClient({ getUserMedia, AudioContext, AudioW
     const oldContext = context; context = null;
     if (oldContext) await oldContext.close().catch(() => {});
     detector = resampler = null;
+    onPartial('');
   }
 
   function fail(error) {
@@ -57,22 +71,57 @@ export function createContinuousVoiceClient({ getUserMedia, AudioContext, AudioW
     setState('failed', error?.message || 'Recognition error');
   }
 
+  function interruptReply(token) {
+    if (!turnAbort || replyInterrupted || !allowBargeIn) return;
+    replyInterrupted = true;
+    ++turnGeneration;
+    turnAbort.abort();
+    turnAbort = null;
+    bargeInPending = Promise.resolve().then(() => {
+      if (token === generation) return onBargeIn();
+    }).catch(error => { if (token === generation) fail(error); });
+  }
+
   function finishTurn(text, token) {
     if (token !== generation || state !== 'transcribing') return;
     clearTimeout(finalTimer); finalTimer = null;
-    if (discardFinal) { discardFinal = false; detector.reset(); setState('listening'); return; }
-    if (!text) { detector.reset(); setState('listening'); return; }
+    if (discardFinal || !text) {
+      discardFinal = false;
+      onPartial('');
+      detector.reset();
+      setState(turnAbort ? 'waiting' : 'listening');
+      return;
+    }
+    if ((capturedDuringReply || replyInterrupted) && isStopCommand(text)) {
+      if (turnAbort) interruptReply(token);
+      onPartial('');
+      detector.reset();
+      setState('listening');
+      return;
+    }
+    if (capturedDuringReply && !replyInterrupted && !canInterrupt(text)) {
+      onPartial('');
+      detector.reset();
+      setState(turnAbort ? 'waiting' : 'listening');
+      return;
+    }
+    if (turnAbort) interruptReply(token);
+    onPartial(text);
     setState('waiting');
     const turn = ++turnGeneration;
     turnAbort = new AbortController();
     const signal = turnAbort.signal;
-    Promise.resolve().then(() => bargeInPending).then(() => onTurn(text, { signal }))
+    Promise.resolve().then(() => bargeInPending).then(() => {
+      if (!signal.aborted && token === generation) return onTurn(text, { signal });
+    })
       .then(() => pause(350))
       .then(() => {
-        if (token !== generation || turn !== turnGeneration || state !== 'waiting') return;
+        if (token !== generation || turn !== turnGeneration) return;
         turnAbort = null;
-        detector.reset();
-        setState('listening');
+        if (state === 'waiting') {
+          detector.reset();
+          setState('listening');
+        }
       })
       .catch(error => { if (token === generation && turn === turnGeneration) fail(error); });
   }
@@ -106,6 +155,14 @@ export function createContinuousVoiceClient({ getUserMedia, AudioContext, AudioW
           const result = JSON.parse(event.data);
           if (result.error) { fail(new Error(result.error)); return; }
           if (result.is_final) finishTurn((result.text || '').trim(), token);
+          else if (token === generation && ['capturing', 'transcribing'].includes(state) && !discardFinal) {
+            const text = (result.text || '').trim();
+            if (text) {
+              onPartial(text);
+              if (state === 'capturing' && detector?.voiceAccepted()
+                  && (canInterrupt(text) || isStopCommand(text))) interruptReply(token);
+            }
+          }
         } catch (error) { fail(error); }
       };
 
@@ -124,15 +181,12 @@ export function createContinuousVoiceClient({ getUserMedia, AudioContext, AudioW
           }
         },
         onStart: buffered => {
-          if (state === 'waiting' && allowBargeIn) {
-            ++turnGeneration;
-            turnAbort?.abort(); turnAbort = null;
-            bargeInPending = Promise.resolve().then(onBargeIn);
-            void bargeInPending.catch(fail);
-          }
           if (!['listening', 'waiting'].includes(state)) return;
           discardFinal = false;
-          socket.send(JSON.stringify({ mode: 'offline', is_speaking: true, wav_name: 'desktop-auto', audio_fs: 16000, itn: true }));
+          replyInterrupted = false;
+          capturedDuringReply = state === 'waiting' && Boolean(turnAbort);
+          onPartial('');
+          socket.send(JSON.stringify({ mode: 'offline', is_speaking: true, wav_name: 'desktop-auto', audio_fs: 16000, itn: true, partial_results: true }));
           for (const part of buffered) sendAudio(part);
           setState('capturing');
         },

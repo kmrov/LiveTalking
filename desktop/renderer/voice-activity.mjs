@@ -57,5 +57,5 @@ export function createVoiceActivityDetector({ sampleRate = 16000, onStart = () =
     }
   }
 
-  return { feed, reset };
+  return { feed, reset, voiceAccepted: () => active && voiceMs >= minVoiceMs };
 }

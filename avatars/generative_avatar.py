@@ -40,8 +40,25 @@ class ModelRuntime:
         self.config = config
         self.lock = threading.Lock()
         self.source = source
-        self.client = open_worker(config, source)
+        self.client, self.idle_frames = self._open_with_idle(source)
         self.leased = False
+
+    def _open_with_idle(self, source):
+        client = open_worker(self.config, source)
+        try:
+            frames = []
+            for frame in client.render(np.zeros(client.chunk_samples, np.float32)):
+                height, width = frame.shape[:2]
+                if max(height, width) > 1280:
+                    scale = 1280 / max(height, width)
+                    frame = cv2.resize(frame, (round(width * scale), round(height * scale)),
+                                       interpolation=cv2.INTER_AREA)
+                frames.append(frame)
+            client.reset()
+            return client, frames
+        except BaseException:
+            client.close()
+            raise
 
     def acquire(self, source):
         with self.lock:
@@ -50,7 +67,7 @@ class ModelRuntime:
             if self.client is None or self.client.closed.is_set() or self.client.process.poll() is not None or source != self.source:
                 if self.client is not None:
                     self.client.close()
-                self.client = open_worker(self.config, source)
+                self.client, self.idle_frames = self._open_with_idle(source)
                 self.source = source
             self.leased = True
             return self.client
@@ -95,8 +112,17 @@ class GenerativeAvatar(BaseAvatar):
         super().__init__(opt)
         self.model_runtime = model
         self.worker = model.acquire(avatar['source'])
-        self.frame_list_cycle = [avatar['frame']]
         self.height, self.width = avatar['frame'].shape[:2]
+        idle_frames = getattr(model, 'idle_frames', None) or [avatar['frame']]
+        if len(idle_frames) * self.height * self.width * 3 <= 128 * 1024 * 1024:
+            interpolation = cv2.INTER_LANCZOS4 if self.opt.model == 'soulx' else cv2.INTER_LINEAR
+            self.frame_list_cycle = [cv2.resize(frame, (self.width, self.height), interpolation=interpolation)
+                                     if frame.shape[:2] != (self.height, self.width) else frame
+                                     for frame in idle_frames]
+        else:
+            self.frame_list_cycle = idle_frames
+        self._idle_tick = 0
+        self._video_mode = 'source'
         self._display_frame = avatar['frame']
         self._target_frame = avatar['frame']
         self._fade_origin = avatar['frame']
@@ -242,17 +268,23 @@ class GenerativeAvatar(BaseAvatar):
             self.pending_buffer = False
 
     def _publish_video(self, frame, generated=False):
+        mode = 'speech' if generated else 'idle'
+        if not generated:
+            length = len(self.frame_list_cycle)
+            period = max(1, 2 * length - 2)
+            position = (self._idle_tick * self.worker.fps // self.opt.fps) % period
+            frame = self.frame_list_cycle[position if position < length else period - position]
+            self._idle_tick += 1
+        if frame.shape[:2] != (self.height, self.width):
+            interpolation = cv2.INTER_LANCZOS4 if self.opt.model == 'soulx' else cv2.INTER_LINEAR
+            frame = cv2.resize(frame, (self.width, self.height), interpolation=interpolation)
         if generated:
-            if frame.shape[:2] != (self.height, self.width):
-                interpolation = cv2.INTER_LANCZOS4 if self.opt.model == 'soulx' else cv2.INTER_LINEAR
-                frame = cv2.resize(frame, (self.width, self.height), interpolation=interpolation)
-            self._target_frame = frame
-            if not self._seen_generated:
-                self._seen_generated = True
-                self._fade_origin = self._display_frame
-                self._fade_remaining = self._fade_steps
-        elif self._seen_generated:
-            frame = self._target_frame
+            self._seen_generated = True
+        if mode != self._video_mode:
+            self._video_mode = mode
+            self._fade_origin = self._display_frame
+            self._fade_remaining = self._fade_steps
+        self._target_frame = frame
         if self._fade_remaining:
             alpha = (self._fade_steps - self._fade_remaining + 1) / self._fade_steps
             frame = cv2.addWeighted(self._fade_origin, 1 - alpha, self._target_frame, alpha, 0)
@@ -307,7 +339,8 @@ class GenerativeAvatar(BaseAvatar):
             state['frame'] = state['next_frame'][1]
             state['next_frame'] = next_frame()
             changed = True
-        self._publish_video(state['frame'] if changed else self.frame_list_cycle[0], generated=changed)
+        self._publish_video(state['frame'] if state['frame'] is not None else self.frame_list_cycle[0],
+                            generated=state['frame'] is not None)
         packets = []
         for _ in range(2):
             item = self.asr.pop_playback() if state['started'] else None

@@ -6,7 +6,8 @@
 #  This module provides a WebSocket endpoint (/api/asr) that speaks the same
 #  protocol as the external FunASR server (wss://www.funasr.com:10096/).
 #  The browser client (web/asr/main.js) connects here and receives a final
-#  transcription for each submitted utterance.
+#  transcription for each submitted utterance. Studio can also request
+#  interim Qwen results while the utterance is still being recorded.
 #
 #  Copyright (C) 2024 LiveTalking@lipku https://github.com/lipku/LiveTalking
 #  Licensed under the Apache License, Version 2.0
@@ -119,6 +120,10 @@ def _run_inference(audio_float32: np.ndarray, sample_rate: int, use_itn: bool):
 # ─── WebSocket Handler ─────────────────────────────────────────────────────
 
 SAMPLE_RATE = 16000  # The browser client records at 16 kHz mono PCM16
+PARTIAL_MIN_AUDIO_BYTES = int(SAMPLE_RATE * 2 * 0.9)
+PARTIAL_MIN_NEW_BYTES = int(SAMPLE_RATE * 2 * 0.5)
+PARTIAL_INTERVAL_SECONDS = 0.75
+PARTIAL_MAX_AUDIO_BYTES = SAMPLE_RATE * 2 * 20
 
 
 async def asr_websocket_handler(request):
@@ -131,14 +136,17 @@ async def asr_websocket_handler(request):
     2. Client sends JSON config::
 
            {"chunk_size":[5,10,5], "wav_name":"h5",
-            "is_speaking":true, "mode":"2pass", "itn":false, ...}
+            "is_speaking":true, "mode":"2pass", "itn":false,
+            "partial_results":true, ...}
 
     3. Client streams binary PCM16 audio chunks (960 bytes = 60 ms @ 16 kHz)
-    4. Client sends stop signal::
+    4. With Qwen and ``partial_results`` enabled, the server may send
+       ``is_final:false`` updates while audio is arriving.
+    5. Client sends stop signal::
 
            {"is_speaking":false, ...}
 
-    5. Server responds with transcription::
+    6. Server responds with the authoritative transcription::
 
            {"text":"hello world", "mode":"2pass-offline",
             "is_final":true, "timestamp":null}
@@ -153,6 +161,31 @@ async def asr_websocket_handler(request):
     config: dict = {}
     session_start = time.perf_counter()
     chunks_received = 0
+    recording = False
+    utterance_id = 0
+    partial_task = None
+    last_partial_started = 0.0
+    last_partial_bytes = 0
+    last_partial_text = ""
+
+    async def recognize_partial(pcm, opt, current_id):
+        nonlocal last_partial_text
+        try:
+            from server.qwen3_asr import transcribe_pcm
+            text = await asyncio.get_running_loop().run_in_executor(None, transcribe_pcm, pcm, opt)
+            if recording and current_id == utterance_id and text and text != last_partial_text:
+                last_partial_text = text
+                await ws.send_str(json.dumps({
+                    "text": text,
+                    "mode": config.get("mode", "offline"),
+                    "is_final": False,
+                    "timestamp": None,
+                }))
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            # The final request still runs if an interim request fails.
+            logger.warning(f"[ASR] Partial inference failed: {error}")
 
     try:
         async for msg in ws:
@@ -165,6 +198,14 @@ async def asr_websocket_handler(request):
 
                 if data.get("is_speaking") is True:
                     # ── Session start ──────────────────────────────────
+                    recording = True
+                    utterance_id += 1
+                    if partial_task:
+                        partial_task.cancel()
+                    partial_task = None
+                    last_partial_started = 0.0
+                    last_partial_bytes = 0
+                    last_partial_text = ""
                     config = data
                     audio_buffer = bytearray()
                     chunks_received = 0
@@ -178,6 +219,11 @@ async def asr_websocket_handler(request):
 
                 elif data.get("is_speaking") is False:
                     # ── End of speech → run inference ──────────────────
+                    recording = False
+                    utterance_id += 1
+                    if partial_task:
+                        partial_task.cancel()
+                    partial_task = None
                     buf_bytes = len(audio_buffer)
                     audio_seconds = buf_bytes / (SAMPLE_RATE * 2)  # 2 bytes per int16
                     session_elapsed = time.perf_counter() - session_start
@@ -240,8 +286,22 @@ async def asr_websocket_handler(request):
                     logger.info(f"[ASR] 📤 Result sent to client (mode={response_mode})")
 
             elif msg.type == web.WSMsgType.BINARY:
+                if not recording:
+                    continue
                 audio_buffer.extend(msg.data)
                 chunks_received += 1
+                buf_bytes = len(audio_buffer)
+                opt = request.app.get('opt')
+                now = time.monotonic()
+                if (config.get('partial_results') is True
+                        and getattr(opt, 'ASR_BACKEND', 'sensevoice') == 'qwen3asr'
+                        and PARTIAL_MIN_AUDIO_BYTES <= buf_bytes <= PARTIAL_MAX_AUDIO_BYTES
+                        and buf_bytes - last_partial_bytes >= PARTIAL_MIN_NEW_BYTES
+                        and (not partial_task or partial_task.done())
+                        and now - last_partial_started >= PARTIAL_INTERVAL_SECONDS):
+                    last_partial_started = now
+                    last_partial_bytes = buf_bytes
+                    partial_task = asyncio.create_task(recognize_partial(bytes(audio_buffer), opt, utterance_id))
 
             elif msg.type in (web.WSMsgType.ERROR, web.WSMsgType.CLOSE):
                 break
@@ -250,6 +310,9 @@ async def asr_websocket_handler(request):
         logger.info("[ASR] WebSocket handler cancelled")
     except Exception as e:
         logger.exception(f"[ASR] ❌ WebSocket handler error: {e}")
+    finally:
+        if partial_task:
+            partial_task.cancel()
 
     logger.info(f"[ASR] 🔌 WebSocket disconnected ({client_ip})")
     return ws

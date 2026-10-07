@@ -136,6 +136,7 @@ body.is-resizing-panels, body.is-resizing-panels * { cursor: col-resize !importa
 .handsfree-tools label { display: flex; align-items: center; gap: 4px; color: #a9bdad; font-size: 10px; }
 .handsfree-tools input { accent-color: #88ba91; }
 #handsfree-state { min-height: 16px; margin: 0 0 9px; color: #a3c6aa; font-size: 10px; line-height: 1.4; }
+.handsfree-transcript { margin: -5px 0 9px; color: #e3eee5; font-size: 11px; line-height: 1.4; }
 .handsfree-level { margin: -5px 0 9px; color: #8ca496; font-size: 10px; line-height: 1.4; }
 #conversation-form textarea { width: 100%; min-height: 90px; padding: 12px; border: 1px solid #40574c; border-radius: 6px; background: #101817; color: #ecf0ed; font: inherit; font-size: 12px; resize: vertical; }
 .composer-actions { justify-content: space-between; margin-top: 8px; }

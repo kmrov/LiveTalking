@@ -1,9 +1,10 @@
 import threading
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 import numpy as np
 
-from avatars.generative_avatar import GenerativeAvatar
+from avatars.generative_avatar import GenerativeAvatar, ModelRuntime
 
 
 class FakeWorker:
@@ -51,10 +52,10 @@ class Output:
 
 
 class GenerativeAvatarTests(unittest.TestCase):
-    def make_avatar(self, worker=None, buffered=True, model_name=None):
+    def make_avatar(self, worker=None, buffered=True, model_name=None, idle_frames=None):
         worker = worker or FakeWorker(fps=25 if buffered else 20)
         model_name = model_name or ('ditto' if buffered else 'soulx')
-        model = SimpleNamespace(config={'model': model_name, 'buffered_playback': buffered}, acquire=lambda source: worker,
+        model = SimpleNamespace(config={'model': model_name, 'buffered_playback': buffered}, idle_frames=idle_frames or [], acquire=lambda source: worker,
                                 release=lambda client: client.close())
         opt = SimpleNamespace(fps=25, sessionid='test', batch_size=2, tts='fixture',
                               transport='webrtc', model=model_name, customopt=[])
@@ -72,6 +73,73 @@ class GenerativeAvatarTests(unittest.TestCase):
             self.assertFalse(thread.is_alive())
         self.addCleanup(cleanup)
         return avatar, worker, quit
+
+    def test_model_runtime_prepares_silent_frames_and_resets_before_speech(self):
+        class SilentWorker:
+            chunk_samples = 1280
+            def __init__(self):
+                self.audio = None
+                self.resets = 0
+            def render(self, audio):
+                self.audio = audio.copy()
+                yield np.full((32, 32, 3), 60, np.uint8)
+                yield np.full((32, 32, 3), 120, np.uint8)
+            def reset(self): self.resets += 1
+            def close(self): pass
+        worker = SilentWorker()
+        with patch('avatars.generative_avatar.open_worker', return_value=worker):
+            runtime = ModelRuntime({'model': 'ditto'}, 'test.png')
+        self.addCleanup(runtime.close)
+        self.assertEqual(len(runtime.idle_frames), 2)
+        self.assertTrue(np.all(worker.audio == 0))
+        self.assertEqual(worker.resets, 1)
+
+    def test_model_runtime_bounds_idle_cache_for_large_images(self):
+        class LargeWorker:
+            chunk_samples = 1280
+            def render(self, audio):
+                yield np.full((2000, 2000, 3), 60, np.uint8)
+            def reset(self): pass
+            def close(self): pass
+        with patch('avatars.generative_avatar.open_worker', return_value=LargeWorker()):
+            runtime = ModelRuntime({'model': 'ditto'}, 'test.png')
+        self.addCleanup(runtime.close)
+        self.assertLessEqual(max(runtime.idle_frames[0].shape[:2]), 1280)
+
+    def test_idle_frames_move_before_first_phrase(self):
+        idle = [np.full((32, 32, 3), shade, np.uint8) for shade in (60, 120)]
+        avatar, worker, quit = self.make_avatar(idle_frames=idle)
+        deadline = __import__('time').monotonic() + 1
+        while len(avatar.output.video) < 10 and __import__('time').monotonic() < deadline:
+            quit.wait(.01)
+        shades = [int(frame.mean()) for frame in avatar.output.video[-4:]]
+        self.assertIn(60, shades)
+        self.assertIn(120, shades)
+        self.assertEqual(worker.render_calls, 0)
+
+    def test_idle_cache_uses_output_size_only_when_memory_is_bounded(self):
+        worker = FakeWorker()
+        model = SimpleNamespace(config={'model': 'ditto'}, idle_frames=[np.zeros((16, 16, 3), np.uint8)] * 4,
+                                acquire=lambda source: worker, release=lambda client: client.close())
+        opt = SimpleNamespace(fps=25, sessionid='test', batch_size=2, tts='fixture',
+                              transport='webrtc', model='ditto', customopt=[])
+        small = GenerativeAvatar(opt, model, {'model': 'ditto', 'source': 'test.png',
+                                               'frame': np.zeros((32, 32, 3), np.uint8)})
+        self.assertEqual(small.frame_list_cycle[0].shape[:2], (32, 32))
+        large = GenerativeAvatar(opt, model, {'model': 'ditto', 'source': 'test.png',
+                                               'frame': np.zeros((4000, 4000, 3), np.uint8)})
+        self.assertEqual(large.frame_list_cycle[0].shape[:2], (16, 16))
+        worker.close()
+
+    def test_soulx_idle_frames_keep_their_20_fps_timing(self):
+        idle = [np.full((32, 32, 3), shade, np.uint8) for shade in (10, 20, 30, 40)]
+        avatar, worker, quit = self.make_avatar(buffered=False, idle_frames=idle)
+        deadline = __import__('time').monotonic() + 2
+        while len(avatar.output.video) < 20 and __import__('time').monotonic() < deadline:
+            quit.wait(.01)
+        shades = [int(frame.mean()) for frame in avatar.output.video[8:20]]
+        self.assertGreaterEqual(sum(a == b for a, b in zip(shades, shades[1:])), 2,
+                                '20 fps idle video needs repeated frames on the 25 fps output clock')
 
     def test_streaming_waits_for_audio_across_tts_pause(self):
         avatar, worker, quit = self.make_avatar(buffered=False)
@@ -171,6 +239,7 @@ class GenerativeAvatarTests(unittest.TestCase):
         worker = DelayedNextPhrase()
         self.addCleanup(worker.second_resume.set)
         avatar, _, quit = self.make_avatar(worker, buffered=False)
+        avatar._fade_steps = 0
         for phrase in ('first', 'second'):
             for i in range(5):
                 avatar.put_audio_frame(np.full(320, .25, np.float32),
@@ -219,8 +288,9 @@ class GenerativeAvatarTests(unittest.TestCase):
         events = [event for _, event in avatar.output.audio if event]
         self.assertEqual([event['turn'] for event in events], ['new'])
 
-    def test_idle_keeps_generated_appearance_and_first_change_is_gradual(self):
-        avatar, worker, quit = self.make_avatar(buffered=False)
+    def test_speech_fades_back_to_moving_idle_frames(self):
+        idle = [np.full((32, 32, 3), shade, np.uint8) for shade in (60, 120)]
+        avatar, worker, quit = self.make_avatar(buffered=False, idle_frames=idle)
         worker.resume.set()
         avatar.put_audio_frame(np.ones(320, np.float32), {'status': 'start'})
         avatar.put_audio_frame(np.zeros(320, np.float32), {'status': 'end'})
@@ -229,10 +299,13 @@ class GenerativeAvatarTests(unittest.TestCase):
         visible = [frame.mean() for frame in avatar.output.video if frame.mean() > 0]
         self.assertTrue(visible)
         self.assertLess(visible[0], 140, 'The first generated frame should fade in')
-        self.assertGreater(avatar.output.video[-1].mean(), 130, 'Idle must keep the model appearance')
+        shades = [int(frame.mean()) for frame in avatar.output.video[-4:]]
+        self.assertIn(60, shades)
+        self.assertIn(120, shades)
 
     def test_no_audio_before_matching_frames_and_end_metadata_preserved(self):
         avatar, worker, quit = self.make_avatar()
+        avatar._fade_steps = 0
         avatar.put_audio_frame(np.ones(320, np.float32) * .5, {'status': 'end'})
         self.assertTrue(worker.started.wait(2))
         self.assertFalse(any(pcm.any() for pcm, _ in avatar.output.audio))

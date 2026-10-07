@@ -97,8 +97,9 @@
         <ol id="conversation-list" aria-label="Conversation history" hidden></ol>
         <div class="conversation-tools"><span id="speaking-state">Idle</span><button type="button" id="interrupt-avatar" disabled>Interrupt</button><button type="button" id="record-avatar" disabled>Record MP4</button></div>
         <div class="microphone-tools"><button id="microphone-button" type="button" disabled>Microphone</button><span id="microphone-state">Press to speak</span></div>
-        <div class="handsfree-tools"><button id="handsfree-button" type="button" disabled>Auto conversation</button><details class="voice-options"><summary>Options</summary><label><input id="handsfree-barge-in" type="checkbox">Allow interruption</label><p>Listen while the avatar replies. Headphones help prevent echo.</p></details></div>
+        <div class="handsfree-tools"><button id="handsfree-button" type="button" disabled>Auto conversation</button><details class="voice-options"><summary>Options</summary><label><input id="handsfree-barge-in" type="checkbox">Allow interruption</label><p>Listen while the avatar replies; interrupt after three recognized words or a short stop command. Stop commands end the reply without sending a new message. Headphones help prevent echo.</p></details></div>
         <p id="handsfree-state" role="status" data-state="idle">Auto conversation is off</p>
+        <p id="handsfree-transcript" class="handsfree-transcript" aria-live="polite" hidden></p>
         <p id="handsfree-level" class="handsfree-level" hidden>Input: waiting for signal</p>
         <p class="voice-mode-hint">Microphone records one phrase; Auto conversation lets you speak hands-free.</p>
         <form id="conversation-form">

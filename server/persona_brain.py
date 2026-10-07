@@ -58,6 +58,7 @@ class PersonaTransport:
 class PhraseBuffer:
     def __init__(self):
         self.text = ''
+        self.first = True
 
     def feed(self, delta, final=False):
         self.text += delta
@@ -65,6 +66,15 @@ class PhraseBuffer:
         while self.text:
             match = re.search(r'[.!?;\n](?:["»”]*)', self.text)
             end = match.end() if match else 0
+            if not end and self.first:
+                clauses = [item.end() for item in re.finditer(r'[,，:—–](?:["»”]*)', self.text[:72])
+                           if item.end() >= 35]
+                if clauses:
+                    end = clauses[-1]
+                elif len(self.text) >= 72:
+                    boundary = self.text.rfind(' ', 48, 72)
+                    if boundary >= 0:
+                        end = boundary + 1
             if not end and len(self.text) >= 90:
                 clauses = [item.end() for item in re.finditer(r'[,，:—–](?:["»”]*)', self.text[:110])
                            if item.end() >= 45]
@@ -81,6 +91,7 @@ class PhraseBuffer:
             phrase, self.text = self.text[:end].strip(), self.text[end:]
             if phrase:
                 phrases.append(phrase)
+                self.first = False
         return phrases
 
 

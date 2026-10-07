@@ -41,6 +41,23 @@ test('ASR client sends start, PCM and stop in order, then final text and release
   assert.equal(stopped, 1);
 });
 
+test('manual ASR reports partial text while the final transcript still owns the draft', async () => {
+  const partials = [];
+  const finals = [];
+  const client = createAsrClient({ getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }),
+    AudioContext: FakeContext, AudioWorkletNode: FakeWorklet, WebSocket: FakeSocket,
+    baseUrl: 'http://127.0.0.1:8010', onPartial: text => partials.push(text), onText: text => finals.push(text) });
+  await client.start();
+  assert.equal(JSON.parse(FakeSocket.latest.sent[0]).partial_results, true);
+  FakeSocket.latest.result({ text: 'Прив', is_final: false });
+  assert.deepEqual(partials, ['Прив']);
+  assert.deepEqual(finals, []);
+  const finishing = client.stop();
+  FakeSocket.latest.result({ text: 'Привет', is_final: true });
+  assert.equal(await finishing, 'Привет');
+  assert.deepEqual(finals, ['Привет']);
+});
+
 test('ASR client releases capture on WebSocket error and microphone rejection', async () => {
   let stopped = 0;
   const states = [];

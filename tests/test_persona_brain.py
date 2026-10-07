@@ -8,12 +8,30 @@ from server.persona_brain import PersonaBrain, PhraseBuffer
 
 
 class PhraseBufferTest(unittest.TestCase):
+    def test_first_speech_phrase_starts_at_an_early_clause(self):
+        buffer = PhraseBuffer()
+        self.assertEqual(buffer.feed('Ну, сейчас я расскажу тебе кое-что важное,'),
+                         ['Ну, сейчас я расскажу тебе кое-что важное,'])
+        self.assertEqual(buffer.feed(' а потом объясню остальные детали.'),
+                         ['а потом объясню остальные детали.'])
+
+    def test_first_long_sentence_starts_before_its_final_punctuation(self):
+        buffer = PhraseBuffer()
+        text = ('Сейчас я расскажу тебе кое-что важное и затем постепенно объясню '
+                'каждую из оставшихся деталей без спешки')
+        phrases = buffer.feed(text[:75])
+        self.assertEqual(len(phrases), 1)
+        self.assertGreaterEqual(len(phrases[0]), 45)
+        self.assertFalse(phrases[0].endswith(' '))
+        rest = buffer.feed(text[75:], final=True)
+        self.assertEqual(' '.join(phrases + rest), text)
+
     def test_emits_a_complete_clause_before_waiting_for_long_sentence(self):
         buffer = PhraseBuffer()
         text = ('Когда модель уже выдаёт первые слова ответа, мы можем начать синтез речи, '
                 'пока оставшаяся часть предложения ещё продолжает поступать из модели')
         phrases = buffer.feed(text[:90])
-        self.assertEqual(phrases, ['Когда модель уже выдаёт первые слова ответа, мы можем начать синтез речи,'])
+        self.assertEqual(phrases, ['Когда модель уже выдаёт первые слова ответа,'])
         self.assertEqual(buffer.feed(text[90:]), [])
         self.assertEqual(''.join(phrases) + buffer.text, text)
 

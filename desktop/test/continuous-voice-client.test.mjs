@@ -15,6 +15,7 @@ class FakeSocket {
   send(payload) { this.sent.push(payload); }
   close() { this.closed = true; }
   result(text) { this.onmessage?.({ data: JSON.stringify({ text, is_final: true }) }); }
+  partial(text) { this.onmessage?.({ data: JSON.stringify({ text, is_final: false }) }); }
 }
 
 class FakeContext {
@@ -98,7 +99,7 @@ test('avatar reply pauses recognition until it finishes', async () => {
   await client.stop();
 });
 
-test('optional barge-in interrupts a reply before recognizing the next phrase', async () => {
+test('barge-in waits for recognized speech and ignores an empty ASR result', async () => {
   assert.equal(typeof createContinuousVoiceClient, 'function');
   let interrupted = 0;
   let firstSignal;
@@ -113,9 +114,138 @@ test('optional barge-in interrupts a reply before recognizing the next phrase', 
   await tick();
   feed(0.12, 30);
   await tick();
+  assert.equal(interrupted, 0);
+  assert.equal(firstSignal.aborted, false);
+  assert.equal(controls(FakeSocket.latest).filter(item => item.is_speaking).length, 2);
+  feed(0, 91);
+  FakeSocket.latest.result('');
+  await tick();
+  assert.equal(interrupted, 0);
+  assert.equal(firstSignal.aborted, false);
+  assert.equal(client.state(), 'waiting');
+  feed(0.12, 45); feed(0, 91);
+  FakeSocket.latest.result('Стоп, пожалуйста, сейчас');
+  await tick();
   assert.equal(interrupted, 1);
   assert.equal(firstSignal.aborted, true);
-  assert.equal(controls(FakeSocket.latest).filter(item => item.is_speaking).length, 2);
+  await client.stop();
+});
+
+test('partial transcript appears during speech and interrupts the reply once', async () => {
+  let interrupted = 0;
+  const partials = [];
+  const turns = [];
+  const client = createContinuousVoiceClient({ getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }),
+    AudioContext: FakeContext, AudioWorkletNode: FakeWorklet, WebSocket: FakeSocket,
+    baseUrl: 'http://127.0.0.1:8010', allowBargeIn: true, pause: async () => {},
+    onPartial: text => partials.push(text), onBargeIn: () => { interrupted++; },
+    onTurn: text => { turns.push(text); return new Promise(() => {}); } });
+  await client.start();
+  feed(0.12, 45); feed(0, 91); FakeSocket.latest.result('первый');
+  await tick();
+  feed(0.12, 45);
+  assert.equal(controls(FakeSocket.latest).at(-1).partial_results, true);
+  FakeSocket.latest.partial('можешь');
+  await tick();
+  assert.equal(interrupted, 0);
+  assert.equal(turns.length, 1);
+  FakeSocket.latest.partial('можешь пожалуйста');
+  await tick();
+  assert.equal(interrupted, 0);
+  assert.equal(partials.at(-1), 'можешь пожалуйста');
+  FakeSocket.latest.partial('можешь пожалуйста остановиться');
+  await tick();
+  assert.equal(interrupted, 1);
+  feed(0, 91); FakeSocket.latest.result('Можешь пожалуйста остановиться');
+  await tick();
+  assert.deepEqual(turns, ['первый', 'Можешь пожалуйста остановиться']);
+  assert.equal(interrupted, 1);
+  await client.stop();
+});
+
+test('empty partial and a rejected phrase do not interrupt the reply', async () => {
+  let interrupted = 0;
+  const client = createContinuousVoiceClient({ getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }),
+    AudioContext: FakeContext, AudioWorkletNode: FakeWorklet, WebSocket: FakeSocket,
+    baseUrl: 'http://127.0.0.1:8010', allowBargeIn: true, pause: async () => {},
+    onBargeIn: () => { interrupted++; }, onTurn: () => new Promise(() => {}) });
+  await client.start();
+  feed(0.12, 45); feed(0, 91); FakeSocket.latest.result('первый');
+  await tick();
+  feed(0.12, 20); FakeSocket.latest.partial('');
+  assert.equal(interrupted, 0);
+  FakeSocket.latest.partial('...');
+  assert.equal(interrupted, 0);
+  FakeSocket.latest.partial('Стоп!');
+  await tick();
+  assert.equal(interrupted, 0);
+  feed(0, 91); FakeSocket.latest.partial('шум'); FakeSocket.latest.result('шум');
+  await tick();
+  assert.equal(interrupted, 0);
+  await client.stop();
+});
+
+test('two-word final result during avatar reply is ignored without replacing the active turn', async () => {
+  let interrupted = 0;
+  let firstSignal;
+  const turns = [];
+  const client = createContinuousVoiceClient({ getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }),
+    AudioContext: FakeContext, AudioWorkletNode: FakeWorklet, WebSocket: FakeSocket,
+    baseUrl: 'http://127.0.0.1:8010', allowBargeIn: true, pause: async () => {},
+    onBargeIn: () => { interrupted++; },
+    onTurn: (text, { signal }) => { turns.push(text); firstSignal ??= signal; return new Promise(() => {}); } });
+  await client.start();
+  feed(0.12, 45); feed(0, 91); FakeSocket.latest.result('первый');
+  await tick();
+  feed(0.12, 45); feed(0, 91); FakeSocket.latest.result('слово стоп');
+  await tick();
+  assert.equal(interrupted, 0);
+  assert.equal(firstSignal.aborted, false);
+  assert.deepEqual(turns, ['первый']);
+  assert.equal(client.state(), 'waiting');
+  await client.stop();
+});
+
+test('a short stop command interrupts on partial ASR and does not become a chat turn', async () => {
+  let interrupted = 0;
+  const turns = [];
+  const client = createContinuousVoiceClient({ getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }),
+    AudioContext: FakeContext, AudioWorkletNode: FakeWorklet, WebSocket: FakeSocket,
+    baseUrl: 'http://127.0.0.1:8010', allowBargeIn: true, pause: async () => {},
+    onBargeIn: () => { interrupted++; }, onTurn: text => { turns.push(text); return new Promise(() => {}); } });
+  await client.start();
+  feed(0.12, 45); feed(0, 91); FakeSocket.latest.result('первый вопрос');
+  await tick();
+  feed(0.12, 45); FakeSocket.latest.partial('Стоп!');
+  await tick();
+  assert.equal(interrupted, 1);
+  feed(0, 91); FakeSocket.latest.result('Стоп, пожалуйста.');
+  await tick();
+  assert.deepEqual(turns, ['первый вопрос']);
+  assert.equal(client.state(), 'listening');
+  await client.stop();
+});
+
+test('a final-only stop command interrupts, but mentioning stop is not a command', async () => {
+  let interrupted = 0;
+  const turns = [];
+  const client = createContinuousVoiceClient({ getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }),
+    AudioContext: FakeContext, AudioWorkletNode: FakeWorklet, WebSocket: FakeSocket,
+    baseUrl: 'http://127.0.0.1:8010', allowBargeIn: true, pause: async () => {},
+    onBargeIn: () => { interrupted++; }, onTurn: text => { turns.push(text); return new Promise(() => {}); } });
+  await client.start();
+  feed(0.12, 45); feed(0, 91); FakeSocket.latest.result('первый вопрос');
+  await tick();
+  feed(0.12, 45); FakeSocket.latest.partial('слово стоп');
+  await tick();
+  assert.equal(interrupted, 0);
+  feed(0, 91); FakeSocket.latest.result('не стоп');
+  await tick();
+  assert.equal(interrupted, 0);
+  feed(0.12, 45); feed(0, 91); FakeSocket.latest.result('Хватит.');
+  await tick();
+  assert.equal(interrupted, 1);
+  assert.deepEqual(turns, ['первый вопрос']);
   await client.stop();
 });
 
@@ -199,11 +329,30 @@ test('barge-in waits for interrupt before sending the replacement turn', async (
   await client.start();
   feed(0.12, 45); feed(0, 91); FakeSocket.latest.result('первый');
   await tick();
-  feed(0.12, 45); feed(0, 91); FakeSocket.latest.result('второй');
+  feed(0.12, 45); feed(0, 91); FakeSocket.latest.result('второй вопрос сейчас');
   await tick();
   assert.deepEqual(turns, ['первый']);
+  assert.equal(typeof finishInterrupt, 'function');
   finishInterrupt();
   await tick();
-  assert.deepEqual(turns, ['первый', 'второй']);
+  assert.deepEqual(turns, ['первый', 'второй вопрос сейчас']);
   await client.stop();
+});
+
+test('stopping auto conversation cancels an unstarted ASR-confirmed interrupt', async () => {
+  let interrupted = 0;
+  const turns = [];
+  const client = createContinuousVoiceClient({ getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }),
+    AudioContext: FakeContext, AudioWorkletNode: FakeWorklet, WebSocket: FakeSocket,
+    baseUrl: 'http://127.0.0.1:8010', allowBargeIn: true, pause: async () => {},
+    onTurn: text => { turns.push(text); return new Promise(() => {}); }, onBargeIn: () => { interrupted++; },
+  });
+  await client.start();
+  feed(0.12, 45); feed(0, 91); FakeSocket.latest.result('первый');
+  await tick();
+  feed(0.12, 45); feed(0, 91); FakeSocket.latest.result('второй вопрос сейчас');
+  await client.stop();
+  await tick();
+  assert.equal(interrupted, 0);
+  assert.deepEqual(turns, ['первый']);
 });

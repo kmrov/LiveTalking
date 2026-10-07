@@ -178,6 +178,8 @@ async function stopContinuousVoice() {
   const client = continuousVoiceClient;
   continuousVoiceClient = null;
   if (client) await client.stop();
+  $('#handsfree-transcript').hidden = true;
+  $('#handsfree-transcript').textContent = '';
   showContinuousVoiceState('idle');
 }
 
@@ -1095,6 +1097,11 @@ $('#microphone-button').addEventListener('click', async () => {
       WebSocket: window.WebSocket,
       baseUrl: `http://127.0.0.1:${currentProfile.liveTalking.port}`,
       onState: (state, detail) => { if (token === microphoneGeneration) showMicrophoneState(state, detail); },
+      onPartial: text => {
+        if (token === microphoneGeneration && ['capturing', 'transcribing'].includes(microphoneState) && text) {
+          showMicrophoneState(microphoneState, `Hearing: ${text}`);
+        }
+      },
       onText: text => {
         if (token !== microphoneGeneration) return;
         $('#message-text').value = text;
@@ -1125,6 +1132,12 @@ $('#handsfree-button').addEventListener('click', async () => {
     baseUrl: `http://127.0.0.1:${currentProfile.liveTalking.port}`,
     allowBargeIn: $('#handsfree-barge-in').checked,
     onState: (state, detail) => { if (continuousVoiceClient === client) showContinuousVoiceState(state, detail); },
+    onPartial: text => {
+      if (continuousVoiceClient !== client) return;
+      const transcript = $('#handsfree-transcript');
+      transcript.hidden = !text;
+      transcript.textContent = text ? `Hearing: ${text}` : '';
+    },
     onLevel: level => {
       if (continuousVoiceClient === client) $('#handsfree-level').textContent = `Input: ${(level * 100).toFixed(1)}%`;
     },

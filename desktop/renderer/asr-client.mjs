@@ -38,7 +38,7 @@ export function createPcmResampler(inputRate, outputRate = 16000) {
   };
 }
 
-export function createAsrClient({ getUserMedia, AudioContext, WebSocket, AudioWorkletNode = globalThis.AudioWorkletNode, baseUrl, onState = () => {}, onText = () => {}, workletUrl = new URL('./pcm-worklet.js', import.meta.url).href }) {
+export function createAsrClient({ getUserMedia, AudioContext, WebSocket, AudioWorkletNode = globalThis.AudioWorkletNode, baseUrl, onState = () => {}, onText = () => {}, onPartial = () => {}, workletUrl = new URL('./pcm-worklet.js', import.meta.url).href }) {
   let stream;
   let context;
   let source;
@@ -99,7 +99,10 @@ export function createAsrClient({ getUserMedia, AudioContext, WebSocket, AudioWo
         try {
           const result = JSON.parse(event.data);
           if (result.error) { fail(new Error(result.error)); return; }
-          if (!result.is_final) return;
+          if (!result.is_final) {
+            if (['capturing', 'transcribing'].includes(state)) onPartial((result.text || '').trim());
+            return;
+          }
           clearTimeout(finalTimer);
           const text = (result.text || '').trim();
           if (text) onText(text);
@@ -122,7 +125,7 @@ export function createAsrClient({ getUserMedia, AudioContext, WebSocket, AudioWo
         if (pcm.length) socket.send(pcm.buffer);
       };
       source = context.createMediaStreamSource(stream);
-      socket.send(JSON.stringify({ mode: 'offline', is_speaking: true, wav_name: 'desktop', audio_fs: 16000, itn: true }));
+      socket.send(JSON.stringify({ mode: 'offline', is_speaking: true, wav_name: 'desktop', audio_fs: 16000, itn: true, partial_results: true }));
       setState('capturing');
       source.connect(worklet);
       worklet.connect(context.destination);
