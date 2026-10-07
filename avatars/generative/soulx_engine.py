@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 
 import numpy as np
 import torch
@@ -75,9 +76,11 @@ class Engine:
             # much more host/GPU memory than eager inference on consumer GPUs.
             module.COMPILE_MODEL = bool(self.config.get("compile", False))
             module.COMPILE_VAE = bool(self.config.get("compile", False))
+            weights_started_at = time.monotonic()
             self.pipeline = self.api.get_pipeline(world_size=1,
                 ckpt_dir=self.config["weights"], model_type="lite",
                 wav2vec_dir=self.config["wav2vec"])
+            print(f'LT_TIMING SoulX pipeline load: {time.monotonic() - weights_started_at:.2f}s', file=sys.stderr, flush=True)
             # This Lite checkpoint accepts 8n+1 temporal windows. Keep
             # its 33-frame window: nine motion frames plus 24 frames spanning
             # 1.2 seconds at the genuine 20 fps model sampling rate.
@@ -100,6 +103,7 @@ class Engine:
                 self.close()
                 raise RuntimeError("Unsupported SoulX streaming frame configuration")
             self._audio = np.zeros(cache_samples, dtype=np.float32)
+            reference_started_at = time.monotonic()
             self.api.get_base_data(self.pipeline, cond_image_path_or_dir=str(source),
                 base_seed=self._seed, use_face_crop=bool(self.config.get("face_crop", False)))
             # Reuse the same reference and motion state for the short first
@@ -108,6 +112,7 @@ class Engine:
             with torch.no_grad():
                 self._startup_ref_latent = self.pipeline.vae.encode(
                     reference.repeat(1, 1, self._motion_frames + self.startup_frames, 1, 1))
+            print(f'LT_TIMING SoulX reference: {time.monotonic() - reference_started_at:.2f}s', file=sys.stderr, flush=True)
 
     def render(self, audio):
         if self.pipeline is None:

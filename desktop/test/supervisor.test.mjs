@@ -65,6 +65,18 @@ test('supervisor starts once with a loopback host and one Unicode WAV argument',
   assert.equal(supervisor.snapshot().state, 'ready');
 });
 
+test('supervisor notices a newly ready avatar within half a second', async () => {
+  let elapsedMs = 0;
+  const supervisor = createSupervisor({
+    spawn: () => fakeChild(),
+    health: async () => elapsedMs >= 300,
+    sleep: async ms => { elapsedMs += ms; },
+  });
+  await supervisor.start(profile);
+  assert.equal(supervisor.snapshot().state, 'ready');
+  assert.ok(elapsedMs <= 500, `readiness took ${elapsedMs} ms after the server became available`);
+});
+
 test('supervisor distinguishes queued model stages from active loading', async () => {
   const child = fakeChild();
   let finishHealth;

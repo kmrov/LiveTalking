@@ -225,7 +225,7 @@ def wait_for_models(args, pending):
             if time.monotonic() >= deadline:
                 name, server, model, _, log_path = pending[0]
                 raise ModelStartupError(name.lower(), f"Timed out waiting for {model} at {server}; see {log_path}")
-            time.sleep(2)
+            time.sleep(0.5)
 
 
 @contextmanager

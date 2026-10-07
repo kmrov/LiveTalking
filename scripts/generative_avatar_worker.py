@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import signal
 import sys
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -36,7 +37,9 @@ def serve(engine, input_stream, output_stream):
             msg = json.loads(line)
             command = msg['command']
             if command == 'init':
+                started_at = time.monotonic()
                 engine.start(msg['source'])
+                print(f'LT_TIMING avatar worker initialization: {time.monotonic() - started_at:.2f}s', file=sys.stderr, flush=True)
                 ready = {'event': 'ready', 'fps': engine.fps, 'chunk_frames': engine.chunk_frames,
                          'chunk_samples': engine.chunk_frames * 16000 // engine.fps}
                 if getattr(engine, 'startup_frames', 0):

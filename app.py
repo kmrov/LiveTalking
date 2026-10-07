@@ -16,6 +16,8 @@
 ###############################################################################
 
 # server.py
+import time
+_PROCESS_STARTED_AT = time.monotonic()
 from flask import Flask, render_template,send_from_directory,request, jsonify
 #from flask_sockets import Sockets
 import base64
@@ -144,6 +146,8 @@ def main():
     warm_up = avatar_mod.warm_up
     logger.info(opt)
 
+    avatar_started_at = time.monotonic()
+
     if opt.model == 'musetalk':
         model = load_model()
         global_avatars[opt.avatar_id] = load_avatar(opt.avatar_id) 
@@ -159,6 +163,7 @@ def main():
     elif opt.model in ('ditto', 'soulx'):
         model = load_model(opt)
         global_avatars[opt.avatar_id] = load_avatar(opt.avatar_id)
+    print(f'LT_TIMING avatar initialization: {time.monotonic() - avatar_started_at:.2f}s', flush=True)
 
     # init rtc manager
     session_manager.set_max_session(opt.max_session)
@@ -215,6 +220,7 @@ def main():
         loop.run_until_complete(runner.setup())
         site = web.TCPSite(runner, opt.listenhost, opt.listenport)
         loop.run_until_complete(site.start())
+        print(f'LT_TIMING Python process to HTTP ready: {time.monotonic() - _PROCESS_STARTED_AT:.2f}s', flush=True)
         if opt.transport=='rtcpush':
             for k in range(opt.max_session):
                 push_url = opt.push_url
@@ -236,6 +242,7 @@ def main():
 # os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
 # os.environ['MULTIPROCESSING_METHOD'] = 'forkserver'                                                    
 if __name__ == '__main__':
+    print(f'LT_TIMING Python imports: {time.monotonic() - _PROCESS_STARTED_AT:.2f}s', flush=True)
     mp.set_start_method('spawn')
     load_dotenv()  # Load environment variables from .env file, if it exists
     main()

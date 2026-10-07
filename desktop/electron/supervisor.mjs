@@ -223,7 +223,7 @@ export function createSupervisor({ spawn = nodeSpawn, kill = process.kill.bind(p
           monitor(profile, token);
           return snapshot();
         }
-        await sleep(1000);
+        await sleep(200);
       }
       if (token !== generation) return snapshot();
       state = 'failed';

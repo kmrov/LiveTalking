@@ -205,6 +205,22 @@ class StartQwenAvatarTest(unittest.TestCase):
                 start_qwen_avatar.wait_for_models(args, pending)
         self.assertEqual(failure.exception.stage, "asr")
 
+    def test_model_readiness_is_detected_within_half_a_second(self):
+        now = 0.0
+        def sleep(seconds):
+            nonlocal now
+            now += seconds
+        def status(_server, _model):
+            return "ready" if now >= 0.3 else "unavailable"
+
+        args = start_qwen_avatar.parse_args(["--timeout", "3"])
+        pending = [("ASR", "http://127.0.0.1:8092", "ASR", None, Path("/tmp/asr.log"))]
+        with patch("scripts.start_qwen_avatar.model_status", side_effect=status), patch.object(
+            start_qwen_avatar.time, "monotonic", side_effect=lambda: now
+        ), patch.object(start_qwen_avatar.time, "sleep", side_effect=sleep):
+            start_qwen_avatar.wait_for_models(args, pending)
+        self.assertLessEqual(now, 0.5)
+
     def test_model_checks_include_gpu_memory_failure_outside_log_tail(self):
         class Process:
             def __init__(self, code):
