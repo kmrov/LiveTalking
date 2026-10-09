@@ -9,6 +9,9 @@ import { reduceBrainEvent } from './brain-events.mjs';
 import { mountAvatarLibrary } from './avatar-library.mjs';
 import { mountPanelResizers } from './panel-resize.mjs';
 import { mountStudioDialogs } from './studio-dialogs.mjs';
+import { projectionPreference, validProjectionUrl } from './projection-preferences.mjs';
+import { conversationLabel } from './conversation-label.mjs';
+import { activeProfileDraft, activeSecretDraft } from './profile-draft.mjs';
 
 const bridge = window.liveTalkingDesktop;
 if (bridge?.version) document.querySelector('#app-version').textContent = `v0.1 · API ${bridge.version}`;
@@ -43,8 +46,10 @@ let knownVoices = [];
 let webRtcClient;
 let projectionClient;
 let projectionBusy = false;
+let projectionFailure = '';
 let discoveryPending = false;
 let previewBusy = false;
+let previewAutoStarted = false;
 let connectionGeneration = 0;
 let webRtcState = 'disconnected';
 let activeTarget = 'none';
@@ -77,7 +82,7 @@ const dialogs = mountStudioDialogs({ document,
       reviewHidden: $('#review-setup').hidden,
       fields: Object.fromEntries(Object.entries(fields).map(([key, field]) => [key,
         field.type === 'checkbox' ? field.checked : field.value])) };
-    $('#settings-message').textContent = 'Save to apply changes. Closing discards unsaved edits.';
+    $('#settings-message').textContent = '';
   },
   onSettingsClose({ saved }) {
     if (!saved && settingsDraft) {
@@ -89,6 +94,7 @@ const dialogs = mountStudioDialogs({ document,
         if (field.type === 'checkbox') field.checked = value;
         else field.value = value;
       }
+      syncKnownVoice();
       $('#root-path').textContent = profileRoot || 'Not found beside the app';
       showMode(); showBrainMode();
       message(settingsDraft.message);
@@ -132,6 +138,17 @@ function showProjectionTarget() {
 }
 $('#projection-settings-dialog').addEventListener('close', showProjectionTarget);
 
+function saveProjectionAddress() {
+  if (currentProfile) projectionPreference(localStorage, currentProfile.id, $('#projection-url').value);
+}
+
+function projectionError(text) {
+  projectionFailure = text;
+  $('#projection-state').textContent = text;
+  const dialogMessage = $('#projection-dialog-message');
+  if (dialogMessage) dialogMessage.textContent = text;
+}
+
 function activeSessionId() {
   return activeTarget === 'projection' ? projectionClient?.sessionId() : activeTarget === 'preview' ? webRtcClient?.sessionId() : null;
 }
@@ -161,10 +178,10 @@ function showMicrophoneState(state, detail = '') {
 }
 
 function showContinuousVoiceState(state, detail = '') {
-  const labels = { idle: 'Auto conversation is off', starting: 'Opening microphone and ASR…', listening: 'Listening: speak freely',
+  const labels = { idle: '', starting: 'Opening microphone and ASR…', listening: 'Listening: speak freely',
     capturing: 'Phrase detected; sending after a pause', transcribing: 'Transcribing phrase…', waiting: 'Waiting for avatar response', failed: 'Auto conversation error' };
   $('#handsfree-state').dataset.state = state;
-  $('#handsfree-state').textContent = detail || labels[state] || state;
+  $('#handsfree-state').textContent = detail || labels[state] || '';
   const level = $('#handsfree-level');
   level.hidden = !['listening', 'capturing'].includes(state) && !(state === 'waiting' && $('#handsfree-barge-in').checked);
   if (state === 'listening') level.textContent = 'Input: waiting for signal';
@@ -190,9 +207,25 @@ function updateConversationControls() {
   $('#interrupt-avatar').disabled = !active;
   $('#record-avatar').disabled = !active || recordingBusy || conversationChangeBusy;
   if (!active) { recording = false; $('#speaking-state').textContent = 'Disconnected'; }
+  else if ($('#speaking-state').textContent === 'Disconnected' || $('#speaking-state').textContent === 'Idle') $('#speaking-state').textContent = 'Ready';
+  const empty = $('.conversation-empty p');
+  if (empty) empty.textContent = active ? 'Send a message or use the microphone to begin.' : 'Connect an avatar to start a conversation.';
   $('#record-avatar').textContent = recording ? 'Finish recording' : 'Record MP4';
+  $('#connect-projection').disabled = !serviceReady || projectionBusy || previewBusy || recording || recordingBusy;
+  const dialogConnect = $('#projection-connect-settings');
+  if (dialogConnect) dialogConnect.disabled = $('#connect-projection').disabled;
+  updateProjectionHint();
   if (latestRuntimeSnapshot) updateSpeechStopButtons(latestRuntimeSnapshot);
   avatarUI?.applySnapshot();
+}
+
+function updatePreviewControl() {
+  const button = $('#connect-avatar');
+  const connected = Boolean(webRtcClient?.sessionId());
+  button.hidden = !serviceReady || previewBusy || projectionBusy || Boolean(projectionClient?.sessionId())
+    || (!connected && !previewAutoStarted);
+  button.disabled = !serviceReady || previewBusy || projectionBusy || Boolean(projectionClient?.sessionId());
+  button.textContent = connected ? 'Disconnect preview' : 'Enable preview';
 }
 
 function appendMessage(text, type, { role = 'user', requestId = '' } = {}) {
@@ -216,11 +249,11 @@ function showWebRtcState(state) {
   const labels = { disconnected: 'Disconnected', connecting: 'Connecting…', negotiating: 'Negotiating stream…', connected: 'Stream connected', reconnecting: 'Reconnecting…', failed: 'WebRTC error', closed: 'Connection closed' };
   $('#webrtc-state').textContent = labels[state] || state;
   $('#webrtc-state').dataset.sessionId = webRtcClient?.sessionId() || '';
-  $('#connect-avatar').disabled = !serviceReady || previewBusy || projectionBusy || Boolean(projectionClient?.sessionId());
-  $('#connect-projection').disabled = !serviceReady || previewBusy || projectionBusy || Boolean(webRtcClient?.sessionId());
+  updatePreviewControl();
+  $('#connect-projection').disabled = !serviceReady || previewBusy || projectionBusy || recording || recordingBusy;
+  $('#connect-projection').textContent = projectionClient?.sessionId() ? 'Disconnect projection'
+    : webRtcClient?.sessionId() ? 'Switch to Head in Jar' : 'Connect projection';
   updateProjectionHint();
-  const connected = Boolean(webRtcClient?.sessionId());
-  $('#connect-avatar').textContent = connected ? 'Disconnect preview' : 'Enable preview';
   if (['disconnected', 'failed', 'closed'].includes(state)) {
     if (activeTarget === 'preview') selectConversationTarget('none');
     $('#avatar-video').srcObject = null;
@@ -251,11 +284,14 @@ function disconnectAvatar() {
 
 function showProjectionState(state) {
   const labels = { disconnected: 'Disconnected', connecting: 'Connecting…', connected: 'Stream connected', failed: 'Error', closed: 'Connection closed' };
-  $('#projection-state').textContent = labels[state] || state;
+  if (state !== 'disconnected') projectionFailure = '';
+  $('#projection-state').textContent = state === 'disconnected' && projectionFailure ? projectionFailure : labels[state] || state;
   $('#projection-state').dataset.sessionId = projectionClient?.sessionId() || '';
-  $('#connect-projection').textContent = projectionClient?.sessionId() ? 'Disconnect projection' : 'Connect projection';
-  $('#connect-projection').disabled = !serviceReady || projectionBusy || previewBusy || Boolean(webRtcClient?.sessionId());
-  $('#connect-avatar').disabled = !serviceReady || projectionBusy || previewBusy || Boolean(projectionClient?.sessionId());
+  $('#connect-projection').textContent = projectionClient?.sessionId() ? 'Disconnect projection' : webRtcClient?.sessionId() ? 'Switch to Head in Jar' : 'Connect projection';
+  $('#connect-projection').disabled = !serviceReady || projectionBusy || previewBusy || recording || recordingBusy;
+  updatePreviewControl();
+  const dialogConnect = $('#projection-connect-settings');
+  if (dialogConnect) dialogConnect.disabled = !serviceReady || projectionBusy || previewBusy || recording || recordingBusy;
   updateProjectionHint();
   if (activeTarget === 'projection' && !projectionClient?.sessionId()) selectConversationTarget('none');
   updateConversationControls();
@@ -269,7 +305,7 @@ async function refreshHeadinjarDiscovery() {
   try {
     const found = await bridge.projectionRequest(profileId, 'discover');
     if (currentProfile?.id !== profileId) return;
-    const selected = select.value;
+    const selected = $('#projection-url').value.trim();
     select.replaceChildren();
     const placeholder = document.createElement('option');
     placeholder.value = '';
@@ -297,12 +333,15 @@ async function refreshHeadinjarDiscovery() {
 
 $('#projection-discovered').addEventListener('change', () => {
   const url = $('#projection-discovered').value;
-  if (url) { $('#projection-url').value = url; $('#projection-token').value = ''; }
+  if (url) { $('#projection-url').value = url; $('#projection-token').value = ''; saveProjectionAddress(); }
   updateProjectionHint();
+  $('#projection-dialog-message').textContent = '';
 });
 $('#projection-url').addEventListener('input', () => {
   if ($('#projection-url').value !== $('#projection-discovered').value) $('#projection-discovered').value = '';
+  saveProjectionAddress();
   updateProjectionHint();
+  $('#projection-dialog-message').textContent = '';
 });
 
 function updateProjectionHint() {
@@ -312,11 +351,13 @@ function updateProjectionHint() {
     ? selected?.dataset.auth === 'bearer'
       ? 'This device requires a token. Add it in Connection settings.'
       : 'Discovered Head in Jar: connect without a token. Enable the projector there separately.'
-    : 'Choose a device in Connection settings, then connect.';
+    : validProjectionUrl($('#projection-url').value) ? 'Ready to connect to the saved Head in Jar address.'
+      : 'Choose a device or enter its WHIP URL in Connection settings.';
   if (!serviceReady) hint = servicePhase === 'failed' ? 'Profile did not start: check the startup log.'
     : servicePhase === 'starting' || servicePhase === 'checking' ? 'Wait for services to start; connection becomes available when they are Running.'
       : 'Start the Studio profile first.';
-  else if (webRtcClient?.sessionId()) hint = 'Disconnect WebRTC preview to connect projection.';
+  else if (recording || recordingBusy) hint = 'Finish recording before switching the stream.';
+  else if (webRtcClient?.sessionId()) hint = 'Switch to Head in Jar will close the preview and connect projection.';
   else if (projectionBusy || previewBusy) hint = 'Wait for the current connection to finish.';
   else if (projectionClient?.sessionId()) hint = 'Stream connected. Enable the projector in Head in Jar.';
   $('#projection-hint').textContent = hint;
@@ -332,20 +373,26 @@ function updateWorkflowHint() {
     : currentProfile?.brain.mode === 'sillytavern' ? 'SillyTavern mode' : 'Direct LLM';
   if (setup) setup.textContent = activeSessionId()
     ? 'Services are running. Control speech and recording in the conversation panel.'
-    : serviceReady ? 'Services are running. Enable preview here or connect Head in Jar for projection.'
+    : serviceReady && previewBusy ? 'Services are running. Connecting the avatar preview…'
+    : serviceReady ? 'Services are running. Reconnect the preview here or connect Head in Jar for projection.'
     : 'Check your environment and profile, then start services.';
   if (emptyTitle && emptyDetail) {
     emptyTitle.textContent = projectionClient?.sessionId() ? 'Streaming to Head in Jar'
-      : webRtcClient?.sessionId() ? 'Waiting for avatar video' : 'Your avatar will appear here';
+      : webRtcClient?.sessionId() ? 'Waiting for avatar video'
+        : previewBusy ? 'Connecting to avatar' : serviceReady ? 'Preview disconnected'
+          : ['checking', 'starting'].includes(servicePhase) ? 'Starting your avatar' : 'Your avatar will appear here';
     emptyDetail.textContent = projectionClient?.sessionId()
       ? 'Video is in Head in Jar. Use the Conversation panel here to speak or send text.'
-      : webRtcClient?.sessionId() ? 'Preview connected. Waiting for video.'
-      : 'Enable preview to see the avatar stream in Studio.';
+      : webRtcClient?.sessionId() ? 'The video stream is still loading.'
+        : previewBusy ? 'Opening the video stream automatically.' : serviceReady ? ''
+          : ['checking', 'starting'].includes(servicePhase) ? 'The preview will connect automatically when services are ready.'
+            : 'Start a profile to see your avatar.';
   }
   if (!hint) return;
   hint.textContent = activeSessionId() ? 'Connected · speak or send text.'
     : ['checking', 'starting'].includes(servicePhase) ? 'Services are starting · wait for loading to finish.'
-      : serviceReady ? 'Ready · enable preview or connect projection.'
+      : serviceReady && previewBusy ? 'Connecting preview…'
+      : serviceReady ? 'Ready · reconnect preview or connect projection.'
         : servicePhase === 'failed' ? 'Startup failed · check the log and profile.'
           : 'First step · configure the profile and start services.';
 }
@@ -353,6 +400,7 @@ function updateWorkflowHint() {
 async function disconnectProjection() {
   ++connectionGeneration;
   projectionBusy = false;
+  projectionFailure = '';
   if (activeTarget === 'projection') selectConversationTarget('none');
   const client = projectionClient;
   projectionClient = null;
@@ -360,7 +408,7 @@ async function disconnectProjection() {
   if (client) await client.disconnect();
 }
 const phaseLabels = {
-  'not-configured': 'Not configured', checking: 'Checking', starting: 'Starting',
+  'not-configured': 'Stopped', checking: 'Checking', starting: 'Starting',
   ready: 'Running', reconnecting: 'Reconnecting', failed: 'Error',
 };
 const stageLabels = { stopped: 'Idle', waiting: 'Queued', ready: 'Running', failed: 'Error' };
@@ -416,14 +464,18 @@ function showSnapshot(snapshot) {
   const phase = snapshot.service.phase;
   servicePhase = phase;
   serviceReady = phase === 'ready';
+  if (!serviceReady) previewAutoStarted = false;
   $('.setup-card').classList.toggle('is-running', serviceReady);
   if (serviceReady && !wasReady) void refreshHeadinjarDiscovery();
-  $('#setup-title').textContent = serviceReady ? 'Profile running' : 'Ready when you are';
+  $('#setup-title').textContent = serviceReady ? 'Profile running' : phase === 'failed' ? 'Startup failed' : 'Profile stopped';
   if (serviceReady && !wasReady) $('#check-details').open = false;
+  const serviceDetails = $('#service-details');
+  if (serviceDetails && (['checking', 'starting', 'failed'].includes(phase) || (wasReady && !serviceReady))) serviceDetails.open = true;
+  if (serviceDetails && serviceReady && !wasReady) serviceDetails.open = false;
   showWebRtcState(webRtcState);
   showProjectionState(projectionClient?.sessionId() ? 'connected' : 'disconnected');
-  if (!serviceReady && webRtcClient) disconnectAvatar();
-  if (!serviceReady && projectionClient) void disconnectProjection().catch(error => { $('#projection-state').textContent = error.message; });
+  if (!serviceReady && (webRtcClient || previewBusy)) disconnectAvatar();
+  if (!serviceReady && (projectionClient || projectionBusy)) void disconnectProjection().catch(error => { projectionError(error.message); });
   if (!serviceReady && continuousVoiceClient) void stopContinuousVoice();
   if (!serviceReady && asrClient) { asrClient.dispose(); asrClient = null; }
   showMicrophoneState(microphoneState);
@@ -445,20 +497,49 @@ function showSnapshot(snapshot) {
   if (phase === 'failed') message(snapshot.service.detail || 'Service failed');
   if (serviceReady && !wasReady && $('#setup-message').textContent === 'Starting services…') message('');
   updateWorkflowHint();
+  if (serviceReady) maybeAutoConnectPreview();
 }
 
 function showKnownVoices(voices) {
   knownVoices = voices;
   const select = $('#known-voices');
   select.replaceChildren();
+  const blank = new Option('Choose a sample', '');
+  blank.dataset.placeholder = 'true';
+  select.append(blank);
   for (const voice of voices) {
     const option = document.createElement('option');
     option.value = voice.wav;
     option.textContent = voice.wav.split('/').at(-1);
     select.append(option);
   }
-  $('#known-voices-label').hidden = voices.length === 0;
-  if (voices.some(voice => voice.wav === fields.voice.value)) select.value = fields.voice.value;
+  syncKnownVoice();
+}
+
+function syncKnownVoice() {
+  const select = $('#known-voices');
+  const wav = fields.voice.value.trim();
+  if (!select.querySelector('option[data-placeholder]')) {
+    const blank = new Option('Choose a sample', '');
+    blank.dataset.placeholder = 'true';
+    select.prepend(blank);
+  }
+  select.querySelector('option[data-custom]')?.remove();
+  if (wav && !knownVoices.some(voice => voice.wav === wav)) {
+    const option = new Option(`Custom file · ${wav.split('/').at(-1)}`, wav);
+    option.dataset.custom = 'true';
+    select.append(option);
+    $('#voice-sample-details').open = true;
+  }
+  $('#known-voices-label').hidden = select.options.length === 1;
+  select.value = wav;
+  const preview = $('#voice-preview');
+  if (preview) preview.disabled = !wav;
+  const audio = $('#voice-preview-audio');
+  if (audio && audio.dataset.wav !== wav) {
+    audio.pause(); audio.removeAttribute('src'); audio.dataset.wav = '';
+    if (preview) preview.textContent = 'Play sample';
+  }
 }
 
 function showMode() {
@@ -466,6 +547,8 @@ function showMode() {
   const omni = fields.ttsEngine.value === 'omnivoice';
   $('#local-model-fields').hidden = external;
   $('#external-model-fields').hidden = !external;
+  fields.asrUrl.disabled = !external;
+  fields.ttsUrl.disabled = !external;
   fields.ttsVllm.closest('label').hidden = external || omni;
   fields.omniPython.closest('label').hidden = external || !omni;
 }
@@ -476,7 +559,12 @@ function showBrainMode() {
   $('#brain-settings').hidden = !persona && !sillytavern;
   $('#brain-persona-fields').hidden = !persona;
   $('#brain-st-fields').hidden = !sillytavern;
+  fields.brainUrl.disabled = !persona;
+  fields.brainStUrl.disabled = !sillytavern;
   $('#brain-managed-fields').hidden = !persona || fields.brainManaged.value !== 'managed';
+  const advanced = $('#brain-advanced');
+  advanced.hidden = !sillytavern && (!persona || fields.brainManaged.value !== 'managed');
+  if (advanced.hidden) advanced.open = false;
   $('#brain-yandex-fields').hidden = !sillytavern && (!persona || fields.brainManaged.value !== 'managed');
   $('#brain-conversations').hidden = !persona && !sillytavern;
   $('#st-character-picker').hidden = !sillytavern;
@@ -517,34 +605,18 @@ function showSecretStatus(status) {
 
 function showProfile(profile) {
   currentProfile = profile;
+  ++memoryGeneration;
+  projectionFailure = '';
+  $('#projection-url').value = projectionPreference(localStorage, profile.id);
+  $('#projection-discovered').value = '';
+  $('#projection-token').value = '';
+  updateProjectionHint();
   profileRoot = profile.liveTalking.root;
   showProfileSummary();
   void refreshHeadinjarDiscovery();
   $('#profile-picker').value = profile.id;
-  $('#root-path').textContent = profile.liveTalking.root || 'Not found beside the app';
-  fields.python.value = profile.liveTalking.python;
-  fields.model.value = profile.liveTalking.model;
-  fields.avatarId.value = profile.liveTalking.avatarId;
-  fields.port.value = profile.liveTalking.port;
-  fields.mode.value = profile.speech.mode;
-  fields.ttsEngine.value = profile.speech.ttsEngine;
-  fields.asrVllm.value = profile.speech.asrVllm;
-  fields.ttsVllm.value = profile.speech.ttsVllm;
-  fields.omniPython.value = profile.speech.omniPython;
-  fields.asrUrl.value = profile.speech.asrUrl;
-  fields.ttsUrl.value = profile.speech.ttsUrl;
-  fields.voice.value = profile.speech.referenceWav;
-  fields.transcript.value = profile.speech.referenceText;
-  fields.autoStart.checked = profile.autoStart;
-  fields.brainMode.value = profile.brain.mode;
-  fields.brainManaged.value = profile.brain.managed ? 'managed' : 'external';
-  fields.brainUrl.value = profile.brain.url;
-  fields.brainRoot.value = profile.brain.root;
-  fields.brainPython.value = profile.brain.python;
-  fields.brainDatabase.value = profile.brain.databaseMode;
-  fields.brainFolder.value = profile.brain.folderId;
-  fields.brainStRoot.value = profile.brain.sillyTavernRoot;
-  fields.brainStUrl.value = profile.brain.sillyTavernUrl;
+  syncSavedForm(profile);
+  syncKnownVoice();
   sillyTavernCharacters = [];
   showSelectedCharacter();
   brainState = { conversationId: profile.brain.conversationId, turns: {}, pending: 0 };
@@ -553,10 +625,11 @@ function showProfile(profile) {
   showBrainMode();
   if (profile.brain.mode === 'sillytavern') void refreshSillyTavernCharacters();
   updateWorkflowHint();
+  if (serviceReady) maybeAutoConnectPreview();
 }
 
 function formProfile() {
-  return {
+  return activeProfileDraft(currentProfile, {
     ...currentProfile,
     liveTalking: {
       ...currentProfile.liveTalking,
@@ -585,7 +658,35 @@ function formProfile() {
       databaseMode: fields.brainDatabase.value, folderId: fields.brainFolder.value,
       sillyTavernRoot: fields.brainStRoot.value, sillyTavernUrl: fields.brainStUrl.value,
       conversationId: fields.brainMode.value === currentProfile.brain.mode ? currentProfile.brain.conversationId : '' },
-  };
+  });
+}
+
+function syncSavedForm(profile) {
+  profileRoot = profile.liveTalking.root;
+  $('#root-path').textContent = profileRoot || 'Not found beside the app';
+  fields.python.value = profile.liveTalking.python;
+  fields.model.value = profile.liveTalking.model;
+  fields.avatarId.value = profile.liveTalking.avatarId;
+  fields.port.value = profile.liveTalking.port;
+  fields.mode.value = profile.speech.mode;
+  fields.ttsEngine.value = profile.speech.ttsEngine;
+  fields.asrVllm.value = profile.speech.asrVllm;
+  fields.ttsVllm.value = profile.speech.ttsVllm;
+  fields.omniPython.value = profile.speech.omniPython;
+  fields.asrUrl.value = profile.speech.asrUrl;
+  fields.ttsUrl.value = profile.speech.ttsUrl;
+  fields.voice.value = profile.speech.referenceWav;
+  fields.transcript.value = profile.speech.referenceText;
+  fields.autoStart.checked = profile.autoStart;
+  fields.brainMode.value = profile.brain.mode;
+  fields.brainManaged.value = profile.brain.managed ? 'managed' : 'external';
+  fields.brainUrl.value = profile.brain.url;
+  fields.brainRoot.value = profile.brain.root;
+  fields.brainPython.value = profile.brain.python;
+  fields.brainDatabase.value = profile.brain.databaseMode;
+  fields.brainFolder.value = profile.brain.folderId;
+  fields.brainStRoot.value = profile.brain.sillyTavernRoot;
+  fields.brainStUrl.value = profile.brain.sillyTavernUrl;
 }
 
 async function saveCurrentProfile() {
@@ -600,11 +701,14 @@ async function saveCurrentProfile() {
     disconnectAvatar();
   }
   currentProfile = await bridge.saveProfile(profile);
+  syncSavedForm(currentProfile);
+  showMode(); showBrainMode(); syncKnownVoice();
   showProfileList(await bridge.listProfiles());
-  const status = await bridge.setBrainSecrets(currentProfile.id, { apiKey: fields.brainKey.value, databaseUrl: fields.brainDatabaseUrl.value });
+  const status = await bridge.setBrainSecrets(currentProfile.id, activeSecretDraft(currentProfile, {
+    apiKey: fields.brainKey.value, databaseUrl: fields.brainDatabaseUrl.value,
+  }));
   fields.brainKey.value = ''; fields.brainDatabaseUrl.value = '';
   showSecretStatus(status);
-  showBrainMode();
   showProfileSummary();
   return currentProfile;
 }
@@ -634,17 +738,30 @@ async function loadHistory(identifier) {
 
 async function refreshConversations() {
   if (!currentProfile || !conversationBrain(currentProfile.brain.mode)) return;
-  const conversations = await bridge.brainConversations(currentProfile.id);
+  const profileId = currentProfile.id;
+  const conversations = await bridge.brainConversations(profileId);
+  if (currentProfile?.id !== profileId) return;
   const select = $('#brain-conversation');
   select.replaceChildren();
   const blank = document.createElement('option'); blank.value = ''; blank.textContent = 'New conversation'; select.append(blank);
   for (const conversation of conversations) {
     const option = document.createElement('option'); option.value = conversation.id;
-    option.textContent = `${new Date(conversation.updated_at || conversation.created_at).toLocaleString('en-US')} · ${conversation.id.slice(0, 8)}`;
+    option.textContent = conversationLabel(conversation);
     select.append(option);
   }
   select.value = currentProfile.brain.conversationId;
   await loadHistory(currentProfile.brain.conversationId);
+  for (const conversation of conversations.slice(0, 20)) {
+    if (conversation.title) continue;
+    void bridge.brainHistory(profileId, conversation.id).then(messages => {
+      if (currentProfile?.id !== profileId) return;
+      const option = [...select.options].find(item => item.value === conversation.id);
+      if (option && !option.dataset.hasMessage) {
+        option.textContent = conversationLabel(conversation, messages);
+        if (messages.some(item => item?.role === 'user' && item.text?.trim())) option.dataset.hasMessage = 'true';
+      }
+    }).catch(() => {});
+  }
 }
 
 async function refreshSillyTavernCharacters() {
@@ -739,7 +856,7 @@ async function switchSillyTavernCharacter(avatar) {
     }
     showSelectedCharacter();
     $('#brain-turn-state').textContent = `${activeBrainName()} is idle`;
-    $('#conversation-message').textContent = `${activeBrainName()} selected.`;
+    $('#conversation-message').textContent = '';
   } catch (error) {
     await bridge.selectSillyTavernCharacter(previous.id, previous.brain.sillyTavernCharacter).catch(() => {});
     await bridge.saveProfile(previous).catch(() => {});
@@ -820,7 +937,7 @@ function showResults(results) {
   }
 }
 
-async function checkSetup() {
+async function checkSetup(reveal = false) {
   const generation = ++setupCheckGeneration;
   showButtonProgress('#check-setup', true);
   $('#check-setup').disabled = true;
@@ -832,9 +949,13 @@ async function checkSetup() {
     showResults(results);
     const missing = results.filter(item => item.state !== 'ready').length;
     const manual = results.filter(item => item.state !== 'ready' && !(item.state === 'missing' && ['avatar-model', 'asr-model', 'tts-model'].includes(item.id))).length;
-    $('#check-details').open = missing > 0;
+    $('#check-details').open = reveal || missing > 0;
+    if (manual) {
+      $('#services-advanced').open = true;
+      $('#brain-advanced').open = true;
+    }
     $('#review-setup').hidden = !manual;
-    message(manual ? `${manual} setup ${manual === 1 ? 'item needs' : 'items need'} attention.` : missing ? 'Models will be downloaded at startup.' : 'All checks passed. The profile is ready to start.');
+    message(manual ? `${manual} setup ${manual === 1 ? 'item needs' : 'items need'} attention.` : missing ? 'Models will be downloaded at startup.' : '');
     return results;
   } catch (error) { if (generation === setupCheckGeneration) message(error.message); return null; }
   finally {
@@ -875,13 +996,24 @@ $('#brain-conversation').addEventListener('change', async () => {
   }
 });
 $('#refresh-memories').addEventListener('click', async () => {
+  await loadMemories();
+});
+let memoryGeneration = 0;
+async function loadMemories() {
+  const generation = ++memoryGeneration;
+  const profileId = currentProfile?.id;
+  if (!profileId || currentProfile.brain.mode !== 'persona') return;
+  $('#brain-library-message').textContent = 'Loading memory…';
   try {
-    const memories = await bridge.brainMemories(currentProfile.id);
+    const memories = await bridge.brainMemories(profileId);
+    if (generation !== memoryGeneration || currentProfile?.id !== profileId || !$('#memory-dialog').open) return;
     $('#brain-memories').replaceChildren();
     for (const memory of memories) { const row = document.createElement('li'); row.textContent = memory.text; $('#brain-memories').append(row); }
-    $('#brain-library-message').textContent = memories.length ? `Entries: ${memories.length}` : 'Memory is empty.';
-  } catch (error) { $('#brain-library-message').textContent = error.message; }
-});
+    $('#brain-library-message').textContent = memories.length ? '' : 'Memory is empty.';
+  } catch (error) { if (generation === memoryGeneration && currentProfile?.id === profileId && $('#memory-dialog').open) $('#brain-library-message').textContent = error.message; }
+}
+$('#open-memory').addEventListener('click', () => { void loadMemories(); });
+$('#memory-dialog').addEventListener('close', () => { ++memoryGeneration; });
 $('#brain-document-form').addEventListener('submit', async event => {
   event.preventDefault();
   try {
@@ -891,13 +1023,48 @@ $('#brain-document-form').addEventListener('submit', async event => {
   } catch (error) { $('#brain-library-message').textContent = error.message; }
 });
 $('#known-voices').addEventListener('change', () => {
+  if (!$('#known-voices').value) {
+    fields.voice.value = '';
+    fields.transcript.value = '';
+    syncKnownVoice();
+    return;
+  }
   const voice = knownVoices.find(item => item.wav === $('#known-voices').value);
   if (voice) {
     fields.voice.value = voice.wav;
     fields.transcript.value = voice.text;
   }
+  syncKnownVoice();
 });
-$('#check-setup').addEventListener('click', () => { dialogs.selectTab('services'); void checkSetup(); });
+fields.voice.addEventListener('input', syncKnownVoice);
+$('#voice-preview')?.addEventListener('click', async () => {
+  const wav = fields.voice.value.trim();
+  if (!wav) return;
+  const audio = $('#voice-preview-audio');
+  const button = $('#voice-preview');
+  if (!audio.paused) { audio.pause(); button.textContent = 'Play sample'; return; }
+  try {
+    button.disabled = true;
+    if (audio.dataset.wav !== wav) {
+      const source = await bridge.previewVoiceWav(currentProfile.id, wav);
+      if (!$('#profile-settings-dialog').open || fields.voice.value.trim() !== wav) return;
+      audio.src = source;
+      audio.dataset.wav = wav;
+    }
+    audio.currentTime = 0;
+    await audio.play();
+    button.textContent = 'Stop sample';
+  } catch (error) { if ($('#profile-settings-dialog').open) $('#settings-message').textContent = error.message; }
+  finally { button.disabled = !fields.voice.value.trim(); }
+});
+$('#voice-preview-audio')?.addEventListener('ended', () => { $('#voice-preview').textContent = 'Play sample'; });
+$('#profile-settings-dialog').addEventListener('close', () => {
+  const audio = $('#voice-preview-audio');
+  if (audio) { audio.pause(); audio.removeAttribute('src'); audio.dataset.wav = ''; }
+  const button = $('#voice-preview');
+  if (button) button.textContent = 'Play sample';
+});
+$('#check-setup').addEventListener('click', () => { dialogs.selectTab('services'); void checkSetup(true); });
 $('#setup-form').addEventListener('submit', async event => {
   event.preventDefault();
   if (settingsSaving) return;
@@ -908,7 +1075,7 @@ $('#setup-form').addEventListener('submit', async event => {
   try {
     await saveCurrentProfile();
     await checkSetup();
-    message(serviceReady ? 'Profile saved. Restart services to apply changes.' : 'Profile saved. Press Start when ready.');
+    message(serviceReady ? 'Restart services to apply changes.' : '');
     dialogs.closeSettings();
   } catch (error) { message(error.message); }
   finally { settingsSaving = false; dialogs.setBusy(false); showButtonProgress('#save-profile', false); }
@@ -925,6 +1092,7 @@ $('#choose-root').addEventListener('click', async () => {
   if (voiceReferences.length) {
     fields.voice.value = voiceReferences[0].wav;
     fields.transcript.value = voiceReferences[0].text;
+    syncKnownVoice();
   }
   await avatarUI?.refresh();
   await checkSetup();
@@ -933,7 +1101,7 @@ $('#choose-voice').addEventListener('click', async () => {
   const file = await bridge.chooseVoiceWav();
   if (file) {
     fields.voice.value = file;
-    $('#known-voices').value = file;
+    syncKnownVoice();
   }
 });
 
@@ -987,16 +1155,13 @@ for (const stage of ['asr', 'tts']) $(`#stop-${stage}`).addEventListener('click'
   try { await bridge.stopSpeechModel(stage); }
   catch (error) { message(error.message); }
 });
-$('#connect-avatar').addEventListener('click', async () => {
-  if (webRtcClient?.sessionId()) {
-    if (recording || recordingBusy) { $('#conversation-message').textContent = 'Finish recording before disconnecting preview.'; return; }
-    disconnectAvatar(); return;
-  }
+async function connectAvatar() {
   if (!serviceReady || !currentProfile || projectionClient || projectionBusy || previewBusy) return;
   previewBusy = true;
   const attempt = ++connectionGeneration;
   showWebRtcState('connecting');
   let client;
+  let failure = '';
   try {
     if (conversationBrain(currentProfile.brain.mode)) {
       if (!currentProfile.brain.conversationId) await newConversation({ keepConnectionAttempt: true });
@@ -1020,33 +1185,53 @@ $('#connect-avatar').addEventListener('click', async () => {
     if (attempt !== connectionGeneration || client !== webRtcClient) return;
     selectConversationTarget('preview');
   } catch (error) {
-    if (attempt === connectionGeneration) $('#webrtc-state').textContent = `WebRTC: ${error.message}`;
+    if (attempt === connectionGeneration) failure = `WebRTC: ${error.message}`;
   } finally {
     if (attempt === connectionGeneration) {
       if (client && !client.sessionId() && webRtcClient === client) webRtcClient = null;
       previewBusy = false;
       showWebRtcState(webRtcClient?.sessionId() ? 'connected' : 'disconnected');
+      if (failure) $('#webrtc-state').textContent = failure;
     }
   }
+}
+
+function maybeAutoConnectPreview() {
+  if (!serviceReady || !currentProfile || previewAutoStarted || webRtcClient || projectionClient || projectionBusy) return;
+  previewAutoStarted = true;
+  void connectAvatar();
+}
+
+$('#connect-avatar').addEventListener('click', async () => {
+  if (webRtcClient?.sessionId()) {
+    if (recording || recordingBusy) { $('#conversation-message').textContent = 'Finish recording before disconnecting preview.'; return; }
+    disconnectAvatar(); return;
+  }
+  await connectAvatar();
 });
-$('#connect-projection').addEventListener('click', async () => {
+async function connectProjection() {
   if (projectionClient?.sessionId()) {
-    if (recording || recordingBusy) { $('#conversation-message').textContent = 'Finish recording before disconnecting projection.'; return; }
-    try { await disconnectProjection(); } catch (error) { $('#projection-state').textContent = error.message; }
+    if (recording || recordingBusy) { projectionError('Finish recording before disconnecting projection.'); return; }
+    try { await disconnectProjection(); } catch (error) { projectionError(error.message); }
     return;
   }
-  if (!serviceReady || !currentProfile || projectionBusy || previewBusy || webRtcClient) return;
-  const url = $('#projection-url').value.trim();
+  if (recording || recordingBusy) { projectionError('Finish recording before switching the stream.'); return; }
+  if (sending || conversationChangeBusy) { projectionError('Wait for the message or conversation change to finish.'); return; }
+  if (!serviceReady || !currentProfile || projectionBusy || previewBusy) return;
+  const url = validProjectionUrl($('#projection-url').value);
   const token = $('#projection-token').value.trim();
   if (!url) {
-    $('#projection-state').textContent = 'Choose a device first';
-    $('#projection-settings-dialog').showModal();
+    projectionError($('#projection-url').value.trim() ? 'Enter an HTTP(S) WHIP URL without credentials or query parameters.' : 'Choose a device first');
+    if (!$('#projection-settings-dialog').open) $('#projection-settings-dialog').showModal();
     return;
   }
   if ($('#projection-discovered').selectedOptions[0]?.dataset.auth === 'bearer' && !token) {
-    $('#projection-state').textContent = 'This Head in Jar requires a bearer token'; return;
+    projectionError('This Head in Jar requires a bearer token'); return;
   }
+  $('#projection-dialog-message').textContent = '';
+  const restorePreview = Boolean(webRtcClient?.sessionId());
   projectionBusy = true;
+  if (restorePreview) disconnectAvatar();
   const attempt = ++connectionGeneration;
   showProjectionState('connecting');
   let client;
@@ -1068,17 +1253,22 @@ $('#connect-projection').addEventListener('click', async () => {
     if (attempt !== connectionGeneration || client !== projectionClient) return;
     selectConversationTarget('projection');
     showProjectionState('connected');
+    saveProjectionAddress();
+    $('#projection-token').value = '';
+    if ($('#projection-settings-dialog').open) $('#projection-settings-dialog').close();
   } catch (error) { if (attempt === connectionGeneration) failure = `Error: ${error.message}`; }
   finally {
     if (attempt === connectionGeneration) {
       if (client && !client.sessionId() && projectionClient === client) projectionClient = null;
       projectionBusy = false;
-      $('#projection-token').value = '';
       showProjectionState(projectionClient?.sessionId() ? 'connected' : 'disconnected');
-      if (failure) $('#projection-state').textContent = failure;
+      if (failure) projectionError(failure);
+      if (failure && restorePreview && serviceReady && !webRtcClient) void connectAvatar();
     }
   }
-});
+}
+$('#connect-projection').addEventListener('click', () => { void connectProjection(); });
+$('#projection-connect-settings')?.addEventListener('click', () => { void connectProjection(); });
 $('#message-text').addEventListener('input', updateConversationControls);
 $('#microphone-button').addEventListener('click', async () => {
   if (conversationChangeBusy) return;
@@ -1182,7 +1372,14 @@ async function submitTurn(turn) {
     if (token !== sessionGeneration) return;
     failedTurn = null; $('#retry-message').hidden = true;
     if (submittedDraft.trim() === text && $('#message-text').value === submittedDraft) $('#message-text').value = '';
-    $('#conversation-message').textContent = 'Message received.';
+    $('#conversation-message').textContent = '';
+    if (conversationBrain(currentProfile.brain.mode)) {
+      const option = [...$('#brain-conversation').options].find(item => item.value === currentProfile.brain.conversationId);
+      if (option && !option.dataset.hasMessage) {
+        option.textContent = conversationLabel({}, [{ role: 'user', text }]);
+        option.dataset.hasMessage = 'true';
+      }
+    }
     return true;
   } catch (error) { if (token !== sessionGeneration) return false; $('#conversation-message').textContent = error.message; failedTurn = turn; $('#retry-message').hidden = false; return false; }
   finally { sending = false; updateConversationControls(); }
@@ -1227,7 +1424,9 @@ const speakingTimer = setInterval(async () => {
   speakingPollBusy = true;
   try {
     const speaking = await conversationClient.speaking();
-    if (token === sessionGeneration) $('#speaking-state').textContent = speaking ? 'Speaking' : 'Listening';
+    if (token === sessionGeneration) $('#speaking-state').textContent = speaking ? 'Speaking'
+      : microphoneState === 'capturing' || ['listening', 'capturing'].includes($('#handsfree-state').dataset.state)
+        ? 'Listening' : 'Ready';
   }
   catch { if (token === sessionGeneration) $('#speaking-state').textContent = 'Status unavailable'; }
   finally { speakingPollBusy = false; }

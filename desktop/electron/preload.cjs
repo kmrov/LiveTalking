@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('liveTalkingDesktop', Object.freeze({
   saveProfile: profile => ipcRenderer.invoke('desktop:save-profile', profile),
   chooseLiveTalkingRoot: () => ipcRenderer.invoke('desktop:choose-root'),
   chooseVoiceWav: () => ipcRenderer.invoke('desktop:choose-voice-wav'),
+  previewVoiceWav: (id, wav) => ipcRenderer.invoke('desktop:preview-voice-wav', id, wav),
   chooseBrainRoot: () => ipcRenderer.invoke('desktop:choose-brain-root'),
   setBrainSecrets: (id, input) => ipcRenderer.invoke('desktop:brain-secrets', id, input),
   brainConversations: id => ipcRenderer.invoke('desktop:brain-conversations', id),

@@ -53,7 +53,7 @@ export function normalizeProfile(input) {
   if (!['local', 'external'].includes(mode)) throw new ProfileError('speech.mode', 'expected local or external');
   const ttsEngine = string(speech.ttsEngine, 'speech.ttsEngine', 'qwen');
   if (!['qwen', 'omnivoice'].includes(ttsEngine)) throw new ProfileError('speech.ttsEngine', 'expected qwen or omnivoice');
-  const autoStart = source.autoStart ?? true;
+  const autoStart = source.autoStart ?? false;
   if (typeof autoStart !== 'boolean') throw new ProfileError('autoStart', 'expected a boolean');
   const avatarId = string(lt.avatarId, 'liveTalking.avatarId', 'wav2lip256_avatar1');
   if (!/^[\p{L}\p{N}_-]{1,128}$/u.test(avatarId)) throw new ProfileError('liveTalking.avatarId', 'use letters, numbers, _ or -');

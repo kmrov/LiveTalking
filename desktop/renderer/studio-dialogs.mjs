@@ -45,6 +45,9 @@ export function mountStudioDialogs({ document, onSettingsOpen, onSettingsClose }
   settings.addEventListener('invalid', event => {
     const panel = event.target.closest('[role="tabpanel"]');
     if (panel) selectTab(panel.id.replace('settings-', ''));
+    for (let parent = event.target.parentElement; parent && parent !== settings; parent = parent.parentElement) {
+      if (parent.tagName === 'DETAILS') parent.open = true;
+    }
   }, true);
   for (const button of document.querySelectorAll('[data-open-dialog]')) {
     button.addEventListener('click', () => document.getElementById(button.dataset.openDialog).showModal());

@@ -5,6 +5,16 @@ export function avatarSnapshotBelongsToRoot(snapshot,profileRoot,catalog) {
 export function filterAvatars(entries,query) {
  const value=query.trim().toLocaleLowerCase('ru');return entries.filter(entry=>`${entry.name} ${entry.id}`.toLocaleLowerCase('ru').includes(value));
 }
+export function preferredAvatarModel({selectedModel,userSelected=false,lastModel,currentModel,kind,availableModels}={}) {
+ const models=availableModels||['musetalk','wav2lip','ditto','soulx'];
+ const compatible=model=>models.includes(model)
+  && (availableModels || ((kind!=='image'||model!=='wav2lip') && (kind!=='video'||!['ditto','soulx'].includes(model))));
+ return [userSelected?selectedModel:null,lastModel,currentModel,'musetalk',...models].find(compatible)||'';
+}
+export function avatarJobDisplay(job) {
+ if(!job)return {showProgressLink:false,showJob:false,inHistory:false};
+ return {showProgressLink:job.state!=='completed',showJob:true,inHistory:job.state==='completed'};
+}
 export function avatarActionState(session={},job) {
  const busy=Boolean(session.generationBusy)||['checking','running','cancelling','publishing'].includes(job?.state);
  const recording=Boolean(session.recording||session.recordingBusy);

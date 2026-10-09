@@ -29,6 +29,7 @@ import { createAvatarRuntime } from './avatar-runtime.mjs';
 import { createModelDownloads, prepareProfileModels } from './model-downloads.mjs';
 import { createProjectionApi } from './projection-api.mjs';
 import { listOwnedSpeechModels, stopOwnedSpeechModel } from './speech-model-registry.mjs';
+import { readVoicePreview } from './voice-preview.mjs';
 
 const studioFile = fileURLToPath(new URL('../dist/studio.html', import.meta.url));
 const studioUrl = pathToFileURL(studioFile).href;
@@ -58,6 +59,7 @@ let quitAfterStop = false;
 let quitJob;
 let speechModelRegistryDir;
 let ownedSpeechModels = [];
+let chosenVoiceWav = '';
 
 function runtimeSnapshot() {
   const mode = serviceState.profileId && profileStore?.get(serviceState.profileId)?.brain.mode;
@@ -285,7 +287,16 @@ function registerSetupIpc() {
   }));
   ipcMain.handle('desktop:choose-voice-wav', trusted(async () => {
     const result = await dialog.showOpenDialog(studioWindow, { title: 'Choose WAV voice sample', properties: ['openFile'], filters: [{ name: 'WAV', extensions: ['wav'] }] });
-    return result.canceled ? null : result.filePaths[0];
+    if (result.canceled) return null;
+    chosenVoiceWav = result.filePaths[0];
+    return chosenVoiceWav;
+  }));
+  ipcMain.handle('desktop:preview-voice-wav', trusted((id, wav) => {
+    const profile = profileStore.get(id);
+    if (!profile) throw new Error('Profile not found');
+    const allowed = [profile.speech.referenceWav, chosenVoiceWav,
+      ...findVoiceReferences(profile.liveTalking.root).map(item => item.wav)];
+    return readVoicePreview(wav, allowed);
   }));
   ipcMain.handle('desktop:start-profile', trusted(id => avatarRuntime.runLifecycle(() => startProfile(id))));
   ipcMain.handle('desktop:stop-profile', trusted(stopProfile));

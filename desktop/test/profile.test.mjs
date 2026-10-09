@@ -30,3 +30,9 @@ test('speech profile keeps OmniVoice engine and its Python without changing olde
   assert.equal(speech.omniPython, '/opt/omnivoice/bin/python');
   assert.throws(() => normalizeProfile({ speech: { ttsEngine: 'other' } }), error => error instanceof ProfileError && error.field === 'speech.ttsEngine');
 });
+
+test('new profiles require explicit auto start while saved choices remain intact', () => {
+  assert.equal(normalizeProfile({}).autoStart, false);
+  assert.equal(normalizeProfile({ autoStart: true }).autoStart, true);
+  assert.equal(normalizeProfile({ autoStart: false }).autoStart, false);
+});

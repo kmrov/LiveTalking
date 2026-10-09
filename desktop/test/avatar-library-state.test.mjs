@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import { filterAvatars,avatarActionState,buildCreationInput,avatarSnapshotBelongsToRoot } from '../renderer/avatar-library-state.mjs';
+import { filterAvatars,avatarActionState,buildCreationInput,avatarSnapshotBelongsToRoot,preferredAvatarModel,avatarJobDisplay } from '../renderer/avatar-library-state.mjs';
 test('search uses display names and technical IDs without case sensitivity',()=>{
  const entries=[{id:'portrait',name:'Персона',ready:true},{id:'other',name:'Другой',ready:false}];
  assert.deepEqual(filterAvatars(entries,'ПЕРСОНА').map(x=>x.id),['portrait']);assert.deepEqual(filterAvatars(entries,'PORTRAIT').map(x=>x.id),['portrait']);
@@ -25,4 +25,21 @@ test('canonical job events are accepted only for the catalog belonging to the cu
  assert.equal(avatarSnapshotBelongsToRoot({root:'/checkout'},'/link/checkout/',catalog),true);
  assert.equal(avatarSnapshotBelongsToRoot({root:'/checkout'},'/another',catalog),false);
  assert.equal(avatarSnapshotBelongsToRoot({root:'/another'},'/link/checkout/',catalog),false);
+});
+test('last model and selected avatar model are preferred only when compatible with source',()=>{
+ assert.equal(preferredAvatarModel({lastModel:'wav2lip',currentModel:'soulx',kind:'video'}),'wav2lip');
+ assert.equal(preferredAvatarModel({lastModel:'wav2lip',currentModel:'soulx',kind:'image'}),'soulx');
+ assert.equal(preferredAvatarModel({lastModel:'soulx',currentModel:'wav2lip',kind:'video'}),'wav2lip');
+ assert.equal(preferredAvatarModel({lastModel:'unknown',currentModel:'unknown',kind:'image'}),'musetalk');
+ assert.equal(preferredAvatarModel({selectedModel:'ditto',userSelected:true,lastModel:'soulx',currentModel:'musetalk',kind:'image'}),'ditto');
+ assert.equal(preferredAvatarModel({selectedModel:'ditto',userSelected:true,lastModel:'wav2lip',currentModel:'musetalk',kind:'video'}),'wav2lip');
+ assert.equal(preferredAvatarModel({currentModel:'avtr1',lastModel:'musetalk',availableModels:['avtr1','musetalk']}),'musetalk');
+ assert.equal(preferredAvatarModel({currentModel:'avtr1',availableModels:['avtr1','musetalk']}),'avtr1');
+ assert.equal(preferredAvatarModel({selectedModel:'avtr1',userSelected:true,currentModel:'musetalk',availableModels:['avtr1','musetalk']}),'avtr1');
+});
+test('completed jobs remain in history without showing progress; unresolved failures remain visible',()=>{
+ assert.deepEqual(avatarJobDisplay({state:'completed'}),{showProgressLink:false,showJob:true,inHistory:true});
+ assert.deepEqual(avatarJobDisplay({state:'running'}),{showProgressLink:true,showJob:true,inHistory:false});
+ assert.deepEqual(avatarJobDisplay({state:'failed'}),{showProgressLink:true,showJob:true,inHistory:false});
+ assert.deepEqual(avatarJobDisplay(null),{showProgressLink:false,showJob:false,inHistory:false});
 });

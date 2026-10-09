@@ -15,6 +15,13 @@ const executablePath = require('electron');
 const fixture = await startFixtureServer();
 const logs = [];
 await mkdir(artifactDirectory, { recursive: true });
+async function waitForFixtureCommand(pathname, count) {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (fixture.commands.filter(command => command.path === pathname).length >= count) return;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  throw new Error(`Fixture did not receive ${pathname} command ${count}`);
+}
 
 async function runCase(corrupt) {
   const userData = await mkdtemp(path.join(os.tmpdir(), 'livetalking-smoke-'));
@@ -39,14 +46,14 @@ async function runCase(corrupt) {
     }
     await window.locator('#start-profile').click();
     await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Running');
-    await window.locator('#connect-avatar').click();
     await window.waitForFunction(() => document.querySelector('#webrtc-state').dataset.sessionId === 'fixture-session');
-    assert.match(await window.locator('#projection-hint').textContent(), /Disconnect.*WebRTC/i);
+    assert.match(await window.locator('#connect-projection').textContent(), /Switch to Head in Jar/i);
     assert.equal(await window.locator('#avatar-video').evaluate(video => video.muted), true, 'only the audio element may play incoming audio');
     await window.locator('#conversation-mode').selectOption('echo');
     await window.locator('#message-text').fill('Привет из smoke-теста');
+    const firstHumanCount=fixture.commands.filter(command => command.path === '/human').length;
     await window.locator('#send-message').click();
-    await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Message received.');
+    await waitForFixtureCommand('/human', firstHumanCount+1);
     assert.deepEqual(fixture.commands.find(command => command.path === '/human').body, { sessionid: 'fixture-session', text: 'Привет из smoke-теста', type: 'echo', interrupt: true });
     await window.locator('#interrupt-avatar').click();
     await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Speech interrupted.');
@@ -90,7 +97,7 @@ async function runCase(corrupt) {
     await window.evaluate(() => {
       for (let i = 0; i < 91; i++) window.__autoVoiceWorklet.port.onmessage({ data: new Float32Array(160) });
     });
-    await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Message received.');
+    await waitForFixtureCommand('/human', firstHumanCount+2);
     assert.equal(fixture.commands.findLast(command => command.path === '/human').body.text, 'Вопрос без кнопок');
     assert.equal(fixture.commands.findLast(command => command.path === '/human').body.type, 'chat');
     await window.locator('#handsfree-button').click();
@@ -113,20 +120,23 @@ async function runCase(corrupt) {
     await window.locator('#connect-projection').evaluate(button => button.dispatchEvent(new MouseEvent('click', { bubbles: true })));
     await window.waitForFunction(() => document.querySelector('#webrtc-state').dataset.sessionId === 'fixture-session');
     assert.equal(fixture.commands.filter(command => command.path === '/api/whip/connect').length, 0);
-    await window.locator('#connect-avatar').click();
     fixture.control.delayOfferMs = 0;
     fixture.control.delayWhipMs = 300;
+    assert.match(await window.locator('#connect-projection').textContent(), /Switch to Head in Jar/);
     await window.locator('#connect-projection').click();
     await window.waitForFunction(() => document.querySelector('#connect-projection').disabled);
     await window.locator('#connect-projection').evaluate(button => button.dispatchEvent(new MouseEvent('click', { bubbles: true })));
     await window.waitForFunction(() => Boolean(document.querySelector('#projection-state').dataset.sessionId));
+    assert.equal(await window.locator('#webrtc-state').getAttribute('data-session-id'), '',
+      'one projection action disconnects the preview first');
     assert.equal(fixture.commands.filter(command => command.path === '/api/whip/connect').length, 1);
     fixture.control.delayWhipMs = 0;
     const projectionId = await window.locator('#projection-state').getAttribute('data-session-id');
     assert.match(projectionId, /^[0-9a-f-]{36}$/);
     await window.locator('#message-text').fill('Привет проекции');
+    const projectionHumanCount=fixture.commands.filter(command => command.path === '/human').length;
     await window.locator('#send-message').click();
-    await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Message received.');
+    await waitForFixtureCommand('/human', projectionHumanCount+1);
     assert.equal(fixture.commands.findLast(command => command.path === '/human').body.sessionid, projectionId);
     assert.equal(fixture.commands.find(command => command.path === '/api/whip/connect').body.token, 'fixture-secret');
     await window.locator('#interrupt-avatar').click();
@@ -137,15 +147,14 @@ async function runCase(corrupt) {
     assert.equal(await window.locator('#send-message').isDisabled(), true);
     await window.locator('#open-projection-settings').click();
     await window.locator('#projection-token').fill('fixture-secret-retry');
-    await window.locator('#projection-settings-dialog [data-close-dialog]').last().click();
-    await window.locator('#connect-projection').click();
+    await window.locator('#projection-connect-settings').click();
     await window.waitForFunction(() => Boolean(document.querySelector('#projection-state').dataset.sessionId));
     await window.locator('#connect-projection').click();
     await window.waitForFunction(() => document.querySelector('#projection-state').dataset.sessionId === '');
     assert.equal(await window.locator('#send-message').isDisabled(), true);
     await window.screenshot({ path: path.join(artifactDirectory, 'smoke-studio.png') });
     await window.locator('#stop-profile').click();
-    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Not configured');
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Stopped');
     assert.equal(await window.locator('#send-message').isDisabled(), true);
     assert.equal(await window.locator('#record-avatar').isDisabled(), true);
     assert.equal(await window.locator('#webrtc-state').getAttribute('data-session-id'), '');
@@ -212,18 +221,27 @@ async function runAvatarCase() {
   };
   const state = async expected => window.waitForFunction(value => document.querySelector('#avatar-job-state').dataset.avatarStage === value, expected);
   const chooseSource = async name => {
-    await window.locator('#open-avatar-create').click();
+    await window.locator('#open-avatar-library').click();
+    await window.locator('#library-create-avatar').click();
     await window.locator('#choose-avatar-source').click();
     await window.locator('#new-avatar-name').fill(name);
   };
   try {
     await launch();
     await window.locator('[data-open-settings="voice"]').click();
+    if (!await window.locator('#voice-sample-details').evaluate(details => details.open))
+      await window.locator('#voice-sample-details > summary').click();
     await window.locator('#voice-wav').fill('');
     await window.locator('#voice-text').fill('');
     await window.locator('#save-profile').click();
     await window.locator('#profile-settings-dialog').waitFor({ state: 'hidden' });
     await chooseSource('Мой аватар');
+    await window.locator('#new-avatar-model').selectOption('ditto');
+    await window.locator('#choose-avatar-source').click();
+    assert.equal(await window.locator('#new-avatar-model').inputValue(), 'ditto',
+      'a compatible explicit model choice survives choosing another photo');
+    await window.locator('#new-avatar-model').selectOption('musetalk');
+    await window.locator('#new-avatar-name').fill('Мой аватар');
     await window.locator('#check-avatar-create').click();
     await window.locator('#avatar-create-checks li').first().waitFor();
     assert.equal(await window.locator('#avatar-create-checks [data-state="ready"]').count(), 1);
@@ -234,13 +252,17 @@ async function runAvatarCase() {
     await window.screenshot({ path: path.join(artifactDirectory, 'smoke-avatar-create.png') });
     await window.keyboard.press('Escape');
     assert.equal(await window.locator('#avatar-create-dialog').isVisible(), false);
-    await window.waitForFunction(() => document.activeElement.id === 'open-avatar-job');
+    await window.waitForFunction(() => document.activeElement.id === 'open-avatar-library');
     assert.equal(await window.locator('#start-profile').isDisabled(), true);
     await window.locator('#open-avatar-job').click();
     assert.equal(await window.locator('#avatar-job-progress').evaluate(progress => progress.value), 25);
     await rm(source);
     await control('success');
     await state('completed');
+    assert.equal(await window.locator('#open-avatar-job').isHidden(), true,
+      'a completed job no longer advertises active progress on the main screen');
+    assert.equal(await window.locator('#avatar-job-history').isVisible(), true,
+      'the completed result remains available in the creator');
     await window.locator('#select-created-avatar').click();
     await window.waitForFunction(() => /^studio_[0-9a-f]{32}$/.test(document.querySelector('#avatar-id').value));
     const saved = JSON.parse(await readFile(path.join(userData, 'profiles.json'), 'utf8')).profiles[0];
@@ -252,6 +274,9 @@ async function runAvatarCase() {
     await window.locator('#open-avatar-library').click();
     let card = window.locator(`[data-avatar-id="${createdId}"]`);
     await card.waitFor();
+    assert.equal(await card.getAttribute('data-current'), 'true');
+    assert.equal(await card.getByRole('button', { name: 'Selected', exact: true }).isDisabled(), true,
+      'the current avatar cannot trigger a redundant service restart');
     assert.equal(await card.locator('[data-avatar-name]').textContent(), 'Мой аватар');
     assert.equal(await card.locator('img').evaluate(img => img.naturalWidth > 0), true);
     const imageBox = await card.locator('img').boundingBox();
@@ -272,6 +297,11 @@ async function runAvatarCase() {
 
     await writeFile(source, png); await control('fail');
     await chooseSource('Повтор аватара');
+    assert.equal(await window.locator('#avatar-job-history').evaluate(details => details.open), false,
+      'a fresh creator keeps the previous completed result folded away');
+    assert.equal(await window.locator('#avatar-job-progress').isVisible(), false,
+      'old completed progress does not appear below a fresh form');
+    await window.screenshot({ path: path.join(artifactDirectory, 'smoke-avatar-fresh-create.png') });
     await window.locator('#submit-avatar-create').click(); await state('failed');
     assert.match(await window.locator('#avatar-job-error').textContent(), /fixture/i);
     await rm(source); await control('success');
@@ -291,6 +321,8 @@ async function runAvatarCase() {
     await window.screenshot({ path: path.join(artifactDirectory, 'smoke-model-download.png') });
     await window.locator('#open-profile-settings').click();
     await window.locator('#settings-tab-voice').click();
+    if (!await window.locator('#voice-sample-details').evaluate(details => details.open))
+      await window.locator('#voice-sample-details > summary').click();
     await window.locator('#voice-text').fill('Changed while models load');
     await window.locator('#save-profile').click();
     await window.locator('#profile-settings-dialog').waitFor({ state: 'hidden', timeout: 5000 });
@@ -298,13 +330,13 @@ async function runAvatarCase() {
     await writeFile(path.join(avatarRoot, 'fixture-control.json'), JSON.stringify({ mode: 'success', modelsMode: 'success' }));
     await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Running');
     await window.locator('#stop-profile').click();
-    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Not configured');
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Stopped');
     await rm(path.join(avatarRoot, '.fixture-models-ready'));
     await writeFile(path.join(avatarRoot, 'fixture-control.json'), JSON.stringify({ mode: 'success', modelsMode: 'delay' }));
     await window.locator('#start-profile').click();
     await window.waitForFunction(() => document.querySelector('#model-download-progress').value === 25);
     await window.locator('#stop-profile').click();
-    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Not configured');
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Stopped');
     await assert.rejects(readFile(path.join(avatarRoot, '.fixture-models-ready')), { code: 'ENOENT' });
     await writeFile(path.join(avatarRoot, 'fixture-control.json'), JSON.stringify({ mode: 'success', modelsMode: 'fail' }));
     await window.locator('#start-profile').click();
@@ -315,7 +347,7 @@ async function runAvatarCase() {
     await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Running');
     assert.equal(await readFile(path.join(avatarRoot, '.fixture-models-ready'), 'utf8'), 'verified');
     await window.locator('#stop-profile').click();
-    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Not configured');
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Stopped');
     console.log('Model download progress → Stop cancellation → failure → repeat → startup: passed');
 
     const existing = path.join(avatarRoot, 'data/avatars/legacy');
@@ -334,7 +366,7 @@ async function runAvatarCase() {
     fixture.control.avatarModel = 'musetalk';
     await window.locator('#start-profile').click();
     await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Running');
-    await window.locator('#connect-avatar').click();
+    await window.waitForFunction(() => document.querySelector('#webrtc-state').dataset.sessionId === 'fixture-session');
     await window.waitForFunction(() => document.querySelector('#brain-turn-state').dataset.stream === 'connected');
     await window.locator('#message-text').fill('Ответ после смены аватара'); await window.locator('#send-message').click();
     await window.waitForFunction(() => document.querySelector('#conversation-list [data-status="delta"]'));
@@ -349,7 +381,7 @@ async function runAvatarCase() {
     await window.waitForFunction(() => document.querySelector('#conversation-message').textContent.includes('Save cancelled'));
     await window.locator('#open-avatar-library').click();
     await card.getByRole('button', { name: 'Stop and select', exact: true }).click();
-    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Not configured');
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Stopped');
     const before = await window.locator('#conversation-list').textContent();
     fixture.finishTurn();
     await window.waitForFunction(() => document.querySelector('#start-profile').disabled === false);
@@ -360,7 +392,7 @@ async function runAvatarCase() {
     await window.locator('#start-profile').click();
     await window.waitForFunction(() => document.querySelector('#conversation-list [data-role="assistant"]')?.textContent.includes('Это тестовый ответ.'));
     await window.locator('#stop-profile').click();
-    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Not configured');
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Stopped');
 
     await writeFile(source, png); await control('delay');
     await chooseSource('Отмена'); await window.locator('#submit-avatar-create').click(); await state('running');
@@ -424,11 +456,12 @@ async function runPersonaCase() {
     await window.locator('#profile-settings-dialog').waitFor({ state: 'hidden' });
     await window.locator('#start-profile').click();
     await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Running');
+    await window.waitForFunction(() => document.querySelector('#webrtc-state').dataset.sessionId === 'fixture-session'
+      && document.querySelector('#brain-turn-state').dataset.stream === 'connected');
     await window.locator('#new-brain-conversation').click();
-    await window.waitForFunction(() => Boolean(document.querySelector('#brain-conversation').value));
+    await window.waitForFunction(() => Boolean(document.querySelector('#brain-conversation').value)
+      && !document.querySelector('#new-brain-conversation').disabled);
     let id = await window.locator('#brain-conversation').inputValue();
-    await window.locator('#connect-avatar').click();
-    await window.waitForFunction(() => document.querySelector('#brain-turn-state').dataset.stream === 'connected');
     await window.locator('#message-text').fill('Привет из теста Персоны');
     await window.locator('#send-message').click();
     await window.waitForFunction(() => document.querySelector('#conversation-list [data-role="assistant"]')?.textContent.includes('Привет, сынок.'));
@@ -503,7 +536,7 @@ async function runPersonaCase() {
     await reopened.waitForFunction(() => document.querySelectorAll('#conversation-list [data-role="assistant"]').length === 1);
     assert.equal(await reopened.locator('#brain-conversation').inputValue(), id);
     await reopened.locator('#stop-profile').click();
-    await reopened.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Not configured');
+    await reopened.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Stopped');
     fixture.control.brainMode = 'direct';
     await reopened.locator('[data-open-settings="brain"]').click();
     await reopened.locator('#brain-mode').selectOption('direct');
