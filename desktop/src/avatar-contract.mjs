@@ -14,8 +14,8 @@ function integer(value, name, min, max) {
 }
 export function normalizeAvatarCreation({ name, model, kind, parameters = {} }) {
   name = normalizeAvatarName(name);
-  const generative = ['ditto','soulx'].includes(model);
-  if (!['image','video'].includes(kind) || !['musetalk','wav2lip','ditto','soulx'].includes(model) || (kind === 'image' && model === 'wav2lip') || (kind === 'video' && generative)) throw new Error('Choose MuseTalk, Ditto or SoulX for a photo; MuseTalk or Wav2Lip for a video.');
+  const generative = ['ditto','soulx','avtr1'].includes(model);
+  if (!['image','video'].includes(kind) || !['musetalk','wav2lip','ditto','soulx','avtr1'].includes(model) || (kind === 'image' && model === 'wav2lip') || (kind === 'video' && generative)) throw new Error('Choose MuseTalk, Ditto, SoulX or AVTR-1 for a photo; MuseTalk or Wav2Lip for a video.');
   if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) throw new Error('Invalid preparation parameters.');
   const defaults = generative ? {} : model === 'musetalk' ? {bbox_shift:0,extra_margin:10,parsing_mode:'jaw'} : {pads:[0,10,0,0],nosmooth:false,face_det_batch_size:16};
   if (Object.keys(parameters).some(key => !Object.hasOwn(defaults,key))) throw new Error('Unknown preparation parameter.');

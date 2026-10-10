@@ -115,6 +115,70 @@ class AudioBuffer:
         finally:
             self._collecting_generation = None
 
+    def peek_future(self, sample_count, generation, quit_event):
+        """Wait for the model's lookahead without removing playback packets."""
+        while not quit_event.is_set() and not self.closed.is_set():
+            if generation != self.generation:
+                return None
+            parts = []
+            ended = False
+            with self.queue.mutex:
+                for packet_generation, packet in self.queue.queue:
+                    if packet_generation != generation:
+                        break
+                    parts.append(packet.data)
+                    if packet.userdata.get('status') == 'end':
+                        ended = True
+                        break
+                    if sum(len(part) for part in parts) >= sample_count:
+                        break
+            available = sum(len(part) for part in parts)
+            if available >= sample_count or ended:
+                result = np.zeros(sample_count, np.float32)
+                if available:
+                    audio = np.concatenate(parts)
+                    result[:min(available, sample_count)] = audio[:sample_count]
+                return result
+            quit_event.wait(.02)
+        return None
+
     def close(self):
         self.closed.set()
         self.flush_talk()
+
+
+class ListeningAudio:
+    """Latest microphone PCM for AVTR-1; old input is dropped if inference lags."""
+    def __init__(self, max_samples=32000, block_samples=3200):
+        self.lock = threading.Lock()
+        self.max_samples = max_samples
+        self.block_samples = block_samples
+        self.audio = np.zeros(0, np.float32)
+        self.received = 0
+        self.rendered = 0
+        self.snapshot_received = 0
+
+    def push(self, pcm):
+        pcm = np.asarray(pcm, dtype=np.float32)
+        if pcm.ndim != 1 or not 0 < len(pcm) <= 16000 or not np.isfinite(pcm).all():
+            raise ValueError('Expected finite mono microphone PCM at 16 kHz.')
+        with self.lock:
+            self.audio = np.concatenate((self.audio, pcm))[-self.max_samples:]
+            self.received += len(pcm)
+
+    def has_block(self):
+        with self.lock:
+            return self.received - self.rendered >= self.block_samples
+
+    def snapshot(self, sample_count):
+        with self.lock:
+            result = np.zeros(sample_count, np.float32)
+            if self.received > self.rendered:
+                count = min(sample_count, len(self.audio))
+                result[-count:] = self.audio[-count:]
+            self.snapshot_received = self.received
+            return result
+
+    def mark_rendered(self):
+        with self.lock:
+            self.rendered = self.snapshot_received

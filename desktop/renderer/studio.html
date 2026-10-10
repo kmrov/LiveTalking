@@ -97,7 +97,7 @@
         <ol id="conversation-list" aria-label="Conversation history" hidden></ol>
         <div class="conversation-tools"><span id="speaking-state">Idle</span><button type="button" id="interrupt-avatar" disabled>Interrupt</button></div>
         <div class="microphone-tools"><button id="microphone-button" type="button" disabled>Microphone</button><span id="microphone-state">Press to speak</span></div>
-        <div class="handsfree-tools"><button id="handsfree-button" type="button" disabled>Auto conversation</button><label class="interruption-option"><input id="handsfree-barge-in" type="checkbox" checked>Allow interruption</label></div>
+        <div class="handsfree-tools"><button id="handsfree-button" type="button" disabled>Auto conversation</button><label class="interruption-option" title="Listen while the avatar replies. Headphones help prevent echo."><input id="handsfree-barge-in" type="checkbox" checked>Allow interruption</label></div>
         <form id="conversation-form">
           <label class="sr-only" for="message-text">Message to avatar</label>
           <textarea id="message-text" rows="3" placeholder="Message to avatar"></textarea>
@@ -212,7 +212,7 @@
     <form id="avatar-create-form">
       <div class="avatar-source"><img id="avatar-source-preview" alt="Source preview" hidden><div><button type="button" id="choose-avatar-source">Choose photo or video</button><p id="avatar-source-name">No file selected</p></div></div>
       <label>Name<input id="new-avatar-name" maxlength="120" required placeholder="For example, Viktor"></label>
-      <label>Model<select id="new-avatar-model"><option value="musetalk">MuseTalk · photo or video</option><option value="wav2lip">Wav2Lip · video</option><option value="ditto">Ditto · photo · experimental</option><option value="soulx">SoulX FlashHead Lite · photo · experimental</option></select></label>
+      <label>Model<select id="new-avatar-model"><option value="musetalk">MuseTalk · photo or video</option><option value="wav2lip">Wav2Lip · video</option><option value="ditto">Ditto · photo · experimental</option><option value="soulx">SoulX FlashHead Lite · photo · experimental</option><option value="avtr1">AVTR-1 · photo · experimental</option></select></label>
       <p id="generative-avatar-hint" class="setting-hint" hidden></p>
       <details id="avatar-preparation-options" class="setup-details"><summary>Advanced settings</summary>
         <div id="musetalk-avatar-options" class="avatar-option-grid"><label>Face offset<input id="new-avatar-bbox" type="number" min="-50" max="50" value="0"></label><label>Margin<input id="new-avatar-margin" type="number" min="0" max="100" value="10"></label><label>Mask<select id="new-avatar-parsing"><option value="jaw">Jaw</option><option value="neck">Neck</option><option value="raw">Original</option></select></label></div>

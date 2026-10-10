@@ -44,6 +44,10 @@ class WorkerClient:
             self.chunk_samples = ready['chunk_samples']
             self.startup_frames = startup_frames
             self.startup_samples = startup_samples
+            future_samples = ready.get('future_samples', 0)
+            if type(future_samples) is not int or not 0 <= future_samples <= 32000:
+                raise RuntimeError('Invalid avatar lookahead length.')
+            self.future_samples = future_samples
         except BaseException:
             self.close()
             raise
@@ -109,14 +113,26 @@ class WorkerClient:
                     raise RuntimeError('Avatar worker response timed out.')
         raise RuntimeError('Avatar worker is closed.')
 
-    def render(self, audio):
+    def render(self, audio, *, future=None, listen=None):
         audio = np.asarray(audio, dtype='<f4')
         expected_frames = self.startup_frames if self.startup_frames and audio.shape == (self.startup_samples,) else self.chunk_frames
         if audio.shape != (expected_frames * 16000 // self.fps,) or not np.isfinite(audio).all():
             raise ValueError('Invalid audio chunk length or non-finite audio samples.')
+        if self.future_samples:
+            future = np.zeros(self.future_samples, dtype='<f4') if future is None else np.asarray(future, dtype='<f4')
+            listen = np.zeros(audio.size + self.future_samples, dtype='<f4') if listen is None else np.asarray(listen, dtype='<f4')
+            if (future.shape != (self.future_samples,) or listen.shape != (audio.size + self.future_samples,)
+                    or not np.isfinite(future).all() or not np.isfinite(listen).all()):
+                raise ValueError('Invalid avatar lookahead or listening audio.')
+        elif future is not None or listen is not None:
+            raise ValueError('This avatar does not accept lookahead or listening audio.')
         self.sequence += 1
         seq = self.sequence
-        self._send({'command': 'render', 'seq': seq, 'audio': base64.b64encode(audio.tobytes()).decode('ascii')})
+        request = {'command': 'render', 'seq': seq, 'audio': base64.b64encode(audio.tobytes()).decode('ascii')}
+        if self.future_samples:
+            request['future'] = base64.b64encode(future.tobytes()).decode('ascii')
+            request['listen'] = base64.b64encode(listen.tobytes()).decode('ascii')
+        self._send(request)
         count = 0
         while True:
             value = self._receive()

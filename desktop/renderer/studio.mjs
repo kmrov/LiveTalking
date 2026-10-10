@@ -3,6 +3,7 @@ import { createProjectionClient } from './projection-client.mjs';
 import { createConversationClient } from './conversation-client.mjs';
 import { createAsrClient } from './asr-client.mjs';
 import { createContinuousVoiceClient } from './continuous-voice-client.mjs';
+import { createListenAudioSender } from './listen-audio-client.mjs';
 import { waitForAvatarReply, waitForSendSlot } from './auto-turn.mjs';
 import { FixturePeer } from './fixture-peer.mjs';
 import { reduceBrainEvent } from './brain-events.mjs';
@@ -151,6 +152,12 @@ function projectionError(text) {
 
 function activeSessionId() {
   return activeTarget === 'projection' ? projectionClient?.sessionId() : activeTarget === 'preview' ? webRtcClient?.sessionId() : null;
+}
+
+function listenSenderFor(sessionId) {
+  if (!sessionId || currentProfile?.liveTalking.model !== 'avtr1') return null;
+  return createListenAudioSender({ fetch: window.fetch.bind(window),
+    baseUrl: `http://127.0.0.1:${currentProfile.liveTalking.port}`, sessionId });
 }
 
 function selectConversationTarget(target) {
@@ -1273,6 +1280,7 @@ $('#message-text').addEventListener('input', updateConversationControls);
 $('#microphone-button').addEventListener('click', async () => {
   if (conversationChangeBusy) return;
   const token = microphoneState === 'capturing' ? microphoneGeneration : ++microphoneGeneration;
+  let listenSender;
   try {
     if (continuousVoiceClient) return;
     if (microphoneState === 'capturing') { await asrClient.stop(); return; }
@@ -1280,13 +1288,23 @@ $('#microphone-button').addEventListener('click', async () => {
     if (conversationClient && activeSessionId()) await conversationClient.interrupt();
     if (token !== microphoneGeneration) return;
     asrClient?.dispose();
+    const listenSession = activeSessionId();
+    listenSender = listenSenderFor(listenSession);
     asrClient = createAsrClient({
       getUserMedia: navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices),
       AudioContext: window.AudioContext,
       AudioWorkletNode: window.AudioWorkletNode,
       WebSocket: window.WebSocket,
       baseUrl: `http://127.0.0.1:${currentProfile.liveTalking.port}`,
-      onState: (state, detail) => { if (token === microphoneGeneration) showMicrophoneState(state, detail); },
+      onState: (state, detail) => {
+        if (['failed', 'ready', 'empty', 'idle'].includes(state)) listenSender?.close();
+        if (token === microphoneGeneration) showMicrophoneState(state, detail);
+      },
+      onPcm: pcm => {
+        if (activeSessionId() === listenSession) listenSender?.push(pcm);
+        else listenSender?.close();
+      },
+      onCaptureEnd: () => listenSender?.close(),
       onPartial: text => {
         if (token === microphoneGeneration && ['capturing', 'transcribing'].includes(microphoneState) && text) {
           showMicrophoneState(microphoneState, `Hearing: ${text}`);
@@ -1300,7 +1318,10 @@ $('#microphone-button').addEventListener('click', async () => {
       },
     });
     await asrClient.start();
-  } catch (error) { if (token === microphoneGeneration) showMicrophoneState('failed', error.message); }
+  } catch (error) {
+    listenSender?.close();
+    if (token === microphoneGeneration) showMicrophoneState('failed', error.message);
+  }
 });
 $('#handsfree-button').addEventListener('click', async () => {
   if (conversationChangeBusy) return;
@@ -1314,14 +1335,23 @@ $('#handsfree-button').addEventListener('click', async () => {
   showMicrophoneState('idle');
   const targetSession = activeSessionId();
   const targetClient = conversationClient;
+  const listenSender = listenSenderFor(targetSession);
   let client;
   client = createContinuousVoiceClient({
     getUserMedia: navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices),
     AudioContext: window.AudioContext, AudioWorkletNode: window.AudioWorkletNode,
     WebSocket: window.WebSocket,
     baseUrl: `http://127.0.0.1:${currentProfile.liveTalking.port}`,
+    onPcm: pcm => {
+      if (activeSessionId() === targetSession) listenSender?.push(pcm);
+      else listenSender?.close();
+    },
+    onCaptureEnd: () => listenSender?.close(),
     allowBargeIn: $('#handsfree-barge-in').checked,
-    onState: (state, detail) => { if (continuousVoiceClient === client) showContinuousVoiceState(state, detail); },
+    onState: (state, detail) => {
+      if (['failed', 'idle'].includes(state)) listenSender?.close();
+      if (continuousVoiceClient === client) showContinuousVoiceState(state, detail);
+    },
     onPartial: text => {
       if (continuousVoiceClient !== client) return;
       const transcript = $('#handsfree-transcript');
@@ -1473,6 +1503,7 @@ if (bridge) {
   bridge.getSetup().then(async ({ profile, profiles, voiceReferences, avatars, secrets, recoveryError, testFixture: fixture }) => {
     testFixture = fixture;
     showProfile(profile);
+    maybeAutoConnectPreview();
     showProfileList(profiles || []);
     avatarUI.applySnapshot(avatars || {});
     showKnownVoices(voiceReferences);

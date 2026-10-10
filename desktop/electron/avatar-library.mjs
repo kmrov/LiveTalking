@@ -61,7 +61,7 @@ export function createAvatarLibrary({makeThumbnail=async()=>null,readThumbnailBy
       if(generative) {
         await regular(marker,65536);
         const declaration=JSON.parse(await readFile(marker,'utf8'));
-        if(declaration?.version!==1 || !['ditto','soulx'].includes(declaration.model))throw new Error('Invalid generative avatar marker.');
+        if(declaration?.version!==1 || !['ditto','soulx','avtr1'].includes(declaration.model))throw new Error('Invalid generative avatar marker.');
         if(muse||ultra||await present(path.join(dir,'coords.pkl'))||await present(path.join(dir,'face_imgs')))throw new Error('Conflicting files from different models.');
         entry.model=declaration.model;
       } else {
@@ -138,7 +138,7 @@ export function createAvatarLibrary({makeThumbnail=async()=>null,readThumbnailBy
       const sourceDir=await checkedPath(expected,'source');
       const sources=(await readdir(sourceDir)).filter(x=>/^input\.(png|jpe?g|mp4|mov|mkv|avi)$/i.test(x));
       if(sources.length!==1)throw new Error('Saved source copy not found.');
-      if(['ditto','soulx'].includes(job.model) && !/^input\.(png|jpe?g)$/i.test(sources[0]))throw new Error('Generative avatars require a photo source.');
+      if(['ditto','soulx','avtr1'].includes(job.model) && !/^input\.(png|jpe?g)$/i.test(sources[0]))throw new Error('Generative avatars require a photo source.');
       const source=await checkedPath(sourceDir,sources[0]);await regular(source);
       await mkdir(await checkedPath(staged,'source'),{recursive:true});
       const sourceFile=`source/${sources[0]}`;await copyFile(source,await checkedPath(staged,sourceFile));

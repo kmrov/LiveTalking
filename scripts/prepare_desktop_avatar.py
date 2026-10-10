@@ -20,9 +20,9 @@ def normalized_creation(request):
     if not isinstance(name, str) or not name.strip() or len(name.strip()) > 120 or any(ord(c) < 32 or ord(c) == 127 for c in name):
         raise ValueError('Name must contain 1 to 120 characters.')
     kind, model = request.get('sourceKind'), request.get('model')
-    generative = model in ('ditto', 'soulx')
-    if kind not in ('image', 'video') or model not in ('musetalk', 'wav2lip', 'ditto', 'soulx') or (kind == 'image' and model == 'wav2lip') or (kind == 'video' and generative):
-        raise ValueError('Use MuseTalk, Ditto or SoulX for a photo; MuseTalk or Wav2Lip for a video.')
+    generative = model in ('ditto', 'soulx', 'avtr1')
+    if kind not in ('image', 'video') or model not in ('musetalk', 'wav2lip', 'ditto', 'soulx', 'avtr1') or (kind == 'image' and model == 'wav2lip') or (kind == 'video' and generative):
+        raise ValueError('Use MuseTalk, Ditto, SoulX or AVTR-1 for a photo; MuseTalk or Wav2Lip for a video.')
     defaults = {} if generative else dict(bbox_shift=0, extra_margin=10, parsing_mode='jaw') if model == 'musetalk' else dict(pads=[0,10,0,0], nosmooth=False, face_det_batch_size=16)
     parameters = request.get('parameters', {})
     if not isinstance(parameters, dict) or set(parameters) - set(defaults):
@@ -79,7 +79,7 @@ def inspect_creation(request):
         results.append(dict(id=id,state='ready' if ready else 'missing',detail=detail,action='' if ready else action))
     check('source',source.is_file() and source.stat().st_size>0,'Source is available' if source.is_file() else 'Source not found','Select the file again.')
     check('checkout',(root/'app.py').is_file() and (root/'avatars').is_dir(),'LiveTalking folder','Select a compatible LiveTalking checkout.')
-    generative = request['model'] in ('ditto','soulx')
+    generative = request['model'] in ('ditto','soulx','avtr1')
     modules=['PIL'] if generative else ['torch','cv2','PIL','numpy','scipy'] + (['diffusers','transformers','face_recognition'] if request['model']=='musetalk' else [])
     missing = [x for x in modules if importlib.util.find_spec(x) is None]
     check('python',not missing,'Preparation modules: '+(', '.join(missing) if missing else 'available'),'Install LiveTalking dependencies in the selected Python environment.')
@@ -164,7 +164,7 @@ def run_job(request, emit, generator_loader=None):
     event('normalizing')
     normalized=normalize_media(own,request['sourceKind'],safe_path(job_dir,'input'))
     output=safe_path(job_dir,'output');output.mkdir(exist_ok=True)
-    if request['model'] in ('ditto','soulx'):
+    if request['model'] in ('ditto','soulx','avtr1'):
         event('generating')
         avatar=safe_path(output,request['avatarId'])
         frames=safe_path(avatar,'full_imgs');frames.mkdir(parents=True,exist_ok=True)

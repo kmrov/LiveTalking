@@ -80,6 +80,20 @@ test('microphone input level is reported while listening and stops after capture
   assert.equal(levels.length, reported);
 });
 
+test('continuous capture forwards PCM even before VAD starts ASR', async () => {
+  const heard = [];
+  let ended = 0;
+  const client = createContinuousVoiceClient({ getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }),
+    AudioContext: FakeContext, AudioWorkletNode: FakeWorklet, WebSocket: FakeSocket,
+    baseUrl: 'http://127.0.0.1:8010', onPcm: pcm => heard.push(...pcm), onCaptureEnd: () => ended++ });
+  await client.start();
+  feed(0.012, 2);
+  assert.ok(heard.length >= 300);
+  assert.equal(FakeSocket.latest.sent.some(payload => payload instanceof ArrayBuffer), false);
+  await client.stop();
+  assert.equal(ended, 1);
+});
+
 test('avatar reply pauses recognition until it finishes', async () => {
   assert.equal(typeof createContinuousVoiceClient, 'function');
   let finishReply;

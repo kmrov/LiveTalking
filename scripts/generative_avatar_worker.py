@@ -45,6 +45,8 @@ def serve(engine, input_stream, output_stream):
                 if getattr(engine, 'startup_frames', 0):
                     ready['startup_frames'] = engine.startup_frames
                     ready['startup_samples'] = engine.startup_frames * 16000 // engine.fps
+                if getattr(engine, 'future_samples', 0):
+                    ready['future_samples'] = engine.future_samples
                 emit(ready)
             elif command == 'reset':
                 engine.reset()
@@ -55,8 +57,17 @@ def serve(engine, input_stream, output_stream):
                 expected_frames = startup_frames if startup_frames and audio.size == startup_frames * 16000 // engine.fps else engine.chunk_frames
                 if audio.shape != (expected_frames * 16000 // engine.fps,) or not np.isfinite(audio).all():
                     raise ValueError('Invalid engine audio chunk.')
+                if getattr(engine, 'future_samples', 0):
+                    future = np.frombuffer(base64.b64decode(msg['future'], validate=True), dtype='<f4').copy()
+                    listen = np.frombuffer(base64.b64decode(msg['listen'], validate=True), dtype='<f4').copy()
+                    if (future.shape != (engine.future_samples,) or listen.shape != (audio.size + engine.future_samples,)
+                            or not np.isfinite(future).all() or not np.isfinite(listen).all()):
+                        raise ValueError('Invalid lookahead or listening audio.')
+                    frames = engine.render(audio, future=future, listen=listen)
+                else:
+                    frames = engine.render(audio)
                 count = 0
-                for frame in engine.render(audio):
+                for frame in frames:
                     frame = np.asarray(frame)
                     if frame.ndim != 3 or frame.shape[2] != 3 or frame.dtype != np.uint8 or max(frame.shape[:2]) > 4096:
                         raise ValueError('Engine must produce RGB uint8 frames up to 4096 pixels.')
@@ -87,7 +98,7 @@ def serve(engine, input_stream, output_stream):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', required=True)
-    parser.add_argument('--model', choices=['ditto', 'soulx'], required=True)
+    parser.add_argument('--model', choices=['ditto', 'soulx', 'avtr1'], required=True)
     args = parser.parse_args()
     parent_death_signal()
     protocol = sys.stdout

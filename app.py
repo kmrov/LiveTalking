@@ -109,7 +109,7 @@ async def whep(request):
 
 async def on_shutdown(app):
     await rtc_manager.shutdown()
-    if opt.model in ('ditto', 'soulx') and model is not None:
+    if opt.model in ('ditto', 'soulx', 'avtr1') and model is not None:
         await asyncio.to_thread(model.close)
 
 async def download_record(request):
@@ -138,6 +138,7 @@ def main():
         'ultralight': 'avatars.ultralight_avatar',
         'ditto':      'avatars.generative_avatar',
         'soulx':      'avatars.generative_avatar',
+        'avtr1':      'avatars.generative_avatar',
     }
     import importlib
     avatar_mod = importlib.import_module(_avatar_modules[opt.model])
@@ -160,7 +161,7 @@ def main():
         model = load_model(opt)
         global_avatars[opt.avatar_id] = load_avatar(opt.avatar_id)
         warm_up(opt.batch_size,global_avatars[opt.avatar_id],160)
-    elif opt.model in ('ditto', 'soulx'):
+    elif opt.model in ('ditto', 'soulx', 'avtr1'):
         model = load_model(opt)
         global_avatars[opt.avatar_id] = load_avatar(opt.avatar_id)
     print(f'LT_TIMING avatar initialization: {time.monotonic() - avatar_started_at:.2f}s', flush=True)

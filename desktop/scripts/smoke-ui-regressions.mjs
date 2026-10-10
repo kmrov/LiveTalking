@@ -45,6 +45,10 @@ try {
   });
   await window.reload();
   await window.locator('#setup-results li').first().waitFor({ state: 'attached' });
+  assert.equal(await window.locator('.stage-tag').count(), 0, 'the avatar heading needs no preview badge');
+  assert.equal(await window.locator('#connect-avatar').isHidden(), true,
+    'manual preview control stays hidden before the profile starts');
+  assert.match(await window.locator('.stage-empty p').textContent(), /Start.*profile/i);
   assert.equal(await window.locator('#profile-picker option').count(), 2,
     'saved profiles must appear in the Studio header');
   await window.locator('#profile-picker').selectOption('sillytavern-smoke');
@@ -276,8 +280,13 @@ try {
   await window.screenshot({ path: path.join(screenshots, '08-projection-settings.png') });
   await window.keyboard.press('Escape');
 
+  await window.waitForFunction(() => document.querySelector('#webrtc-state').dataset.sessionId === 'fixture-session');
+  assert.equal(await window.locator('#connect-avatar').isVisible(), true,
+    'connected preview retains its disconnect control');
+  const initialConversation = await window.locator('#brain-conversation').inputValue();
   await window.evaluate(() => document.querySelector('#new-brain-conversation').click());
-  await window.waitForFunction(() => Boolean(document.querySelector('#brain-conversation').value));
+  await window.waitForFunction(previous => Boolean(document.querySelector('#brain-conversation').value)
+    && document.querySelector('#brain-conversation').value !== previous, initialConversation);
   await window.waitForFunction(() => !document.querySelector('#new-brain-conversation').disabled);
   const beforeDouble = fixture.commands.filter(command => command.path === '/api/v1/conversations').length;
   await window.evaluate(() => {

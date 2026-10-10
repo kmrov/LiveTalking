@@ -131,7 +131,7 @@ class DesktopAvatarWorkerTest(unittest.TestCase):
 
     def test_reference_engines_prepare_without_gpu_weights_or_generator(self):
         (self.root/'app.py').touch();(self.root/'avatars').mkdir()
-        for index,model in enumerate(('ditto','soulx')):
+        for index,model in enumerate(('ditto','soulx','avtr1')):
             request={**self.request,'model':model,'jobId':str(index)*32,'jobDir':str(self.root/'data/.studio-avatar-work'/(str(index)*32))}
             with patch('scripts.prepare_desktop_avatar.detector_file',side_effect=AssertionError('detector used')),patch('scripts.prepare_desktop_avatar.ensure_creation_models',side_effect=AssertionError('download used')),patch('scripts.prepare_desktop_avatar.local_generator',side_effect=AssertionError('generator used')):
                 checks=inspect_creation(request)

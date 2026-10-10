@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 
 from avatars.base_avatar import BaseAvatar
-from avatars.generative.audio_buffer import AudioBuffer, silence
+from avatars.generative.audio_buffer import AudioBuffer, ListeningAudio, silence
 from avatars.generative.worker_client import open_worker
 from avatars.generative.turn_buffer import TurnBuffer
 from registry import register
@@ -27,7 +27,7 @@ def load_avatar(avatar_id):
     if not source.is_relative_to(base):
         raise ValueError('Avatar reference is outside the library.')
     marker = json.loads((folder / 'generative-avatar.json').read_text())
-    if marker.get('version') != 1 or marker.get('model') not in ('ditto', 'soulx'):
+    if marker.get('version') != 1 or marker.get('model') not in ('ditto', 'soulx', 'avtr1'):
         raise ValueError('Invalid generative avatar marker.')
     frame = cv2.imread(str(source))
     if frame is None:
@@ -89,7 +89,7 @@ class ModelRuntime:
 
 def load_model(opt):
     if opt.fps != 25 or opt.max_session != 1:
-        raise ValueError('Ditto/SoulX require 25 fps audio/output clock and --max_session 1.')
+        raise ValueError('Generative avatars require 25 fps audio/output clock and --max_session 1.')
     config = load_runtime(Path.cwd(), opt.model)
     avatar = load_avatar(opt.avatar_id)
     if avatar['model'] != opt.model:
@@ -105,6 +105,7 @@ def warm_up(*args):
 
 @register('avatar', 'ditto')
 @register('avatar', 'soulx')
+@register('avatar', 'avtr1')
 class GenerativeAvatar(BaseAvatar):
     def __init__(self, opt, model, avatar):
         if avatar['model'] != model.config['model']:
@@ -132,6 +133,8 @@ class GenerativeAvatar(BaseAvatar):
         self.buffered_playback = bool(model.config.get('buffered_playback', True))
         self.asr = AudioBuffer(playback=not self.buffered_playback)
         self.generated = queue.Queue(maxsize=self.worker.chunk_frames)
+        self.listen_audio = ListeningAudio() if self.opt.model == 'avtr1' else None
+        self.listen_frames = queue.Queue(maxsize=25) if self.listen_audio is not None else None
         self.render_error = None
         self.inference_active = False
         self.pending_buffer = False
@@ -158,6 +161,10 @@ class GenerativeAvatar(BaseAvatar):
         # The producer's epoch crosses the scheduling boundary with the packet.
         # flush_talk changes that epoch under this same delivery lock.
         self.asr.put_audio_frame(audio, event, valid=lambda: producer._generation == generation)
+
+    def put_listen_audio(self, pcm):
+        if self.listen_audio is not None and not self.shutdown_event.is_set():
+            self.listen_audio.push(pcm)
 
     def is_speaking(self):
         return (self.speaking or self.inference_active or self.pending_buffer or self.asr.collecting
@@ -205,6 +212,22 @@ class GenerativeAvatar(BaseAvatar):
                     if buffered is not None and time.monotonic() - last_input >= .5:
                         play_buffer()
                         reset_before_next = True
+                    if (self.listen_audio is not None and self.listen_audio.has_block()
+                            and self.asr.queue.empty()):
+                        listen = self.listen_audio.snapshot(self.worker.chunk_samples + self.worker.future_samples)
+                        frames = self.worker.render(np.zeros(self.worker.chunk_samples, np.float32),
+                                                    future=np.zeros(self.worker.future_samples, np.float32),
+                                                    listen=listen)
+                        for frame in frames:
+                            try:
+                                self.listen_frames.put_nowait(frame)
+                            except queue.Full:
+                                try:
+                                    self.listen_frames.get_nowait()
+                                except queue.Empty:
+                                    pass
+                                self.listen_frames.put_nowait(frame)
+                        self.listen_audio.mark_rendered()
                     continue
                 current, packets = batch
                 if current != generation or reset_before_next:
@@ -221,11 +244,26 @@ class GenerativeAvatar(BaseAvatar):
                     buffered = TurnBuffer()
                     self.pending_buffer = True
                 audio = np.concatenate([packet.data for packet in packets])
+                if self.listen_audio is not None:
+                    while True:
+                        try:
+                            self.listen_frames.get_nowait()
+                        except queue.Empty:
+                            break
+                    ended_for_lookahead = any(packet.userdata.get('status') == 'end' for packet in packets)
+                    future = (np.zeros(self.worker.future_samples, np.float32) if ended_for_lookahead else
+                              self.asr.peek_future(self.worker.future_samples, current, quit_event))
+                    if future is None:
+                        continue
+                    listen = self.listen_audio.snapshot(self.worker.chunk_samples + self.worker.future_samples)
+                    self.listen_audio.mark_rendered()
                 frame_samples = 16000 // self.worker.fps
                 real_samples = sum(packet.type == 0 for packet in packets) * 320
                 first_position = packets[0].position
                 started = time.monotonic()
-                for i, frame in enumerate(self.worker.render(audio)):
+                frames = (self.worker.render(audio, future=future, listen=listen)
+                          if self.listen_audio is not None else self.worker.render(audio))
+                for i, frame in enumerate(frames):
                     if current != self.asr.generation or quit_event.is_set():
                         # Consume the complete response before issuing reset.
                         continue
@@ -270,11 +308,20 @@ class GenerativeAvatar(BaseAvatar):
     def _publish_video(self, frame, generated=False):
         mode = 'speech' if generated else 'idle'
         if not generated:
-            length = len(self.frame_list_cycle)
-            period = max(1, 2 * length - 2)
-            position = (self._idle_tick * self.worker.fps // self.opt.fps) % period
-            frame = self.frame_list_cycle[position if position < length else period - position]
-            self._idle_tick += 1
+            listen_frame = None
+            if self.listen_frames is not None:
+                try:
+                    listen_frame = self.listen_frames.get_nowait()
+                except queue.Empty:
+                    pass
+            if listen_frame is not None:
+                frame = listen_frame
+            else:
+                length = len(self.frame_list_cycle)
+                period = max(1, 2 * length - 2)
+                position = (self._idle_tick * self.worker.fps // self.opt.fps) % period
+                frame = self.frame_list_cycle[position if position < length else period - position]
+                self._idle_tick += 1
         if frame.shape[:2] != (self.height, self.width):
             interpolation = cv2.INTER_LANCZOS4 if self.opt.model == 'soulx' else cv2.INTER_LINEAR
             frame = cv2.resize(frame, (self.width, self.height), interpolation=interpolation)

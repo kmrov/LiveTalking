@@ -3,10 +3,43 @@ import time
 import unittest
 import numpy as np
 
-from avatars.generative.audio_buffer import AudioBuffer
+from avatars.generative.audio_buffer import AudioBuffer, ListeningAudio
 
 
 class AudioBufferTests(unittest.TestCase):
+    def test_future_audio_peeks_without_consuming_and_pads_only_after_end(self):
+        buffer = AudioBuffer()
+        for value in range(12):
+            buffer.put_audio_frame(np.full(320, value / 20, np.float32),
+                                   {'status': 'end'} if value == 11 else {})
+        generation, current = buffer.take(5, threading.Event())
+        future = buffer.peek_future(3280, generation, threading.Event())
+        self.assertEqual(future.shape, (3280,))
+        self.assertAlmostEqual(float(future[0]), 5 / 20)
+        self.assertAlmostEqual(float(future[6 * 320]), 11 / 20)
+        self.assertEqual(float(future[-1]), 0)
+        self.assertEqual(buffer.take(1, threading.Event())[1][0].position, 1600)
+
+    def test_listening_audio_bounded_snapshot_and_fresh_block(self):
+        listen = ListeningAudio()
+        listen.push(np.full(3200, .25, np.float32))
+        self.assertTrue(listen.has_block())
+        first = listen.snapshot(6480)
+        self.assertEqual(first.shape, (6480,))
+        self.assertEqual(float(first[-1]), .25)
+        listen.mark_rendered()
+        self.assertFalse(listen.has_block())
+        listen.push(np.full(3200, .5, np.float32))
+        self.assertTrue(listen.has_block())
+        self.assertEqual(float(listen.snapshot(6480)[-1]), .5)
+        listen.push(np.full(3200, .75, np.float32))
+        listen.mark_rendered()
+        self.assertTrue(listen.has_block(), 'microphone PCM received during GPU render must remain pending')
+        listen.snapshot(6480)
+        listen.mark_rendered()
+        np.testing.assert_equal(listen.snapshot(6480), 0,
+                                'an old microphone window must not be replayed after capture stops')
+
     def test_streaming_waits_through_tts_gap_without_padding(self):
         buffer = AudioBuffer()
         quit_event = threading.Event()

@@ -1,10 +1,14 @@
 import threading
+import json
+import os
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import numpy as np
 
-from avatars.generative_avatar import GenerativeAvatar, ModelRuntime
+from avatars.generative_avatar import GenerativeAvatar, ModelRuntime, load_avatar
 
 
 class FakeWorker:
@@ -52,6 +56,56 @@ class Output:
 
 
 class GenerativeAvatarTests(unittest.TestCase):
+    def test_avtr1_created_marker_is_accepted_by_runtime_loader(self):
+        with tempfile.TemporaryDirectory() as folder:
+            original = Path.cwd()
+            try:
+                os.chdir(folder)
+                avatar_dir = Path('data/avatars/portrait')
+                (avatar_dir / 'full_imgs').mkdir(parents=True)
+                image = np.zeros((32, 32, 3), np.uint8)
+                import cv2
+                cv2.imwrite(str(avatar_dir / 'full_imgs/00000000.png'), image)
+                (avatar_dir / 'generative-avatar.json').write_text(json.dumps({'version': 1, 'model': 'avtr1'}))
+                self.assertEqual(load_avatar('portrait')['model'], 'avtr1')
+            finally:
+                os.chdir(original)
+
+    def test_avtr1_listening_audio_drives_idle_render(self):
+        class AvtrWorker:
+            fps = 25
+            chunk_frames = 5
+            chunk_samples = 3200
+            future_samples = 3280
+            def __init__(self):
+                self.calls = []
+                self.closed = threading.Event()
+            def render(self, audio, *, future=None, listen=None):
+                self.calls.append((audio.copy(), future.copy(), listen.copy()))
+                return [np.full((32, 32, 3), 80, np.uint8) for _ in range(5)]
+            def reset(self): pass
+            def close(self): self.closed.set()
+        worker = AvtrWorker()
+        avatar, _, quit = self.make_avatar(worker=worker, buffered=False, model_name='avtr1')
+        avatar.put_listen_audio(np.full(3200, .4, np.float32))
+        deadline = __import__('time').monotonic() + 2
+        while not worker.calls and __import__('time').monotonic() < deadline:
+            quit.wait(.02)
+        self.assertTrue(worker.calls)
+        self.assertAlmostEqual(float(worker.calls[0][2][-1]), .4)
+        while not any(int(frame.mean()) > 20 for frame in avatar.output.video) and __import__('time').monotonic() < deadline:
+            quit.wait(.02)
+        self.assertTrue(any(int(frame.mean()) > 20 for frame in avatar.output.video),
+                        'microphone motion must reach the idle video output')
+        for index in range(20):
+            avatar.asr.put_audio_frame(np.full(320, .1 if index < 10 else .2, np.float32),
+                                       {'status': 'end'} if index == 19 else {})
+        while not any(float(call[0][0]) > 0 for call in worker.calls) and __import__('time').monotonic() < deadline:
+            quit.wait(.02)
+        speech_calls = [call for call in worker.calls if float(call[0][0]) > 0]
+        self.assertTrue(speech_calls)
+        self.assertAlmostEqual(float(speech_calls[0][1][0]), .2)
+
     def make_avatar(self, worker=None, buffered=True, model_name=None, idle_frames=None):
         worker = worker or FakeWorker(fps=25 if buffered else 20)
         model_name = model_name or ('ditto' if buffered else 'soulx')

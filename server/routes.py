@@ -44,7 +44,7 @@ async def desktop_health(request):
         data['brain'] = {'mode': mode}
         if mode == 'persona':
             data['brain']['url'] = getattr(opt, 'persona_url', '')
-        if getattr(opt, 'model', '') in ('ditto', 'soulx'):
+        if getattr(opt, 'model', '') in ('ditto', 'soulx', 'avtr1'):
             failed = next((s.render_error for s in session_manager.sessions.values()
                            if s is not None and getattr(s, 'render_error', None)), None)
             if failed:
@@ -440,6 +440,7 @@ async def index(request):
 
 def setup_routes(app):
     """注册所有路由到 aiohttp app"""
+    from server.listen_audio import listen_audio
     if getattr(app.get('opt'), 'llm_provider', '') == 'persona':
         from server.persona_brain import PersonaBrain
         app['persona_brain'] = PersonaBrain(app['opt'].persona_url)
@@ -455,6 +456,7 @@ def setup_routes(app):
     app.router.add_post("/is_speaking", is_speaking)
     app.router.add_get("/api/admin/config", admin_config)
     app.router.add_get("/api/desktop/health", desktop_health)
+    app.router.add_post("/api/desktop/listen-audio", listen_audio)
     app.router.add_get("/api/admin/sessions", admin_sessions)
     app.router.add_get('/api/brain/session', brain_session)
     app.router.add_post('/api/brain/session', set_brain_session)

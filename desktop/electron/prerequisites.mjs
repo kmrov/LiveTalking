@@ -157,7 +157,7 @@ export async function inspectPrerequisites(input, probes = defaultProbes) {
     ? item('avatar', 'ready', `Avatar ${avatar.name || lt.avatarId} is ready`)
     : item('avatar', 'missing', avatar?.reason || `Avatar ${lt.avatarId} is not ready for ${lt.model}`, 'Select a ready avatar from the library or create one.'));
 
-  if (['ditto', 'soulx'].includes(lt.model)) {
+  if (['ditto', 'soulx', 'avtr1'].includes(lt.model)) {
     let runtime = { ok: false, detail: `Runtime for ${lt.model} is not configured` };
     if (rootReady && lt.python && probes.exists(lt.python)) {
       try { runtime = await probes.generativeRuntime(lt); }

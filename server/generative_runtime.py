@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 import subprocess
 
-MODELS = ('ditto', 'soulx')
+MODELS = ('ditto', 'soulx', 'avtr1')
 
 
 def load_runtime(root, model):
@@ -23,6 +23,10 @@ def load_runtime(root, model):
             raise ValueError(f'Runtime {key} must be an absolute path.')
         if not Path(value).exists():
             raise ValueError(f'Runtime {key} is missing: {value}')
+    if model == 'avtr1' and Path(config['python']).resolve() != (Path(config['root']) / '.pixi/envs/renderer/bin/python').resolve():
+        raise ValueError('AVTR-1 runtime Python must be the isolated Pixi renderer interpreter.')
+    if model == 'avtr1' and Path(config['weights']).name != 'main':
+        raise ValueError('AVTR-1 runtime weights must point to the artifact revision directory main.')
     if not Path(config['python']).is_file() or not os.access(config['python'], os.X_OK):
         raise ValueError('Runtime Python is not executable.')
     if not Path(config['root']).is_dir() or not Path(config['weights']).is_dir():

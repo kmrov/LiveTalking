@@ -41,6 +41,21 @@ test('ASR client sends start, PCM and stop in order, then final text and release
   assert.equal(stopped, 1);
 });
 
+test('manual capture forwards the same resampled PCM to avatar listening', async () => {
+  const heard = [];
+  let ended = 0;
+  const client = createAsrClient({ getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }),
+    AudioContext: FakeContext, AudioWorkletNode: FakeWorklet, WebSocket: FakeSocket,
+    baseUrl: 'http://127.0.0.1:8010', onPcm: pcm => heard.push(...pcm), onCaptureEnd: () => ended++ });
+  await client.start();
+  FakeWorklet.latest.port.onmessage({ data: new Float32Array(480).fill(.5) });
+  assert.deepEqual(heard, Array.from(new Int16Array(FakeSocket.latest.sent[1])));
+  const finishing = client.stop();
+  FakeSocket.latest.result({ text: '', is_final: true });
+  await finishing;
+  assert.equal(ended, 1);
+});
+
 test('manual ASR reports partial text while the final transcript still owns the draft', async () => {
   const partials = [];
   const finals = [];

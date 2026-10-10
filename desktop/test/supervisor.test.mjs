@@ -11,7 +11,7 @@ import { normalizeProfile } from '../src/profile.mjs';
 const profile = normalizeProfile({ id: 'main', liveTalking: { root: '/tmp/Мой LiveTalking', python: '/tmp/Мой LiveTalking/.venv/bin/python' }, speech: { referenceWav: '/tmp/Мой LiveTalking/мой голос.wav', referenceText: 'Привет' } });
 
 test('generative avatars launch with their supported single session', () => {
-  for (const model of ['ditto', 'soulx']) {
+  for (const model of ['ditto', 'soulx', 'avtr1']) {
     const args = launcherArguments({ ...profile, liveTalking: { ...profile.liveTalking, model } });
     assert.equal(args[args.indexOf('--max_session') + 1], '1');
   }

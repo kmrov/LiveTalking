@@ -38,7 +38,7 @@ export function createPcmResampler(inputRate, outputRate = 16000) {
   };
 }
 
-export function createAsrClient({ getUserMedia, AudioContext, WebSocket, AudioWorkletNode = globalThis.AudioWorkletNode, baseUrl, onState = () => {}, onText = () => {}, onPartial = () => {}, workletUrl = new URL('./pcm-worklet.js', import.meta.url).href }) {
+export function createAsrClient({ getUserMedia, AudioContext, WebSocket, AudioWorkletNode = globalThis.AudioWorkletNode, baseUrl, onState = () => {}, onText = () => {}, onPartial = () => {}, onPcm = () => {}, onCaptureEnd = () => {}, workletUrl = new URL('./pcm-worklet.js', import.meta.url).href }) {
   let stream;
   let context;
   let source;
@@ -53,6 +53,7 @@ export function createAsrClient({ getUserMedia, AudioContext, WebSocket, AudioWo
 
   function setState(next, detail = '') { state = next; onState(next, detail); }
   async function releaseCapture() {
+    const hadCapture = Boolean(stream || context || source || worklet);
     source?.disconnect();
     worklet?.disconnect();
     source = null;
@@ -62,6 +63,7 @@ export function createAsrClient({ getUserMedia, AudioContext, WebSocket, AudioWo
     const previous = context;
     context = null;
     if (previous) await previous.close().catch(() => {});
+    if (hadCapture) onCaptureEnd();
   }
   function closeSocket() {
     if (!socket) return;
@@ -122,7 +124,10 @@ export function createAsrClient({ getUserMedia, AudioContext, WebSocket, AudioWo
       worklet.port.onmessage = event => {
         if (state !== 'capturing' || !socket) return;
         const pcm = resampler.push(event.data);
-        if (pcm.length) socket.send(pcm.buffer);
+        if (pcm.length) {
+          socket.send(pcm.buffer);
+          onPcm(pcm);
+        }
       };
       source = context.createMediaStreamSource(stream);
       socket.send(JSON.stringify({ mode: 'offline', is_speaking: true, wav_name: 'desktop', audio_fs: 16000, itn: true, partial_results: true }));
@@ -139,7 +144,10 @@ export function createAsrClient({ getUserMedia, AudioContext, WebSocket, AudioWo
     void result.catch(() => {});
     finalTimer = setTimeout(() => fail(new Error('ASR transcription timed out')), 130000);
     const tail = resampler.flush();
-    if (tail.length) socket.send(tail.buffer);
+    if (tail.length) {
+      socket.send(tail.buffer);
+      onPcm(tail);
+    }
     socket.send(JSON.stringify({ is_speaking: false }));
     await releaseCapture();
     return result;

@@ -16,6 +16,7 @@ const canInterrupt = text => recognizedWordCount(text) >= 3;
 
 export function createContinuousVoiceClient({ getUserMedia, AudioContext, AudioWorkletNode = globalThis.AudioWorkletNode,
   WebSocket, baseUrl, onState = () => {}, onLevel = () => {}, onPartial = () => {}, onTurn = async () => {}, onBargeIn = () => {},
+  onPcm = () => {}, onCaptureEnd = () => {},
   allowBargeIn = false, pause = delay, transcriptionTimeoutMs = 130000,
   workletUrl = new URL('./pcm-worklet.js', import.meta.url).href }) {
   let stream;
@@ -45,6 +46,7 @@ export function createContinuousVoiceClient({ getUserMedia, AudioContext, AudioW
   }
 
   async function release() {
+    const hadCapture = Boolean(stream || context || source || worklet);
     clearTimeout(finalTimer); finalTimer = null;
     levelDuration = peakLevel = 0;
     socketOpenReject?.(new Error('Microphone capture cancelled'));
@@ -60,6 +62,7 @@ export function createContinuousVoiceClient({ getUserMedia, AudioContext, AudioW
     const oldContext = context; context = null;
     if (oldContext) await oldContext.close().catch(() => {});
     detector = resampler = null;
+    if (hadCapture) onCaptureEnd();
     onPartial('');
   }
 
@@ -203,6 +206,7 @@ export function createContinuousVoiceClient({ getUserMedia, AudioContext, AudioW
       worklet.port.onmessage = event => {
         if (token !== generation || !resampler || !detector) return;
         const pcm = resampler.push(event.data);
+        if (pcm.length) onPcm(pcm);
         if (state === 'listening' || state === 'capturing' || state === 'waiting' && allowBargeIn) {
           detector.feed(pcm, { thresholdMultiplier: state === 'waiting' ? 1.8 : 1 });
         }

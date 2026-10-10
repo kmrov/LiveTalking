@@ -31,17 +31,20 @@ class DesktopHealthTest(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_generative_inference_failure_marks_service_unhealthy(self):
-        request = SimpleNamespace(app={'opt': SimpleNamespace(model='ditto', llm_provider='direct')})
-        with patch.object(routes.session_manager, 'sessions', {'test': SimpleNamespace(render_error='GPU inference failed')}):
-            response = await routes.desktop_health(request)
-        self.assertEqual(response.status, 503)
-        self.assertEqual(json.loads(response.text)['msg'], 'GPU inference failed')
+        for model in ('ditto', 'soulx', 'avtr1'):
+            with self.subTest(model=model):
+                request = SimpleNamespace(app={'opt': SimpleNamespace(model=model, llm_provider='direct')})
+                with patch.object(routes.session_manager, 'sessions', {'test': SimpleNamespace(render_error='GPU inference failed')}):
+                    response = await routes.desktop_health(request)
+                self.assertEqual(response.status, 503)
+                self.assertEqual(json.loads(response.text)['msg'], 'GPU inference failed')
 
     def test_health_is_registered_before_static_files(self):
         app = web.Application()
         routes.setup_routes(app)
         registered = [(route.method, route.resource.canonical) for route in app.router.routes()]
         self.assertIn(("GET", "/api/desktop/health"), registered)
+        self.assertIn(("POST", "/api/desktop/listen-audio"), registered)
     async def test_health_identifies_process_model_and_canonical_avatar_checkout(self):
         request=SimpleNamespace(app={'opt':SimpleNamespace(model='musetalk',llm_provider='direct')})
         data=json.loads((await routes.desktop_health(request)).text)['data']

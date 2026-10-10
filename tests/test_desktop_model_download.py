@@ -128,7 +128,7 @@ class DesktopModelDownloadTest(unittest.TestCase):
 
     def test_reference_engines_need_no_creation_weights_and_keep_local_qwen_downloads(self):
         hubs=dict(torch_hub=self.root/'torch',speech_hub=self.root/'speech')
-        for model in ('ditto','soulx'):
+        for model in ('ditto','soulx','avtr1'):
             self.assertEqual(model_download_plan(self.root,model,scope='creation',speech_mode='local',**hubs),[])
             self.assertEqual(model_download_plan(self.root,model,scope='start',speech_mode='external',**hubs),[])
             local=model_download_plan(self.root,model,scope='start',speech_mode='local',**hubs)

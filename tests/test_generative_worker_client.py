@@ -72,6 +72,16 @@ class WorkerClientTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             list(client.render(np.zeros(12800, np.float32)))
 
+    def test_avtr1_requires_lookahead_and_listening_tracks(self):
+        client = self.worker('avtr1')
+        self.assertEqual((client.fps, client.chunk_frames, client.future_samples), (25, 5, 3280))
+        audio = np.full(3200, .25, np.float32)
+        future = np.full(3280, .5, np.float32)
+        listen = np.full(6480, .75, np.float32)
+        self.assertEqual(len(list(client.render(audio, future=future, listen=listen))), 5)
+        with self.assertRaises(ValueError):
+            list(client.render(audio, future=np.zeros(3200, np.float32), listen=listen))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -47,6 +47,7 @@ async function runCase(corrupt) {
     await window.locator('#start-profile').click();
     await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Running');
     await window.waitForFunction(() => document.querySelector('#webrtc-state').dataset.sessionId === 'fixture-session');
+    assert.equal(await window.locator('#connect-avatar').textContent(), 'Disconnect preview');
     assert.match(await window.locator('#connect-projection').textContent(), /Switch to Head in Jar/i);
     assert.equal(await window.locator('#avatar-video').evaluate(video => video.muted), true, 'only the audio element may play incoming audio');
     await window.locator('#conversation-mode').selectOption('echo');
@@ -59,6 +60,12 @@ async function runCase(corrupt) {
     await window.waitForFunction(() => document.querySelector('#conversation-message').textContent === 'Speech interrupted.');
     assert.equal(fixture.commands.some(command => command.path === '/interrupt_talk'), true);
     assert.equal(await window.locator('#handsfree-button').count(), 1);
+    assert.equal(await window.locator('.handsfree-tools > label').isVisible(), true);
+    assert.equal(await window.locator('#handsfree-barge-in').isChecked(), true);
+    assert.equal(await window.locator('.voice-options').count(), 0);
+    await window.locator('#handsfree-barge-in').uncheck();
+    assert.equal(await window.locator('#handsfree-barge-in').isChecked(), false);
+    await window.locator('#handsfree-barge-in').check();
     await window.evaluate(() => {
       window.__autoMicStops = 0;
       navigator.mediaDevices.getUserMedia = async () => ({ getTracks: () => [{ stop: () => window.__autoMicStops++ }] });
@@ -158,6 +165,11 @@ async function runCase(corrupt) {
     assert.equal(await window.locator('#send-message').isDisabled(), true);
     assert.equal(await window.locator('#record-avatar').isDisabled(), true);
     assert.equal(await window.locator('#webrtc-state').getAttribute('data-session-id'), '');
+    await window.locator('#start-profile').click();
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Running');
+    await window.waitForFunction(() => document.querySelector('#webrtc-state').dataset.sessionId === 'fixture-session');
+    await window.locator('#stop-profile').click();
+    await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Stopped');
     console.log('Setup → Start → WebRTC → text → interrupt → Stop: passed');
   } finally {
     await application.close();
@@ -458,9 +470,11 @@ async function runPersonaCase() {
     await window.waitForFunction(() => document.querySelector('#runtime-state').textContent === 'Running');
     await window.waitForFunction(() => document.querySelector('#webrtc-state').dataset.sessionId === 'fixture-session'
       && document.querySelector('#brain-turn-state').dataset.stream === 'connected');
+    const initialConversation = await window.locator('#brain-conversation').inputValue();
     await window.locator('#new-brain-conversation').click();
-    await window.waitForFunction(() => Boolean(document.querySelector('#brain-conversation').value)
-      && !document.querySelector('#new-brain-conversation').disabled);
+    await window.waitForFunction(previous => Boolean(document.querySelector('#brain-conversation').value)
+      && document.querySelector('#brain-conversation').value !== previous
+      && !document.querySelector('#new-brain-conversation').disabled, initialConversation);
     let id = await window.locator('#brain-conversation').inputValue();
     await window.locator('#message-text').fill('Привет из теста Персоны');
     await window.locator('#send-message').click();

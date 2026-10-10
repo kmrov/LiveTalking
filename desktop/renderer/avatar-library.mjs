@@ -1,5 +1,5 @@
 import { filterAvatars,avatarActionState,buildCreationInput,avatarSnapshotBelongsToRoot,preferredAvatarModel,avatarJobDisplay } from './avatar-library-state.mjs';
-const models={musetalk:'MuseTalk',wav2lip:'Wav2Lip',ultralight:'Ultralight',ditto:'Ditto · experimental',soulx:'SoulX FlashHead Lite · experimental'};
+const models={musetalk:'MuseTalk',wav2lip:'Wav2Lip',ultralight:'Ultralight',ditto:'Ditto · experimental',soulx:'SoulX FlashHead Lite · experimental',avtr1:'AVTR-1 · experimental'};
 const stages={checking:'Checking environment',copying:'Saving source',downloading:'Downloading models',normalizing:'Preparing photo or video',generating:'Creating avatar',validating:'Checking result',publishing:'Saving avatar'};
 export function mountAvatarLibrary({document,bridge,getProfile,onProfileSelected,prepareSessionChange,getSessionState}) {
  const $=selector=>document.querySelector(selector),cleanups=[];
@@ -21,7 +21,7 @@ export function mountAvatarLibrary({document,bridge,getProfile,onProfileSelected
   try{return await operation();}catch(error){$(target).textContent=error.message;}finally{pending=false;renderControls();}
  }
  function form(){const model=$('#new-avatar-model').value;return{name:$('#new-avatar-name').value,model,parameters:model==='musetalk'?{bbox_shift:Number($('#new-avatar-bbox').value),extra_margin:Number($('#new-avatar-margin').value),parsing_mode:$('#new-avatar-parsing').value}:model==='wav2lip'?{pads:$('#new-avatar-pads').value.trim().split(/\s+/).map(Number),face_det_batch_size:Number($('#new-avatar-batch').value),nosmooth:$('#new-avatar-nosmooth').checked}:{}};}
- function modelOptions(){const model=$('#new-avatar-model').value;$('#musetalk-avatar-options').hidden=model!=='musetalk';$('#wav2lip-avatar-options').hidden=model!=='wav2lip';$('#avatar-preparation-options').hidden=['ditto','soulx'].includes(model);const hint=$('#generative-avatar-hint');hint.hidden=!['ditto','soulx'].includes(model);hint.textContent=model==='ditto'?'Experimental · Speech is prepared before playback. Longer replies take more time to start.':'Experimental · Animates the face from a photo while speech plays.';}
+ function modelOptions(){const model=$('#new-avatar-model').value;$('#musetalk-avatar-options').hidden=model!=='musetalk';$('#wav2lip-avatar-options').hidden=model!=='wav2lip';$('#avatar-preparation-options').hidden=['ditto','soulx','avtr1'].includes(model);const hint=$('#generative-avatar-hint');hint.hidden=!['ditto','soulx','avtr1'].includes(model);hint.textContent=model==='ditto'?'Experimental · Speech is prepared before playback. Longer replies take more time to start.':model==='avtr1'?'Experimental · Animates a photo with speech and listening motion. Requires a separate Pixi runtime.':'Experimental · Animates the face from a photo while speech plays.';}
  function renderCurrent(){
   const selected=entries.find(entry=>entry.id===getProfile()?.liveTalking.avatarId);
   $('#selected-avatar-name').textContent=selected?.name||'Select an avatar';$('#selected-avatar-model').textContent=selected?models[selected.model]||selected.reason:'';
@@ -119,7 +119,7 @@ export function mountAvatarLibrary({document,bridge,getProfile,onProfileSelected
   $('#avatar-source-name').textContent=value.fileName;$('#new-avatar-name').value=value.fileName.replace(/\.[^.]+$/,'').slice(0,120);
   const image=$('#avatar-source-preview');image.hidden=!value.preview;if(value.preview)image.src=value.preview;else image.removeAttribute('src');
   const modelSelect=$('#new-avatar-model');
-  for(const option of modelSelect.options)option.disabled=(option.value==='wav2lip' && value.kind==='image')||(['ditto','soulx'].includes(option.value) && value.kind==='video');
+  for(const option of modelSelect.options)option.disabled=(option.value==='wav2lip' && value.kind==='image')||(['ditto','soulx','avtr1'].includes(option.value) && value.kind==='video');
   modelSelect.value=preferredAvatarModel({selectedModel:modelSelect.value,userSelected:modelUserChosen,lastModel,currentModel:getProfile()?.liveTalking.model,availableModels:[...modelSelect.options].filter(option=>!option.disabled).map(option=>option.value)});
   modelOptions();$('#avatar-create-checks').replaceChildren();
  }));

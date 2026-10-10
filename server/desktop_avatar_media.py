@@ -96,7 +96,7 @@ def validate_generated_avatar(output, model):
     output = Path(output)
     if output.is_symlink():
         raise ValueError('Invalid result directory.')
-    if model in ('ditto','soulx'):
+    if model in ('ditto','soulx','avtr1'):
         marker=safe_path(output,'generative-avatar.json')
         if not marker.is_file() or not 0 < marker.stat().st_size <= 65536:
             raise ValueError('Missing or invalid generative avatar marker.')

@@ -23,7 +23,7 @@ test('invalid names and out-of-range or unknown parameters are rejected', () => 
 });
 
 test('generative engines accept image references without face detector parameters', () => {
- for (const model of ['ditto','soulx']) {
+ for (const model of ['ditto','soulx','avtr1']) {
   assert.deepEqual(normalizeAvatarCreation({name:'Reference',model,kind:'image'}).parameters,{});
   assert.throws(()=>normalizeAvatarCreation({name:'Reference',model,kind:'video'}),/photo|image/i);
   assert.throws(()=>normalizeAvatarCreation({name:'Reference',model,kind:'image',parameters:{pads:[0,0,0,0]}}));

@@ -97,7 +97,7 @@ async function referenceAvatar(root,id,model) {
 }
 test('reference avatars identify their engine and preserve it when renamed',async t=>{
  const root=await fixture(t),lib=createAvatarLibrary();
- for(const model of ['ditto','soulx']) {
+ for(const model of ['ditto','soulx','avtr1']) {
   await referenceAvatar(root,model,model);
   const entry=await lib.get(root,model);assert.equal(entry.ready,true,entry.reason);assert.equal(entry.model,model);assert.equal(entry.frameCount,1);
   const renamed=await lib.rename(root,model,'Reference');assert.equal(renamed.model,model);assert.equal(renamed.ready,true);
@@ -117,7 +117,7 @@ test('reference markers reject incompatible metadata, legacy artifacts, versions
 });
 
 test('publishing reference avatars preserves source, marker and selected engine',async t=>{
- for(const model of ['ditto','soulx']) {
+ for(const model of ['ditto','soulx','avtr1']) {
   const root=await fixture(t),jobId='a'.repeat(32),id='studio_'+'b'.repeat(32),jobDir=path.join(root,'data/.studio-avatar-work',jobId);
   const staged=await referenceAvatar(root,'staged',model);
   await mkdir(path.join(jobDir,'output'),{recursive:true});await rename(staged,path.join(jobDir,'output',id));

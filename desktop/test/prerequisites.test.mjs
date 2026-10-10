@@ -87,7 +87,7 @@ test('avatar preparation completeness and model compatibility block startup', as
 });
 
 test('generative runtime readiness is separate from downloadable speech models', async () => {
- for(const model of ['ditto','soulx']) {
+ for(const model of ['ditto','soulx','avtr1']) {
   const profile={...base,liveTalking:{...base.liveTalking,model}};
   for(const ok of [false,true]) {
    const results=await inspectPrerequisites(profile,probes({generativeRuntime:async lt=>{assert.equal(lt.model,model);return {ok,detail:'Runtime checked'};},cachedModelReady:()=>false}));

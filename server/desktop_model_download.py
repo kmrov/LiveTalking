@@ -265,11 +265,11 @@ def _weights_ready(folder):
 
 def model_download_plan(root, model, *, scope, speech_mode='external', tts_engine='qwen', torch_hub=None, speech_hub=None):
     root = Path(root).resolve(strict=True)
-    if scope not in ('creation','start') or model not in ('musetalk','wav2lip','ultralight','ditto','soulx') or speech_mode not in ('local','external') or tts_engine not in ('qwen','omnivoice'):
+    if scope not in ('creation','start') or model not in ('musetalk','wav2lip','ultralight','ditto','soulx','avtr1') or speech_mode not in ('local','external') or tts_engine not in ('qwen','omnivoice'):
         raise ValueError('Invalid model download parameters.')
     if scope=='creation' and model=='ultralight':
         raise ValueError('Ultralight creation is not supported.')
-    if model in ('ditto','soulx'):
+    if model in ('ditto','soulx','avtr1'):
         selected = []
     else:
         selected = (['s3fd','musetalk','vae','face-parsing'] if model=='musetalk' else ['s3fd']) if scope=='creation' else {'musetalk':['musetalk','vae','whisper'],'wav2lip':['wav2lip'],'ultralight':['hubert']}[model]
